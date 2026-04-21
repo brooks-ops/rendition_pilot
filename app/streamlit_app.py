@@ -301,13 +301,73 @@ def create_supabase_account(email: str, password: str) -> dict[str, Any]:
     )
 
 
+def get_supabase_user(access_token: str) -> dict[str, Any]:
+    supabase_url, anon_key = get_supabase_config()
+    if not anon_key:
+        raise RuntimeError("SUPABASE_ANON_KEY is not configured.")
+
+    response = requests.get(
+        f"{supabase_url}/auth/v1/user",
+        headers={
+            "apikey": anon_key,
+            "Authorization": f"Bearer {access_token}",
+        },
+        timeout=20,
+    )
+    try:
+        data = response.json()
+    except ValueError:
+        data = {"message": response.text}
+
+    if response.status_code >= 400:
+        message = data.get("msg") or data.get("message") or "Could not restore Supabase session."
+        raise RuntimeError(str(message))
+
+    return data
+
+
+def restore_login_from_query_params() -> None:
+    if st.session_state.get("authenticated_user") and st.session_state.get("supabase_access_token"):
+        return
+
+    access_token = st.query_params.get("session_token", "")
+    if not access_token:
+        return
+
+    try:
+        user = get_supabase_user(access_token)
+    except Exception:
+        st.query_params.clear()
+        return
+
+    email = str(user.get("email", "")).lower()
+    if email in AUTHORIZED_USERS:
+        st.session_state["authenticated_user"] = email
+        st.session_state["supabase_access_token"] = access_token
+    else:
+        st.query_params.clear()
+
+
+def persist_login(email: str, access_token: str) -> None:
+    st.session_state["authenticated_user"] = email
+    st.session_state["supabase_access_token"] = access_token
+    st.query_params["session_token"] = access_token
+
+
+def clear_login() -> None:
+    st.session_state.pop("authenticated_user", None)
+    st.session_state.pop("supabase_access_token", None)
+    st.query_params.clear()
+
+
 def require_login() -> bool:
+    restore_login_from_query_params()
+
     if st.session_state.get("authenticated_user") in AUTHORIZED_USERS and st.session_state.get("supabase_access_token"):
         with st.sidebar:
             st.caption(f"Signed in as {st.session_state['authenticated_user']}")
             if st.button("Sign Out", key="sign_out"):
-                st.session_state.pop("authenticated_user", None)
-                st.session_state.pop("supabase_access_token", None)
+                clear_login()
                 st.rerun()
         return True
 
@@ -347,8 +407,7 @@ def require_login() -> bool:
                 st.error("Login did not return a session. Confirm the account email first, then try again.")
                 return False
 
-            st.session_state["authenticated_user"] = email
-            st.session_state["supabase_access_token"] = access_token
+            persist_login(email, access_token)
             st.rerun()
 
     with create_tab:
@@ -376,11 +435,11 @@ def require_login() -> bool:
                 return False
 
             if signup_result.get("session") or signup_result.get("access_token"):
-                st.session_state["authenticated_user"] = new_email
-                st.session_state["supabase_access_token"] = (
+                access_token = (
                     signup_result.get("access_token")
                     or (signup_result.get("session") or {}).get("access_token")
                 )
+                persist_login(new_email, access_token)
                 st.rerun()
             else:
                 st.success("Login created. Check your email if Supabase requires confirmation, then return to the Login tab.")
@@ -863,6 +922,7 @@ def reset_single_review_state() -> None:
         "single_result",
         "single_file_name",
         "single_file_bytes",
+        "single_locked_record",
         "single_notes",
     ]:
         st.session_state.pop(key, None)
@@ -928,14 +988,14 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
         height=90,
     )
 
-    save_only, lock_final = st.columns(2)
-    with save_only:
-        if st.button("Save Review Output", key=f"save_review_{file_name}", use_container_width=True):
-            paths = save_review_outputs(file_name=file_name, result=result)
-            append_queue_row(file_name=file_name, result=result, status=get_status_label(result))
-            st.success(f"Saved review JSON and CSV to {OUTPUT_DIR}")
-            st.caption(" | ".join(str(path) for path in paths.values()))
+    locked_record = st.session_state.get("single_locked_record")
+    if locked_record:
+        st.success(
+            f"Locked {format_money(locked_record.get('final_value'))} "
+            f"for {locked_record.get('account_number') or account_number}."
+        )
 
+    lock_final, save_rendition = st.columns(2)
     with lock_final:
         if st.button("Lock Final Value", type="primary", key=f"lock_review_{file_name}", use_container_width=True):
             final_value = parse_money_input(final_value_text)
@@ -957,13 +1017,26 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
                     account_number=account_number.strip().upper(),
                     decision=decision_code,
                 )
-                stamped_pdf = stamp_reviewed_pdf(file_name=file_name, file_bytes=file_bytes, final_record=record)
-                record["stamped_pdf"] = str(stamped_pdf)
-                paths = save_review_outputs(file_name=file_name, result=result, final_record=record)
-                append_queue_row(file_name=file_name, result={**result, "final_review": record}, status="Locked")
-                st.success(f"Locked final value at {format_money(final_value)}")
+                st.session_state["single_locked_record"] = record
+                st.success("Final value locked. Click Save Rendition to create the stamped upload PDF.")
+                st.rerun()
+
+    with save_rendition:
+        if st.button("Save Rendition", key=f"save_rendition_{file_name}", use_container_width=True):
+            locked_record = st.session_state.get("single_locked_record")
+            if not locked_record:
+                st.error("Lock the final value before saving the rendition.")
+            else:
+                stamped_pdf = stamp_reviewed_pdf(
+                    file_name=file_name,
+                    file_bytes=file_bytes,
+                    final_record=locked_record,
+                )
+                locked_record["stamped_pdf"] = str(stamped_pdf)
+                paths = save_review_outputs(file_name=file_name, result=result, final_record=locked_record)
+                append_queue_row(file_name=file_name, result={**result, "final_review": locked_record}, status="Locked")
+                st.success(f"Saved stamped rendition to {stamped_pdf}")
                 st.caption(" | ".join(str(path) for path in {**paths, "stamped_pdf": stamped_pdf}.values()))
-                st.info("Final value locked. Loading a blank review screen for the next account.")
                 reset_single_review_state()
                 st.rerun()
 
