@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any
 
 import fitz  # PyMuPDF
 import pandas as pd
+import requests
 import streamlit as st
 
 APP_DIR = Path(__file__).resolve().parent
@@ -29,6 +31,17 @@ from app.review_workflow import (
     save_review_outputs,
     stamp_reviewed_pdf,
 )
+
+
+AUTHORIZED_USERS = {
+    "bbarrett@lubbockcad.org",
+    "bgarnica@lubbockcad.org",
+    "emontoya@lubbockcad.org",
+    "ctrimble@lubbocad.org",
+    "lflores@lubbockcad.org",
+}
+
+DEFAULT_SUPABASE_URL = "https://pzawjgckzcgnfsfuylqy.supabase.co"
 
 
 st.set_page_config(
@@ -218,6 +231,160 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+
+def get_secret(name: str, default: str = "") -> str:
+    value = os.getenv(name)
+    if value:
+        return value
+
+    try:
+        return str(st.secrets.get(name, default) or default)
+    except Exception:
+        return default
+
+
+def get_supabase_config() -> tuple[str, str]:
+    return (
+        get_secret("SUPABASE_URL", DEFAULT_SUPABASE_URL).rstrip("/"),
+        get_secret("SUPABASE_ANON_KEY"),
+    )
+
+
+def supabase_auth_request(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    supabase_url, anon_key = get_supabase_config()
+    if not anon_key:
+        raise RuntimeError("SUPABASE_ANON_KEY is not configured.")
+
+    response = requests.post(
+        f"{supabase_url}/auth/v1/{path.lstrip('/')}",
+        headers={
+            "apikey": anon_key,
+            "Authorization": f"Bearer {anon_key}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=20,
+    )
+
+    try:
+        data = response.json()
+    except ValueError:
+        data = {"message": response.text}
+
+    if response.status_code >= 400:
+        message = data.get("msg") or data.get("message") or data.get("error_description") or "Supabase auth request failed."
+        raise RuntimeError(str(message))
+
+    return data
+
+
+def sign_in_with_supabase(email: str, password: str) -> dict[str, Any]:
+    return supabase_auth_request(
+        "token?grant_type=password",
+        {"email": email, "password": password},
+    )
+
+
+def create_supabase_account(email: str, password: str) -> dict[str, Any]:
+    return supabase_auth_request(
+        "signup",
+        {
+            "email": email,
+            "password": password,
+            "data": {
+                "role": "appraiser",
+                "allowed_app": "rendition_pilot",
+            },
+        },
+    )
+
+
+def require_login() -> bool:
+    if st.session_state.get("authenticated_user") in AUTHORIZED_USERS and st.session_state.get("supabase_access_token"):
+        with st.sidebar:
+            st.caption(f"Signed in as {st.session_state['authenticated_user']}")
+            if st.button("Sign Out", key="sign_out"):
+                st.session_state.pop("authenticated_user", None)
+                st.session_state.pop("supabase_access_token", None)
+                st.rerun()
+        return True
+
+    st.markdown('<div class="ap-title">AppraisalPilot</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="ap-subtitle">Authorized rendition review access only.</div>',
+        unsafe_allow_html=True,
+    )
+
+    _supabase_url, anon_key = get_supabase_config()
+    if not anon_key:
+        st.error("Supabase login is not configured. Set SUPABASE_ANON_KEY before running the app.")
+        st.code('$env:SUPABASE_ANON_KEY="your-supabase-anon-key"', language="powershell")
+        return False
+
+    login_tab, create_tab = st.tabs(["Login", "Create Login"])
+
+    with login_tab:
+        with st.form("login_form"):
+            email = st.text_input("Email", value="", placeholder="name@lubbockcad.org", key="login_email").strip().lower()
+            password = st.text_input("Password", value="", type="password", key="login_password")
+            submitted = st.form_submit_button("Login")
+
+        if submitted:
+            if email not in AUTHORIZED_USERS:
+                st.error("This email is not authorized for AppraisalPilot.")
+                return False
+
+            try:
+                auth_result = sign_in_with_supabase(email, password)
+            except Exception as exc:
+                st.error(f"Login failed: {exc}")
+                return False
+
+            access_token = auth_result.get("access_token")
+            if not access_token:
+                st.error("Login did not return a session. Confirm the account email first, then try again.")
+                return False
+
+            st.session_state["authenticated_user"] = email
+            st.session_state["supabase_access_token"] = access_token
+            st.rerun()
+
+    with create_tab:
+        with st.form("create_login_form"):
+            new_email = st.text_input("Email", value="", placeholder="name@lubbockcad.org", key="signup_email").strip().lower()
+            new_password = st.text_input("Password", value="", type="password", key="signup_password")
+            confirm_password = st.text_input("Confirm Password", value="", type="password", key="signup_confirm_password")
+            create_submitted = st.form_submit_button("Create Login")
+
+        if create_submitted:
+            if new_email not in AUTHORIZED_USERS:
+                st.error("This email is not authorized to create an AppraisalPilot login.")
+                return False
+            if len(new_password) < 8:
+                st.error("Password must be at least 8 characters.")
+                return False
+            if new_password != confirm_password:
+                st.error("Passwords do not match.")
+                return False
+
+            try:
+                signup_result = create_supabase_account(new_email, new_password)
+            except Exception as exc:
+                st.error(f"Account creation failed: {exc}")
+                return False
+
+            if signup_result.get("session") or signup_result.get("access_token"):
+                st.session_state["authenticated_user"] = new_email
+                st.session_state["supabase_access_token"] = (
+                    signup_result.get("access_token")
+                    or (signup_result.get("session") or {}).get("access_token")
+                )
+                st.rerun()
+            else:
+                st.success("Login created. Check your email if Supabase requires confirmation, then return to the Login tab.")
+
+    return False
 
 
 def build_manual_override(
@@ -1131,6 +1298,9 @@ def render_review_queue() -> None:
 
 
 def main() -> None:
+    if not require_login():
+        return
+
     st.markdown('<div class="ap-title">AppraisalPilot</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="ap-subtitle">Intelligent BPP rendition review with side-by-side document verification and batch triage.</div>',

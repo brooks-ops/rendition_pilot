@@ -5,3 +5,4 @@ pymupdf
 openai
 pdf2image
 pytesseract
+requests
