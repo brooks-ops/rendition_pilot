@@ -1,0 +1,810 @@
+{
+  "processed_pages": 6,
+  "page_classifications": [
+    {
+      "page_number": 1,
+      "page_type": "main_form",
+      "confidence": 0.64,
+      "reasons": [
+        "found 'business personal property'",
+        "found 'rendition'",
+        "found 'confidential'",
+        "found schedul",
+        "table/continuation page heuristic"
+      ]
+    },
+    {
+      "page_number": 2,
+      "page_type": "schedule",
+      "confidence": 0.22,
+      "reasons": [
+        "table/continuation page heuristic"
+      ]
+    },
+    {
+      "page_number": 3,
+      "page_type": "schedule",
+      "confidence": 1.44,
+      "reasons": [
+        "found schedule",
+        "found schedul",
+        "found fixtures",
+        "found machinery",
+        "found equipment",
+        "found computers",
+        "found total by year",
+        "found by year acquired fragment",
+        "found machinery + equipment pattern",
+        "table/continuation page heuristic"
+      ]
+    },
+    {
+      "page_number": 4,
+      "page_type": "schedule",
+      "confidence": 0.22,
+      "reasons": [
+        "table/continuation page heuristic"
+      ]
+    },
+    {
+      "page_number": 5,
+      "page_type": "schedule",
+      "confidence": 0.22,
+      "reasons": [
+        "table/continuation page heuristic"
+      ]
+    },
+    {
+      "page_number": 6,
+      "page_type": "schedule",
+      "confidence": 0.22,
+      "reasons": [
+        "table/continuation page heuristic"
+      ]
+    }
+  ],
+  "merged_candidates": [
+    {
+      "field": "good_faith_value",
+      "value": 150000.0,
+      "raw_value": "$150000",
+      "label": "good_faith_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:good_faith_value",
+      "page_number": 1,
+      "page_type": "cover_page",
+      "score": 25.5,
+      "confidence": 0.95,
+      "context": "a p,openy ownerwho i3 r\u20acnderng tang ble peGona\npropedy with a good faith eslimale or not $150000 n tola rod\u20acl value\nt)1t24 2t))6\nSlbscrbed and sworn berore he th s\nNolary Pub c Slaie or",
+      "evidence_text": "a p,openy ownerwho i3 r\u20acnderng tang ble peGona\npropedy with a good faith eslimale or not $150000 n tola rod\u20acl value\nt)1t24 2t))6\nSlbscrbed and sworn berore he th s\nNolary Pub c Slaie or"
+    },
+    {
+      "field": "attachment_total",
+      "value": 20000.0,
+      "raw_value": "$20,000",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 1,
+      "page_type": "cover_page",
+      "score": 7.5,
+      "confidence": 0.375,
+      "context": ",la.kel Valuo\nseier you properrys lolarm!&ervalue, E unde,$2oooo [l ozo ooo o,,o..\nlfunder$20,000,compleleonlyschedul\u20acAandilapplicable S(hedulof Orhe&Lse @mplela S.h\u20acaul4s) A C D Eand/orF",
+      "evidence_text": ",la.kel Valuo\nseier you properrys lolarm!&ervalue, E unde,$2oooo [l ozo ooo o,,o..\nlfunder$20,000,compleleonlyschedul\u20acAandilapplicable S(hedulof Orhe&Lse @mplela S.h\u20acaul4s) A C D Eand/orF"
+    },
+    {
+      "field": "attachment_total",
+      "value": 2417.0,
+      "raw_value": "2417",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 7.0,
+      "confidence": 0.35,
+      "context": "2422 2022 llr 2022\n2021 2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA",
+      "evidence_text": "2422 2022 llr 2022\n2021 2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA"
+    },
+    {
+      "field": "attachment_total",
+      "value": 2416.0,
+      "raw_value": "2416",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 7.0,
+      "confidence": 0.35,
+      "context": "llr 2022\n2021 2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 12",
+      "evidence_text": "llr 2022\n2021 2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 12"
+    },
+    {
+      "field": "attachment_total",
+      "value": 2415.0,
+      "raw_value": "2415",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 7.0,
+      "confidence": 0.35,
+      "context": "2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/Sed",
+      "evidence_text": "2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/Sed"
+    },
+    {
+      "field": "attachment_total",
+      "value": 2414.0,
+      "raw_value": "2414",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 7.0,
+      "confidence": 0.35,
+      "context": "20 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher",
+      "evidence_text": "20 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher"
+    },
+    {
+      "field": "attachment_total",
+      "value": 2412.0,
+      "raw_value": "2412",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 7.0,
+      "confidence": 0.35,
+      "context": "2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r",
+      "evidence_text": "2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r"
+    },
+    {
+      "field": "attachment_total",
+      "value": 562.0,
+      "raw_value": "562",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 7.0,
+      "confidence": 0.35,
+      "context": "A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r schodures)\n2025 lo25 2025\n2024",
+      "evidence_text": "A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r schodures)\n2025 lo25 2025\n2024"
+    },
+    {
+      "field": "attachment_total",
+      "value": 126.0,
+      "raw_value": "126",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 3.0,
+      "confidence": 0.15,
+      "context": "16 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r schodures)\n2025 lo25 2025\n2",
+      "evidence_text": "16 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r schodures)\n2025 lo25 2025\n2"
+    },
+    {
+      "field": "unknown",
+      "value": 93001.0,
+      "raw_value": "93001",
+      "label": "unknown",
+      "source": "candidate_extractor",
+      "rule": "context_label:unknown",
+      "page_number": 1,
+      "page_type": "cover_page",
+      "score": 1.5,
+      "confidence": 0.075,
+      "context": "deial !Secuea e\"ay\nN.; ol dner, Autho,ized As6nl, FidEi.ry n se*cd Pany\nl.Ft)t:RAt wAY wA 93001\nMail n9 Address, Cily, slale zlP code Pt6n Nunbett larrc\"a *cdl e t an r d \" n \" umbel\nls",
+      "evidence_text": "deial !Secuea e\"ay\nN.; ol dner, Autho,ized As6nl, FidEi.ry n se*cd Pany\nl.Ft)t:RAt wAY wA 93001\nMail n9 Address, Cily, slale zlP code Pt6n Nunbett larrc\"a *cdl e t an r d \" n \" umbel\nls"
+    },
+    {
+      "field": "good_faith_value",
+      "value": 150000.0,
+      "raw_value": "$150000",
+      "source": "main_form",
+      "rule": "near_label:good faith",
+      "page_number": 1,
+      "confidence": 0.858,
+      "evidence_text": "a p,openy ownerwho i3 r\u20acnderng tang ble peGona propedy with a good faith eslimale or not $150000 n tola rod\u20acl value t)1t24 2t))6 Slbscrbed and sworn berore he th s Nolary Pub c Slaie or",
+      "score": 0.958
+    },
+    {
+      "field": "attachment_total",
+      "value": 2425.0,
+      "source": "schedule",
+      "rule": "largest_plausible_schedule_amount",
+      "page_number": 3,
+      "confidence": 0.68,
+      "evidence_text": "aJsiness Personal Proporty Ro.dition olTaxabl6 Prop\u20ac.ty SCHIDULE E: Fumilure, Fixtures, l\\rachinery, Equipmenl, Computers Total(by year acqu.ed) a lturn ture, fixtures machinery, equ pmenl and compulers (new or used) stl n possess on on Jan 1 Lisl le",
+      "score": 0.8
+    }
+  ],
+  "candidates": {
+    "historical_cost": [],
+    "acquisition_year": [],
+    "rendered_value": [],
+    "good_faith_value": [
+      {
+        "field": "good_faith_value",
+        "value": 150000.0,
+        "raw_value": "$150000",
+        "label": "good_faith_value",
+        "source": "candidate_extractor",
+        "rule": "context_label:good_faith_value",
+        "page_number": 1,
+        "page_type": "cover_page",
+        "score": 25.5,
+        "confidence": 0.95,
+        "context": "a p,openy ownerwho i3 r\u20acnderng tang ble peGona\npropedy with a good faith eslimale or not $150000 n tola rod\u20acl value\nt)1t24 2t))6\nSlbscrbed and sworn berore he th s\nNolary Pub c Slaie or",
+        "evidence_text": "a p,openy ownerwho i3 r\u20acnderng tang ble peGona\npropedy with a good faith eslimale or not $150000 n tola rod\u20acl value\nt)1t24 2t))6\nSlbscrbed and sworn berore he th s\nNolary Pub c Slaie or"
+      },
+      {
+        "field": "good_faith_value",
+        "value": 150000.0,
+        "raw_value": "$150000",
+        "source": "main_form",
+        "rule": "near_label:good faith",
+        "page_number": 1,
+        "confidence": 0.858,
+        "evidence_text": "a p,openy ownerwho i3 r\u20acnderng tang ble peGona propedy with a good faith eslimale or not $150000 n tola rod\u20acl value t)1t24 2t))6 Slbscrbed and sworn berore he th s Nolary Pub c Slaie or",
+        "score": 0.958
+      }
+    ],
+    "attachment_total": [
+      {
+        "field": "attachment_total",
+        "value": 20000.0,
+        "raw_value": "$20,000",
+        "label": "total_value",
+        "source": "candidate_extractor",
+        "rule": "context_label:total_value",
+        "page_number": 1,
+        "page_type": "cover_page",
+        "score": 7.5,
+        "confidence": 0.375,
+        "context": ",la.kel Valuo\nseier you properrys lolarm!&ervalue, E unde,$2oooo [l ozo ooo o,,o..\nlfunder$20,000,compleleonlyschedul\u20acAandilapplicable S(hedulof Orhe&Lse @mplela S.h\u20acaul4s) A C D Eand/orF",
+        "evidence_text": ",la.kel Valuo\nseier you properrys lolarm!&ervalue, E unde,$2oooo [l ozo ooo o,,o..\nlfunder$20,000,compleleonlyschedul\u20acAandilapplicable S(hedulof Orhe&Lse @mplela S.h\u20acaul4s) A C D Eand/orF"
+      },
+      {
+        "field": "attachment_total",
+        "value": 2417.0,
+        "raw_value": "2417",
+        "label": "total_value",
+        "source": "candidate_extractor",
+        "rule": "context_label:total_value",
+        "page_number": 3,
+        "page_type": "unknown",
+        "score": 7.0,
+        "confidence": 0.35,
+        "context": "2422 2022 llr 2022\n2021 2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA",
+        "evidence_text": "2422 2022 llr 2022\n2021 2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA"
+      },
+      {
+        "field": "attachment_total",
+        "value": 2416.0,
+        "raw_value": "2416",
+        "label": "total_value",
+        "source": "candidate_extractor",
+        "rule": "context_label:total_value",
+        "page_number": 3,
+        "page_type": "unknown",
+        "score": 7.0,
+        "confidence": 0.35,
+        "context": "llr 2022\n2021 2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 12",
+        "evidence_text": "llr 2022\n2021 2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 12"
+      },
+      {
+        "field": "attachment_total",
+        "value": 2415.0,
+        "raw_value": "2415",
+        "label": "total_value",
+        "source": "candidate_extractor",
+        "rule": "context_label:total_value",
+        "page_number": 3,
+        "page_type": "unknown",
+        "score": 7.0,
+        "confidence": 0.35,
+        "context": "2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/Sed",
+        "evidence_text": "2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/Sed"
+      },
+      {
+        "field": "attachment_total",
+        "value": 2414.0,
+        "raw_value": "2414",
+        "label": "total_value",
+        "source": "candidate_extractor",
+        "rule": "context_label:total_value",
+        "page_number": 3,
+        "page_type": "unknown",
+        "score": 7.0,
+        "confidence": 0.35,
+        "context": "20 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher",
+        "evidence_text": "20 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher"
+      },
+      {
+        "field": "attachment_total",
+        "value": 2412.0,
+        "raw_value": "2412",
+        "label": "total_value",
+        "source": "candidate_extractor",
+        "rule": "context_label:total_value",
+        "page_number": 3,
+        "page_type": "unknown",
+        "score": 7.0,
+        "confidence": 0.35,
+        "context": "2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r",
+        "evidence_text": "2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r"
+      },
+      {
+        "field": "attachment_total",
+        "value": 562.0,
+        "raw_value": "562",
+        "label": "total_value",
+        "source": "candidate_extractor",
+        "rule": "context_label:total_value",
+        "page_number": 3,
+        "page_type": "unknown",
+        "score": 7.0,
+        "confidence": 0.35,
+        "context": "A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r schodures)\n2025 lo25 2025\n2024",
+        "evidence_text": "A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r schodures)\n2025 lo25 2025\n2024"
+      },
+      {
+        "field": "attachment_total",
+        "value": 126.0,
+        "raw_value": "126",
+        "label": "total_value",
+        "source": "candidate_extractor",
+        "rule": "context_label:total_value",
+        "page_number": 3,
+        "page_type": "unknown",
+        "score": 3.0,
+        "confidence": 0.15,
+        "context": "16 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r schodures)\n2025 lo25 2025\n2",
+        "evidence_text": "16 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r schodures)\n2025 lo25 2025\n2"
+      },
+      {
+        "field": "attachment_total",
+        "value": 2425.0,
+        "source": "schedule",
+        "rule": "largest_plausible_schedule_amount",
+        "page_number": 3,
+        "confidence": 0.68,
+        "evidence_text": "aJsiness Personal Proporty Ro.dition olTaxabl6 Prop\u20ac.ty SCHIDULE E: Fumilure, Fixtures, l\\rachinery, Equipmenl, Computers Total(by year acqu.ed) a lturn ture, fixtures machinery, equ pmenl and compulers (new or used) stl n possess on on Jan 1 Lisl le",
+        "score": 0.8
+      }
+    ]
+  },
+  "scoring": {
+    "best_candidates": {
+      "good_faith_value": {
+        "field": "good_faith_value",
+        "value": 150000.0,
+        "raw_value": "$150000",
+        "source": "main_form",
+        "rule": "near_label:good faith",
+        "page_number": 1,
+        "confidence": 0.858,
+        "evidence_text": "a p,openy ownerwho i3 r\u20acnderng tang ble peGona propedy with a good faith eslimale or not $150000 n tola rod\u20acl value t)1t24 2t))6 Slbscrbed and sworn berore he th s Nolary Pub c Slaie or",
+        "score": 0.958
+      },
+      "attachment_total": {
+        "field": "attachment_total",
+        "value": 2425.0,
+        "source": "schedule",
+        "rule": "largest_plausible_schedule_amount",
+        "page_number": 3,
+        "confidence": 0.68,
+        "evidence_text": "aJsiness Personal Proporty Ro.dition olTaxabl6 Prop\u20ac.ty SCHIDULE E: Fumilure, Fixtures, l\\rachinery, Equipmenl, Computers Total(by year acqu.ed) a lturn ture, fixtures machinery, equ pmenl and compulers (new or used) stl n possess on on Jan 1 Lisl le",
+        "score": 0.8
+      }
+    },
+    "resolved_values": {
+      "good_faith_value": 150000.0,
+      "attachment_total": 2425.0
+    }
+  },
+  "resolved_values": {
+    "good_faith_value": 150000.0,
+    "attachment_total": 2425.0
+  },
+  "manual_override": {},
+  "form_flags": {
+    "schedule_detected": true,
+    "schedule_contains_fixtures": true,
+    "schedule_contains_machinery": true,
+    "see_attached": true,
+    "section_5_present": true,
+    "section_5_over_20k_detected": true,
+    "section_5_125k_language_detected": true,
+    "signature_block_detected": true
+  },
+  "page_summaries": [
+    {
+      "page_number": 1,
+      "page_type": "main_form",
+      "parser": "MainFormParser",
+      "candidate_count": 1,
+      "flags": {}
+    },
+    {
+      "page_number": 2,
+      "page_type": "schedule",
+      "parser": "ScheduleParser",
+      "candidate_count": 0,
+      "flags": {
+        "schedule_detected": true
+      }
+    },
+    {
+      "page_number": 3,
+      "page_type": "schedule",
+      "parser": "ScheduleParser",
+      "candidate_count": 1,
+      "flags": {
+        "schedule_detected": true,
+        "schedule_contains_fixtures": true,
+        "schedule_contains_machinery": true
+      }
+    },
+    {
+      "page_number": 4,
+      "page_type": "schedule",
+      "parser": "ScheduleParser",
+      "candidate_count": 0,
+      "flags": {
+        "schedule_detected": true
+      }
+    },
+    {
+      "page_number": 5,
+      "page_type": "schedule",
+      "parser": "ScheduleParser",
+      "candidate_count": 0,
+      "flags": {
+        "schedule_detected": true
+      }
+    },
+    {
+      "page_number": 6,
+      "page_type": "schedule",
+      "parser": "ScheduleParser",
+      "candidate_count": 0,
+      "flags": {
+        "schedule_detected": true
+      }
+    }
+  ],
+  "source_pdf": "Data\\samples\\sample_rendition.pdf",
+  "processed_at": "2026-04-21T09:47:21",
+  "page_texts": [
+    {
+      "page_number": 1,
+      "text": "Business Personal Property Rendition ofJqxable Property\nForm 50-144\nI\nI\nCONFIDENTIAL -L) <{\nlb.rr 2026\nI lf knawn) Iat \\eat\nsd for income production lhalyo! own o.ma.aqe.nd contrclas a Jiduciary o^ J.n l olrhis\nililtililril| ilililnil re appra saldiskict orlice nlhecounlyinwhichlhepropenyistaxable Do !0! file rhis documehl\nFinmcial Pacinc tasin8 DBA: Financial Pacilic l-ssing\nSEE AfIACIIED\nPropeny LGat on Add@ss, cily, sla\u20ac, zlP code\n(25r)5\nPtbN latea c.4e .nd nLnb.l\nownereh p rype (opr,ona, I lndivdlal coooraton n Parrnership E orhq:\nSECTION2: Represenlaton\nPrea* indic.re iryouaelirri.g olrthrsfom as: EOwner, employee or empkD\u20ace or.n aftliscd entiry oltE erer EAdho&ed Aqent EFideial !Secuea e\"ay\nN.; ol dner, Autho,ized As6nl, FidEi.ry n se*cd Pany\nl.Ft)t:RAt wAY wA 93001\nMail n9 Address, Cily, slale zlP code Pt6n Nunbett larrc\"a *cdl e t an r d \" n \" umbel\nls lhis a Glaled bls ness em ly? .......... I *\nn *\ni::'\":i::\"jJ,t\"\"\"'#fl(:tllfffi:r$\"':::l::::::\"*:\"F\":-1\":\"1'l:l:llllll:T:::::::l*llllllllil*llllllill\"\"\"'\nll yes, a(ach a d@u@nt s gned by th. properry ne. indleling @n*nl ro fle lhe reid lion. wirhour tE adhorizr on, lhe e.d lbn is nol vald and .annol be pocessed.\nSECTION 3r Atrmalron of Prior Ysr Rendilion (Chect only { apgaic\u20acte and you assels w\u20acle eracly be same as last ys/s cndilion fom.)\ntr By .heking rh s box, I arfm lhar lhe inrormalion co^tained i^ (he most r*nl \u20acrd[ion sialement l ed in conlinueslo be comDlete and accuEle ir rhe\nSECTTON 4: Business lifomaton (Optioml)\nBusnessType(serst.rlhatappry): E Manuraclurng I wr,oeere !\nComrmid Fquipne.t Lasing\n\".Milfr3 1 2026\nLCAD\nEY* nN.\nD'd.ssersGman n prace as ofJan l?\nSECTION 5: N,la.kel Valuo\nseier you properrys lolarm!&ervalue, E unde,$2oooo [l ozo ooo o,,o..\nlfunder$20,000,compleleonlyschedul\u20acAandilapplicable S(hedulof Orhe&Lse @mplela S.h\u20acaul4s) A C D Eand/orF.sapplicable.\nra{err'arue \\fi\nseecrrcr D,opedy's ro, ! srr.ooo.r\"* uo,\",n\"nr.:..0m\nE By checkins fiis box, I edrt rhal lhe mad(et var\u20ac ot the tans ble personal propeny s ! 125 ooo or less.\nSECTION 6: Affrmation and Signalure\ntfyou 6a*c ararse sbtementon rhis fo.n, yo! colld belound guihy ora Class Amisdemeaaor ora sblejaillelohy unde. PenalCode Secilon 37.10.\nswe, or afinm thal the infoma[on provided n lhis repon is tue and a@u6le ro Ihe besl of my\nPrrnred Name of Au{honzed klw eng. and ber efi and rhar I am authonzed .s Gquired by law lo file and sign rhls repon\nNOTE: The ssnzlure on this repon musl unlessth\u20acpersonfinslhereporlisasuredparryasdefinedbyTaxCodeSecton220ltheprop\u20acrryene'anempoyee\nof the prop\u20acrlyoM\u20acr, an emDloyee oI the of beha fotan afiilzred enrry of rhe prop.ny own& o. on beha, o, a p,openy ownerwho i3 r\u20acnderng tang ble peGona\npropedy with a good faith eslimale or not $150000 n tola rod\u20acl value\nt)1t24 2t))6\nSlbscrbed and sworn berore he th s\nNolary Pub c Slaie or Texas"
+    },
+    {
+      "page_number": 2,
+      "text": "i\ne\n,l E *!\nsE\nE ll\nF\nE\n}E Ei\niP' 3:P\n3o\ns=\n!< Er 4 E!\n6rs:-\n!=\\r\na\nd!\no3\n;E . E\n5\u20ac 9; a : ,E s 9,\na,\n8B E e i9 6JE\nF\nE\nE E6 3 e\" l 96 9\ne\na gh\n?E\nE\nE6\nqb -= =\n;\n92 -9 E E\n5E\nt\n, ; 6 E E EE\n\u20ac -a E: 5ii\ns\n.g\nii 3ri 9 Ji E-3\nDN\nR; ! g tic\n3:\n'I trtr I ;E3 ! :t g\n!\n\u20acs it g\nT;,fi '\"\\\no. ;-\ni! I\ni: EE !5\n=9 E 53\n3\nti\n3\ntE\n! i , F ! P 6 3 g ': E =\u20ac\nI\ni.e i\n:*: ! e E !\n.e\n:3: oE .E l ! : 9 B t =\nI F 3 .E p g o_9 E 5\n9 ib! 6: a =\n!F3 g; I c g ;E\n,!.- E\n\u20ac-\n_\n.9\n9 ga\n3,\n,9 =; l. 3 a F E\n:6 E e i t\no_ :.} e 5 9a\n39e E3 I g\na\ne 2 t 9b E\n9se c 9u I\ni e\n: . - 8 ! 6 b < :5 d - ae ,9 ci ci PE\n-qh\nL l rl 1g u :l J l a :\no o o o\ni\n.a p33 I O =: 6 3z F - o !E e l o IrJ LE o T : E ts ; -i ! e ! !"
+    },
+    {
+      "page_number": 3,
+      "text": "aJsiness Personal Proporty Ro.dition olTaxabl6 Prop\u20ac.ty\nSCHIDULE E: Fumilure, Fixtures, l\\rachinery, Equipmenl, Computers\nTotal(by year acqu.ed) a lturn ture, fixtures machinery, equ pmenl and compulers (new or used) stl n possess on on Jan 1 Lisl lems rece ved as gifls r lhe\nsame manner. Attach addiuo.al sheels OR a @mpuleFgeneEled lisling of trie nlomal on below, as needed.\nMachlnery and Equlpment\n2425 2025 2425\nI\n31t1{\n2424 2024 2424\n2423 l:.1,11 2023\nt55\n2422 2022 llr 2022\n2021 2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r schodures)\n2025 lo25 2025\n2024 2024 2024\n2023 2023 2023\n2022 2022 2022\n2021 2021 2021\n2020 2020 2020\n2019 ]-\" 2019 t\n2018 2018 2014\nLot7\n2017 2017\nTOTAL NA lroro. NrA TOTAL\nSCHEDULE f: Property Under Bailment, Lease, Consignmontor Other Ara\nList the name and address of each owner of laxable poperty thal is in your possession or under you. managenent on Jan. 1 by bailment,lease, @nsignment\nor other a.Engemenl. lf needed, allach addilional shels OR a @mputergene.aled copy isl ng lhe informat on below.\nPropertv Owners Address Oeneral Propedy Oescriplion\nN,,\\\n'Provdea.amounrlore'rhertheooodraMestmareofmafketvau ndyeara.quired lyouprovidedanhslo,cacostwhennew.ndyea,\naood la'h c'r ab or To r'' .4.e\n'"
+    },
+    {
+      "page_number": 4,
+      "text": "a\nea\n:H 3n\n\"t J tta\n{l ,.2\n;;\no\n!\nd\n3\nZ ai\n!i ,E\nii)\nail\nE.\n,6\nE\n; dE\n< .d\n2\n,9\ns\n2\no E I Z\nU!.\ny; ,F\n6\n,.+ a\ni+\nYt!\n4\u20ac\nF.: E.:\nEF .E\na\n'E 3i.\nc,\n!-1"
+    },
+    {
+      "page_number": 5,
+      "text": "I\ng,\n!t\n9E\nF:\n:\n\"iE\n..\nL\n-o\n.9o\n>!9\nia\n3,3_z\nI J3\nd:'g 3a\n! !.1 'a\nE\nE o-o\nr\\tE\ni!\nle\nlE\ntrtg\na\no\n.= NA\n;\nT,\nl7b\nt(5t;\n,:\nn\ni:\no\na"
+    },
+    {
+      "page_number": 6,
+      "text": ",oa\nel=\nE\n9\n:\n:r=\n6\nlara\n,\n:'9\nE!\ni.iJ\n#3\n;'o-\nl.o\n.=t---'\n,l\n6s\no\nE2\n?-\ni=\na6\nbi,\nE\na.\nO;i\na'"
+    }
+  ],
+  "schedule_e": {
+    "schedule_e_present": true,
+    "machinery_and_equipment_present": true,
+    "total": 126562.0,
+    "page_number": 3,
+    "year_rows": []
+  },
+  "attachments": {
+    "attachment_summary_present": false,
+    "machinery_and_equipment_present": true,
+    "reported_cost_detected": false,
+    "current_value_detected": false,
+    "rendered_value_detected": false,
+    "attachment_total_candidates": [
+      126562.0,
+      20000.0
+    ],
+    "best_attachment_total": 126562.0
+  },
+  "metadata": {
+    "tax_year": null,
+    "owner_name": "eh p rype",
+    "account_number": null,
+    "signed_date": null
+  },
+  "review_flags": {
+    "needs_manual_row_review": true,
+    "needs_attachment_review": false,
+    "low_text_extraction": false
+  },
+  "depreciated_override_result": {},
+  "value_candidates": [
+    {
+      "field": "good_faith_value",
+      "value": 150000.0,
+      "raw_value": "$150000",
+      "label": "good_faith_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:good_faith_value",
+      "page_number": 1,
+      "page_type": "cover_page",
+      "score": 25.5,
+      "confidence": 0.95,
+      "context": "a p,openy ownerwho i3 r\u20acnderng tang ble peGona\npropedy with a good faith eslimale or not $150000 n tola rod\u20acl value\nt)1t24 2t))6\nSlbscrbed and sworn berore he th s\nNolary Pub c Slaie or",
+      "evidence_text": "a p,openy ownerwho i3 r\u20acnderng tang ble peGona\npropedy with a good faith eslimale or not $150000 n tola rod\u20acl value\nt)1t24 2t))6\nSlbscrbed and sworn berore he th s\nNolary Pub c Slaie or"
+    },
+    {
+      "field": "attachment_total",
+      "value": 20000.0,
+      "raw_value": "$20,000",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 1,
+      "page_type": "cover_page",
+      "score": 7.5,
+      "confidence": 0.375,
+      "context": ",la.kel Valuo\nseier you properrys lolarm!&ervalue, E unde,$2oooo [l ozo ooo o,,o..\nlfunder$20,000,compleleonlyschedul\u20acAandilapplicable S(hedulof Orhe&Lse @mplela S.h\u20acaul4s) A C D Eand/orF",
+      "evidence_text": ",la.kel Valuo\nseier you properrys lolarm!&ervalue, E unde,$2oooo [l ozo ooo o,,o..\nlfunder$20,000,compleleonlyschedul\u20acAandilapplicable S(hedulof Orhe&Lse @mplela S.h\u20acaul4s) A C D Eand/orF"
+    },
+    {
+      "field": "attachment_total",
+      "value": 2417.0,
+      "raw_value": "2417",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 7.0,
+      "confidence": 0.35,
+      "context": "2422 2022 llr 2022\n2021 2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA",
+      "evidence_text": "2422 2022 llr 2022\n2021 2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA"
+    },
+    {
+      "field": "attachment_total",
+      "value": 2416.0,
+      "raw_value": "2416",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 7.0,
+      "confidence": 0.35,
+      "context": "llr 2022\n2021 2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 12",
+      "evidence_text": "llr 2022\n2021 2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 12"
+    },
+    {
+      "field": "attachment_total",
+      "value": 2415.0,
+      "raw_value": "2415",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 7.0,
+      "confidence": 0.35,
+      "context": "2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/Sed",
+      "evidence_text": "2021 2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/Sed"
+    },
+    {
+      "field": "attachment_total",
+      "value": 2415.0,
+      "raw_value": "2415",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 7.0,
+      "confidence": 0.35,
+      "context": "2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/Ma",
+      "evidence_text": "2421\n2o2A 2020 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/Ma"
+    },
+    {
+      "field": "attachment_total",
+      "value": 2414.0,
+      "raw_value": "2414",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 7.0,
+      "confidence": 0.35,
+      "context": "20 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher",
+      "evidence_text": "20 2A2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher"
+    },
+    {
+      "field": "attachment_total",
+      "value": 2414.0,
+      "raw_value": "2414",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 7.0,
+      "confidence": 0.35,
+      "context": "2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny",
+      "evidence_text": "2A\n2019 2019 20r9\n2014 2014 2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny"
+    },
+    {
+      "field": "attachment_total",
+      "value": 2412.0,
+      "raw_value": "2412",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 7.0,
+      "confidence": 0.35,
+      "context": "2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r",
+      "evidence_text": "2418\n2017 2017 2417\n2016 2416 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r"
+    },
+    {
+      "field": "attachment_total",
+      "value": 562.0,
+      "raw_value": "562",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 7.0,
+      "confidence": 0.35,
+      "context": "A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r schodures)\n2025 lo25 2025\n2024",
+      "evidence_text": "A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r schodures)\n2025 lo25 2025\n2024"
+    },
+    {
+      "field": "attachment_total",
+      "value": 126.0,
+      "raw_value": "126",
+      "label": "total_value",
+      "source": "candidate_extractor",
+      "rule": "context_label:total_value",
+      "page_number": 3,
+      "page_type": "unknown",
+      "score": 3.0,
+      "confidence": 0.15,
+      "context": "16 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r schodures)\n2025 lo25 2025\n2",
+      "evidence_text": "16 2A1$\n2015 2415 2415\nl\n2014 2414 2414\nI\n2013 2013 2013\n2012 2412 2012\nTOTAL: NA I TOTAL 126.562 N\nPOs/SedeB/MahframB Orher{.ny orherlt msnor .t d ln oh.r schodures)\n2025 lo25 2025\n2"
+    },
+    {
+      "field": "unknown",
+      "value": 93001.0,
+      "raw_value": "93001",
+      "label": "unknown",
+      "source": "candidate_extractor",
+      "rule": "context_label:unknown",
+      "page_number": 1,
+      "page_type": "cover_page",
+      "score": 1.5,
+      "confidence": 0.075,
+      "context": "deial !Secuea e\"ay\nN.; ol dner, Autho,ized As6nl, FidEi.ry n se*cd Pany\nl.Ft)t:RAt wAY wA 93001\nMail n9 Address, Cily, slale zlP code Pt6n Nunbett larrc\"a *cdl e t an r d \" n \" umbel\nls",
+      "evidence_text": "deial !Secuea e\"ay\nN.; ol dner, Autho,ized As6nl, FidEi.ry n se*cd Pany\nl.Ft)t:RAt wAY wA 93001\nMail n9 Address, Cily, slale zlP code Pt6n Nunbett larrc\"a *cdl e t an r d \" n \" umbel\nls"
+    }
+  ],
+  "selected_candidate": {
+    "field": "good_faith_value",
+    "value": 150000.0,
+    "raw_value": "$150000",
+    "label": "good_faith_value",
+    "source": "candidate_extractor",
+    "rule": "context_label:good_faith_value",
+    "page_number": 1,
+    "page_type": "cover_page",
+    "score": 25.5,
+    "confidence": 0.95,
+    "context": "a p,openy ownerwho i3 r\u20acnderng tang ble peGona\npropedy with a good faith eslimale or not $150000 n tola rod\u20acl value\nt)1t24 2t))6\nSlbscrbed and sworn berore he th s\nNolary Pub c Slaie or",
+    "evidence_text": "a p,openy ownerwho i3 r\u20acnderng tang ble peGona\npropedy with a good faith eslimale or not $150000 n tola rod\u20acl value\nt)1t24 2t))6\nSlbscrbed and sworn berore he th s\nNolary Pub c Slaie or"
+  },
+  "good_faith_value": 150000.0,
+  "attachment_total": 2425.0,
+  "schedule_e_total": 126562.0,
+  "assessment_summary": {
+    "extracted_value": 126562.0,
+    "recommended_value": 126562.0,
+    "value_source": "attachment_summary_total",
+    "recommended_path": "use_attachment_total_pending_review",
+    "reason": "Attachment total selected as the best available extracted value.",
+    "issues": [
+      "Schedule E row-level values were not extractable."
+    ],
+    "confidence": "low",
+    "override_notes": ""
+  },
+  "agent_review": {
+    "status": "fallback",
+    "reason": "OPENAI_API_KEY not set",
+    "recommended_values": {
+      "historical_cost": null,
+      "acquisition_year": null,
+      "rendered_value": null,
+      "good_faith_value": "150000.0",
+      "attachment_total": "126562.0",
+      "selected_source": "attachments.best_attachment_total"
+    },
+    "confidence": 0.45,
+    "reasoning": "Deterministic fallback review selected the highest-scored pipeline candidates and preserved manual overrides.",
+    "review_flags": [
+      "ai_review_skipped_no_api_key",
+      "conflicting_attachment_total_candidates",
+      "missing_acquisition_year_candidate",
+      "missing_historical_cost_candidate",
+      "missing_rendered_value_candidate"
+    ],
+    "rejected_candidates": {
+      "historical_cost": [],
+      "acquisition_year": [],
+      "rendered_value": [],
+      "good_faith_value": [],
+      "attachment_total": [
+        "2425.0 from schedule page 3",
+        "20000.0 from candidate_extractor page 1",
+        "2417.0 from candidate_extractor page 3",
+        "2416.0 from candidate_extractor page 3",
+        "2415.0 from candidate_extractor page 3"
+      ]
+    }
+  },
+  "final_review": {
+    "file_name": "sample_rendition.pdf",
+    "locked_at": "2026-04-21T09:47:21",
+    "decision": "accepted",
+    "final_value": 126562.0,
+    "final_source": "pipeline_recommendation",
+    "appraiser_initials": "BT",
+    "appraiser_notes": "stamp smoke test",
+    "pipeline_recommended_value": 126562.0,
+    "pipeline_value_source": "attachment_summary_total",
+    "pipeline_path": "use_attachment_total_pending_review",
+    "pipeline_confidence": "low",
+    "pipeline_issues": [
+      "Schedule E row-level values were not extractable."
+    ],
+    "review_flags": {
+      "needs_manual_row_review": true,
+      "needs_attachment_review": false,
+      "low_text_extraction": false
+    },
+    "agent_status": "fallback",
+    "agent_confidence": 0.45,
+    "agent_reasoning": "Deterministic fallback review selected the highest-scored pipeline candidates and preserved manual overrides.",
+    "agent_recommended_values": {
+      "historical_cost": null,
+      "acquisition_year": null,
+      "rendered_value": null,
+      "good_faith_value": "150000.0",
+      "attachment_total": "126562.0",
+      "selected_source": "attachments.best_attachment_total"
+    },
+    "stamped_pdf": "C:\\Users\\Brooks\\Desktop\\BPP\\BPP Project\\Output\\appraiser_uploads\\sample_rendition_accepted_stamped.pdf"
+  }
+}

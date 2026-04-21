@@ -1,0 +1,1414 @@
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Protocol
+
+from app.assessment_summary import AssessmentSummaryBuilder
+from app.candidate_extractor import CandidateExtractor
+from app.extractor import PDFExtractor
+from app.targeted_parser import TargetedRenditionParser
+
+try:
+    from app.agent_reviewer import review_parse_result
+except Exception:
+    from app.agent_review import review_parse_result
+
+
+class PageType(str, Enum):
+    MAIN_FORM = "main_form"
+    ATTACHMENT = "attachment"
+    SCHEDULE = "schedule"
+    SIGNATURE = "signature"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class PageClassification:
+    page_number: int
+    page_type: PageType
+    confidence: float
+    reasons: List[str] = field(default_factory=list)
+
+
+@dataclass
+class PageParseResult:
+    page_number: int
+    page_type: PageType
+    parser_name: str
+    fields: Dict[str, Any] = field(default_factory=dict)
+    candidates: List[Dict[str, Any]] = field(default_factory=list)
+    flags: Dict[str, Any] = field(default_factory=dict)
+    errors: List[str] = field(default_factory=list)
+
+
+@dataclass
+class PipelineResult:
+    classifications: List[PageClassification]
+    page_results: List[PageParseResult]
+    merged_fields: Dict[str, Any]
+    merged_candidates: List[Dict[str, Any]]
+    final_result: Dict[str, Any]
+
+
+class ParserProtocol(Protocol):
+    def parse_page(
+        self,
+        page_text: str,
+        page_number: int,
+        ocr_blocks: Optional[List[Dict[str, Any]]] = None,
+    ) -> PageParseResult:
+        ...
+
+
+PAGE_TYPE_FIELD_BOOSTS = {
+    ("good_faith_value", "main_form"): 0.10,
+    ("historical_cost", "attachment"): 0.10,
+    ("acquisition_year", "attachment"): 0.08,
+    ("life_years", "attachment"): 0.08,
+    ("attachment_total", "schedule"): 0.12,
+}
+
+PAGE_TYPE_FIELD_PENALTIES = {
+    ("historical_cost", "main_form"): 0.15,
+    ("historical_cost", "signature"): 0.25,
+    ("good_faith_value", "attachment"): 0.10,
+    ("good_faith_value", "signature"): 0.25,
+    ("attachment_total", "main_form"): 0.08,
+    ("attachment_total", "signature"): 0.25,
+}
+
+FIELD_ALIASES = {
+    "historical_cost": [
+        "historical cost",
+        "original cost",
+        "reported cost",
+        "acquisition cost",
+        "purchase cost",
+        "cost new",
+    ],
+    "acquisition_year": [
+        "year acquired",
+        "date acquired",
+        "acquisition year",
+        "purchase year",
+        "acquired",
+    ],
+    "rendered_value": [
+        "rendered value",
+        "value rendered",
+        "total rendered value",
+        "rendered market value",
+    ],
+    "good_faith_value": [
+        "good faith estimate",
+        "good faith value",
+        "good faith",
+        "market value",
+        "owner's estimate",
+        "owners estimate",
+    ],
+    "attachment_total": [
+        "attachment total",
+        "summary total",
+        "schedule total",
+        "total cost",
+        "grand total",
+        "total market value",
+        "current value",
+        "depreciated value",
+        "total",
+    ],
+}
+
+MONEY_RE = re.compile(
+    r"""
+    (?<![\w])
+    \(?\$?\s*
+    (?:
+        \d{1,3}(?:[\s,]\d{3})+(?:\.\d{1,2})?
+        |
+        \d{2,9}(?:\.\d{1,2})?
+    )
+    \)?
+    (?![\w])
+    """,
+    re.VERBOSE,
+)
+
+YEAR_RE = re.compile(r"\b(19[5-9]\d|20[0-4]\d)\b")
+
+
+def _normalize_text(text: str) -> str:
+    text = text.replace("\x00", " ")
+    text = re.sub(r"\s+", " ", (text or "")).strip()
+    return text
+
+
+def _normalize_ocrish_text(text: str) -> str:
+    text = _normalize_text(text).lower()
+    text = text.replace("|", "l")
+    text = text.replace("\\", "")
+    text = text.replace("/", "")
+    text = text.replace("schidule", "schedule")
+    text = text.replace("renditlon", "rendition")
+    text = text.replace("rendilion", "rendition")
+    text = text.replace("valuo", "value")
+    text = text.replace("equipmenl", "equipment")
+    return text
+
+
+def _parse_money(raw: str) -> Optional[float]:
+    cleaned = (
+        raw.replace(",", "")
+        .replace("$", "")
+        .replace(" ", "")
+        .replace("O", "0")
+        .replace("o", "0")
+        .strip("() ")
+    )
+    try:
+        value = float(cleaned)
+    except ValueError:
+        return None
+    if value < 0:
+        return None
+    return value
+
+
+def _money_candidates_with_spans(text: str) -> List[Dict[str, Any]]:
+    candidates: List[Dict[str, Any]] = []
+    for match in MONEY_RE.finditer(text or ""):
+        raw = match.group(0)
+        value = _parse_money(raw)
+        if value is None or not _is_plausible_money(value):
+            continue
+        candidates.append(
+            {
+                "value": value,
+                "raw_value": raw.strip(),
+                "start": match.start(),
+                "end": match.end(),
+            }
+        )
+    return candidates
+
+
+def _is_plausible_money(value: float) -> bool:
+    if value < 100:
+        return False
+    if value > 1_000_000_000:
+        return False
+    if float(value).is_integer() and 1900 <= int(value) <= 2049:
+        return False
+    return True
+
+
+def _evidence_snippet(text: str, start: int, end: int, window: int = 90) -> str:
+    snippet = (text or "")[max(0, start - window): min(len(text or ""), end + window)]
+    return _normalize_text(snippet)
+
+
+def _label_positions(text: str, labels: List[str]) -> List[tuple[int, str]]:
+    lowered = _normalize_ocrish_text(text)
+    positions: List[tuple[int, str]] = []
+    for label in labels:
+        idx = lowered.find(label)
+        if idx >= 0:
+            positions.append((idx, label))
+    return positions
+
+
+def _candidate_for_labeled_money(
+    text: str,
+    field: str,
+    labels: List[str],
+    page_number: int,
+    source: str,
+    base_confidence: float,
+    window: int = 180,
+) -> Optional[Dict[str, Any]]:
+    money_candidates = _money_candidates_with_spans(text)
+    if not money_candidates:
+        return None
+
+    label_hits = _label_positions(text, labels)
+    if not label_hits:
+        return None
+
+    scored: List[tuple[float, Dict[str, Any], str, int]] = []
+    norm_text = _normalize_ocrish_text(text)
+    for label_pos, label in label_hits:
+        for money in money_candidates:
+            distance = money["start"] - label_pos
+            if -40 <= distance <= window:
+                score = base_confidence + max(0.0, (window - abs(distance)) / window) * 0.10
+                snippet = norm_text[max(0, label_pos - 35): min(len(norm_text), money["end"] + 35)]
+                if "total" in snippet:
+                    score += 0.04
+                if any(bad in snippet for bad in ["phone", "fax", "zip", "account", "page"]):
+                    score -= 0.20
+                scored.append((score, money, label, distance))
+
+    if not scored:
+        return None
+
+    score, money, label, _distance = max(scored, key=lambda item: (item[0], item[1]["value"]))
+    return {
+        "field": field,
+        "value": money["value"],
+        "raw_value": money["raw_value"],
+        "source": source,
+        "rule": f"near_label:{label}",
+        "page_number": page_number,
+        "confidence": round(min(score, 0.98), 3),
+        "evidence_text": _evidence_snippet(text, money["start"], money["end"]),
+    }
+
+
+def _year_candidate(
+    text: str,
+    field: str,
+    labels: List[str],
+    page_number: int,
+    source: str,
+    base_confidence: float,
+    window: int = 120,
+) -> Optional[Dict[str, Any]]:
+    label_hits = _label_positions(text, labels)
+    if not label_hits:
+        return None
+
+    scored: List[tuple[float, re.Match[str], str]] = []
+    for label_pos, label in label_hits:
+        for match in YEAR_RE.finditer(text or ""):
+            distance = match.start() - label_pos
+            if -30 <= distance <= window:
+                score = base_confidence + max(0.0, (window - abs(distance)) / window) * 0.08
+                scored.append((score, match, label))
+
+    if not scored:
+        return None
+
+    score, match, label = max(scored, key=lambda item: item[0])
+    return {
+        "field": field,
+        "value": int(match.group(1)),
+        "raw_value": match.group(1),
+        "source": source,
+        "rule": f"near_label:{label}",
+        "page_number": page_number,
+        "confidence": round(min(score, 0.96), 3),
+        "evidence_text": _evidence_snippet(text, match.start(), match.end()),
+    }
+
+
+def _extract_first_year(patterns: List[str], text: str) -> Optional[int]:
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            try:
+                year = int(match.group(1))
+                if 1900 <= year <= 2100:
+                    return year
+            except ValueError:
+                continue
+    return None
+
+
+def _extract_first_int(patterns: List[str], text: str, low: int, high: int) -> Optional[int]:
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            try:
+                value = int(match.group(1))
+                if low <= value <= high:
+                    return value
+            except ValueError:
+                continue
+    return None
+
+
+def _ocr_blocks_to_text(ocr_blocks: Optional[List[Dict[str, Any]]]) -> str:
+    if not ocr_blocks:
+        return ""
+
+    parts: List[str] = []
+    for block in ocr_blocks:
+        if isinstance(block, dict):
+            txt = block.get("text", "")
+            if txt:
+                parts.append(str(txt))
+        elif isinstance(block, str):
+            parts.append(block)
+    return " ".join(parts).strip()
+
+
+def _find_money_candidates(text: str) -> List[float]:
+    return [item["value"] for item in _money_candidates_with_spans(text)]
+
+
+def _extract_labeled_money(text: str, labels: List[str], window: int = 120) -> Optional[float]:
+    lowered = text.lower()
+
+    for label in labels:
+        idx = lowered.find(label.lower())
+        if idx == -1:
+            continue
+
+        snippet = text[idx: idx + window]
+        values = _find_money_candidates(snippet)
+
+        filtered = [
+            v for v in values
+            if v >= 100  # kill Jan 1 / line numbers / tiny junk
+        ]
+        if filtered:
+            return filtered[0]
+
+    return None
+
+
+def _extract_best_total_money(text: str) -> Optional[float]:
+    values = _find_money_candidates(text)
+    filtered = [v for v in values if v >= 100]
+    if not filtered:
+        return None
+    return max(filtered)
+
+
+def _garbage_table_score(text: str) -> float:
+    if not text:
+        return 0.0
+
+    raw = text
+    letters = sum(ch.isalpha() for ch in raw)
+    digits = sum(ch.isdigit() for ch in raw)
+    punct = sum((not ch.isalnum() and not ch.isspace()) for ch in raw)
+
+    length = max(len(raw), 1)
+    punct_ratio = punct / length
+    digit_ratio = digits / length
+
+    score = 0.0
+    if length > 80:
+        score += 0.05
+    if punct_ratio > 0.08:
+        score += 0.08
+    if digit_ratio > 0.02:
+        score += 0.04
+    if letters > 20 and punct > 10:
+        score += 0.05
+
+    return score
+
+
+class PageClassifier:
+    def classify(self, page_text: str, page_number: int) -> PageClassification:
+        text = _normalize_text(page_text)
+        norm = _normalize_ocrish_text(page_text)
+        reasons: List[str] = []
+
+        scores: Dict[PageType, float] = {
+            PageType.MAIN_FORM: 0.0,
+            PageType.ATTACHMENT: 0.0,
+            PageType.SCHEDULE: 0.0,
+            PageType.SIGNATURE: 0.0,
+            PageType.UNKNOWN: 0.0,
+        }
+
+        main_form_terms = [
+            ("business personal property", 0.35, "found 'business personal property'"),
+            ("rendition", 0.25, "found 'rendition'"),
+            ("general information", 0.15, "found 'general information'"),
+            ("good faith estimate", 0.15, "found 'good faith estimate'"),
+            ("property owner", 0.06, "found 'property owner'"),
+            ("account number", 0.06, "found 'account number'"),
+            ("mailing address", 0.05, "found 'mailing address'"),
+            ("confidential", 0.04, "found 'confidential'"),
+        ]
+        for term, weight, reason in main_form_terms:
+            if term in norm:
+                scores[PageType.MAIN_FORM] += weight
+                reasons.append(reason)
+
+        attachment_terms = [
+            ("see attached", 0.30, "found 'see attached'"),
+            ("attachment", 0.20, "found 'attachment'"),
+            ("historical cost", 0.25, "found historical cost"),
+            ("original cost", 0.25, "found original cost"),
+            ("year acquired", 0.15, "found year acquired"),
+            ("acquired", 0.10, "found acquired"),
+            ("useful life", 0.10, "found useful life"),
+        ]
+        for term, weight, reason in attachment_terms:
+            if term in norm:
+                scores[PageType.ATTACHMENT] += weight
+                reasons.append(reason)
+
+        schedule_terms = [
+            ("schedule", 0.18, "found schedule"),
+            ("schidule", 0.18, "found schidule"),
+            ("schedul", 0.14, "found schedul"),
+            ("furniture", 0.16, "found furniture"),
+            ("fixtures", 0.16, "found fixtures"),
+            ("machinery", 0.16, "found machinery"),
+            ("equipment", 0.16, "found equipment"),
+            ("computers", 0.12, "found computers"),
+            ("quantity", 0.15, "found quantity"),
+            ("qty", 0.15, "found qty"),
+            ("description", 0.12, "found description"),
+            ("year acquired", 0.10, "found year acquired"),
+            ("total cost", 0.15, "found total cost"),
+            ("grand total", 0.15, "found grand total"),
+            ("total(by year", 0.14, "found total by year"),
+            ("totalby year", 0.14, "found totalby year"),
+            ("by year acqu", 0.12, "found by year acquired fragment"),
+        ]
+        for term, weight, reason in schedule_terms:
+            if term in norm:
+                scores[PageType.SCHEDULE] += weight
+                reasons.append(reason)
+
+        if "description" in norm and "cost" in norm:
+            scores[PageType.SCHEDULE] += 0.20
+            reasons.append("found description + cost pattern")
+        if "furniture" in norm and "fixtures" in norm:
+            scores[PageType.SCHEDULE] += 0.12
+            reasons.append("found furniture + fixtures pattern")
+        if "machinery" in norm and "equipment" in norm:
+            scores[PageType.SCHEDULE] += 0.12
+            reasons.append("found machinery + equipment pattern")
+
+        signature_terms = [
+            ("signature", 0.30, "found 'signature'"),
+            ("authorized representative", 0.20, "found authorized representative"),
+            ("date signed", 0.15, "found date signed"),
+            ("sworn and subscribed", 0.30, "found sworn and subscribed"),
+            ("notary", 0.12, "found notary"),
+            ("printed name", 0.06, "found printed name"),
+        ]
+        for term, weight, reason in signature_terms:
+            if term in norm:
+                scores[PageType.SIGNATURE] += weight
+                reasons.append(reason)
+
+        table_score = _garbage_table_score(text)
+        if table_score > 0:
+            scores[PageType.SCHEDULE] += table_score
+            reasons.append("table/continuation page heuristic")
+
+        best_type = max(scores, key=scores.get)
+        best_score = scores[best_type]
+
+        if best_score < 0.15:
+            best_type = PageType.UNKNOWN
+            reasons.append("no strong page-type match")
+
+        return PageClassification(
+            page_number=page_number,
+            page_type=best_type,
+            confidence=round(best_score, 3),
+            reasons=reasons,
+        )
+
+
+class MainFormParser:
+    def parse_page(
+        self,
+        page_text: str,
+        page_number: int,
+        ocr_blocks: Optional[List[Dict[str, Any]]] = None,
+    ) -> PageParseResult:
+        candidates: List[Dict[str, Any]] = []
+        flags: Dict[str, Any] = {}
+
+        combined_text = _normalize_text(f"{page_text} {_ocr_blocks_to_text(ocr_blocks)}")
+        lowered = combined_text.lower()
+
+        candidate = _candidate_for_labeled_money(
+            combined_text,
+            field="good_faith_value",
+            labels=FIELD_ALIASES["good_faith_value"],
+            page_number=page_number,
+            source="main_form",
+            base_confidence=0.78,
+            window=140,
+        )
+
+        if candidate is not None and ("good faith" in lowered or "market value" in lowered):
+            candidates.append(candidate)
+
+        rendered = _candidate_for_labeled_money(
+            combined_text,
+            field="rendered_value",
+            labels=FIELD_ALIASES["rendered_value"],
+            page_number=page_number,
+            source="main_form",
+            base_confidence=0.80,
+            window=160,
+        )
+        if rendered is not None:
+            candidates.append(rendered)
+
+        if "see attached" in lowered:
+            flags["see_attached"] = True
+
+        if "signature" in lowered:
+            flags["signature_block_detected"] = True
+
+        return PageParseResult(
+            page_number=page_number,
+            page_type=PageType.MAIN_FORM,
+            parser_name=self.__class__.__name__,
+            candidates=candidates,
+            flags=flags,
+        )
+
+
+class AttachmentParser:
+    def parse_page(
+        self,
+        page_text: str,
+        page_number: int,
+        ocr_blocks: Optional[List[Dict[str, Any]]] = None,
+    ) -> PageParseResult:
+        candidates: List[Dict[str, Any]] = []
+        flags: Dict[str, Any] = {"attachment_detected": True}
+
+        combined_text = _normalize_text(f"{page_text} {_ocr_blocks_to_text(ocr_blocks)}")
+        lowered = combined_text.lower()
+
+        historical_cost = _candidate_for_labeled_money(
+            combined_text,
+            field="historical_cost",
+            labels=FIELD_ALIASES["historical_cost"],
+            page_number=page_number,
+            source="attachment",
+            base_confidence=0.84,
+            window=180,
+        )
+        if historical_cost is not None and ("cost" in lowered or "historical" in lowered or "original" in lowered):
+            candidates.append(historical_cost)
+
+        acquisition_year = _year_candidate(
+            combined_text,
+            field="acquisition_year",
+            labels=FIELD_ALIASES["acquisition_year"],
+            page_number=page_number,
+            source="attachment",
+            base_confidence=0.74,
+        )
+        if acquisition_year is not None and ("acquired" in lowered or "year acquired" in lowered):
+            candidates.append(acquisition_year)
+
+        rendered = _candidate_for_labeled_money(
+            combined_text,
+            field="rendered_value",
+            labels=FIELD_ALIASES["rendered_value"],
+            page_number=page_number,
+            source="attachment",
+            base_confidence=0.82,
+            window=180,
+        )
+        if rendered is not None:
+            candidates.append(rendered)
+
+        life_years = _extract_first_int(
+            [
+                r"(?:useful life|life)\D{0,20}(\d{1,2})",
+            ],
+            combined_text,
+            low=1,
+            high=50,
+        )
+        if life_years is not None and ("life" in lowered or "useful life" in lowered):
+            candidates.append({
+                "field": "life_years",
+                "value": life_years,
+                "source": "attachment",
+                "page_number": page_number,
+                "confidence": 0.72,
+            })
+
+        return PageParseResult(
+            page_number=page_number,
+            page_type=PageType.ATTACHMENT,
+            parser_name=self.__class__.__name__,
+            candidates=candidates,
+            flags=flags,
+        )
+
+
+class ScheduleParser:
+    def parse_page(
+        self,
+        page_text: str,
+        page_number: int,
+        ocr_blocks: Optional[List[Dict[str, Any]]] = None,
+    ) -> PageParseResult:
+        candidates: List[Dict[str, Any]] = []
+        flags: Dict[str, Any] = {"schedule_detected": True}
+
+        combined_text = _normalize_text(f"{page_text} {_ocr_blocks_to_text(ocr_blocks)}")
+        lowered = combined_text.lower()
+
+        total_candidate = _candidate_for_labeled_money(
+            combined_text,
+            field="attachment_total",
+            labels=FIELD_ALIASES["attachment_total"],
+            page_number=page_number,
+            source="schedule",
+            base_confidence=0.82,
+            window=220,
+        )
+
+        if total_candidate is None and any(term in lowered for term in ["schedule", "schidule", "fixtures", "machinery", "equipment"]):
+            total_value = _extract_best_total_money(combined_text)
+            if total_value is not None:
+                total_candidate = {
+                    "field": "attachment_total",
+                    "value": total_value,
+                    "source": "schedule",
+                    "rule": "largest_plausible_schedule_amount",
+                    "page_number": page_number,
+                    "confidence": 0.68,
+                    "evidence_text": combined_text[:250],
+                }
+
+        if total_candidate is not None:
+            candidates.append(total_candidate)
+
+        rendered = _candidate_for_labeled_money(
+            combined_text,
+            field="rendered_value",
+            labels=FIELD_ALIASES["rendered_value"],
+            page_number=page_number,
+            source="schedule",
+            base_confidence=0.80,
+            window=180,
+        )
+        if rendered is not None:
+            candidates.append(rendered)
+
+        if "furniture" in lowered:
+            flags["schedule_contains_furniture"] = True
+        if "fixtures" in lowered:
+            flags["schedule_contains_fixtures"] = True
+        if "machinery" in lowered:
+            flags["schedule_contains_machinery"] = True
+        if "equipment" in lowered:
+            flags["schedule_contains_equipment"] = True
+
+        return PageParseResult(
+            page_number=page_number,
+            page_type=PageType.SCHEDULE,
+            parser_name=self.__class__.__name__,
+            candidates=candidates,
+            flags=flags,
+        )
+
+
+class SignatureParser:
+    def parse_page(
+        self,
+        page_text: str,
+        page_number: int,
+        ocr_blocks: Optional[List[Dict[str, Any]]] = None,
+    ) -> PageParseResult:
+        combined_text = _normalize_text(f"{page_text} {_ocr_blocks_to_text(ocr_blocks)}")
+        flags = {
+            "signature_block_detected": "signature" in combined_text.lower()
+        }
+
+        return PageParseResult(
+            page_number=page_number,
+            page_type=PageType.SIGNATURE,
+            parser_name=self.__class__.__name__,
+            candidates=[],
+            flags=flags,
+        )
+
+
+class UnknownPageParser:
+    def parse_page(
+        self,
+        page_text: str,
+        page_number: int,
+        ocr_blocks: Optional[List[Dict[str, Any]]] = None,
+    ) -> PageParseResult:
+        return PageParseResult(
+            page_number=page_number,
+            page_type=PageType.UNKNOWN,
+            parser_name=self.__class__.__name__,
+            candidates=[],
+            flags={"unknown_page": True},
+        )
+
+
+class CandidateScorer:
+    def score(self, candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+        best_by_field: Dict[str, Dict[str, Any]] = {}
+
+        for candidate in candidates:
+            field = candidate.get("field")
+            if not field:
+                continue
+
+            base_conf = float(candidate.get("confidence", 0))
+            source = str(candidate.get("source", "")).lower()
+
+            boost = PAGE_TYPE_FIELD_BOOSTS.get((field, source), 0.0)
+            penalty = PAGE_TYPE_FIELD_PENALTIES.get((field, source), 0.0)
+
+            candidate["score"] = max(0.0, base_conf + boost - penalty)
+
+            current = best_by_field.get(field)
+            if current is None or candidate["score"] > current.get("score", 0):
+                best_by_field[field] = candidate
+
+        return {
+            "best_candidates": best_by_field,
+            "resolved_values": {k: v.get("value") for k, v in best_by_field.items()},
+        }
+
+
+def bucket_candidates(candidates: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    buckets: Dict[str, List[Dict[str, Any]]] = {
+        "historical_cost": [],
+        "acquisition_year": [],
+        "rendered_value": [],
+        "good_faith_value": [],
+        "attachment_total": [],
+    }
+    for candidate in candidates:
+        field_name = candidate.get("field") or candidate.get("label")
+        if field_name in buckets:
+            buckets[field_name].append(candidate)
+    for field_candidates in buckets.values():
+        field_candidates.sort(
+            key=lambda item: float(item.get("score", item.get("confidence", 0)) or 0),
+            reverse=True,
+        )
+    return buckets
+
+
+class Pipeline:
+    def __init__(self) -> None:
+        self.classifier = PageClassifier()
+        self.candidate_scorer = CandidateScorer()
+
+        self.parser_registry: Dict[PageType, ParserProtocol] = {
+            PageType.MAIN_FORM: MainFormParser(),
+            PageType.ATTACHMENT: AttachmentParser(),
+            PageType.SCHEDULE: ScheduleParser(),
+            PageType.SIGNATURE: SignatureParser(),
+            PageType.UNKNOWN: UnknownPageParser(),
+        }
+
+    def _post_process_classifications(
+        self,
+        pages: List[Dict[str, Any]],
+        classifications: List[PageClassification],
+    ) -> List[PageClassification]:
+        if not classifications:
+            return classifications
+
+        adjusted = list(classifications)
+
+        for idx in range(1, len(adjusted)):
+            prev_cls = adjusted[idx - 1]
+            curr_cls = adjusted[idx]
+            curr_text = _normalize_ocrish_text(pages[idx].get("text", ""))
+
+            if (
+                prev_cls.page_type == PageType.SCHEDULE
+                and curr_cls.page_type == PageType.UNKNOWN
+                and len(curr_text) > 60
+            ):
+                adjusted[idx] = PageClassification(
+                    page_number=curr_cls.page_number,
+                    page_type=PageType.SCHEDULE,
+                    confidence=0.22,
+                    reasons=curr_cls.reasons + ["inherited schedule continuation from previous page"],
+                )
+
+        return adjusted
+
+    def run(
+        self,
+        pages: List[Dict[str, Any]],
+        manual_override: Optional[Dict[str, Any]] = None,
+    ) -> PipelineResult:
+        raw_classifications: List[PageClassification] = []
+
+        for page in pages:
+            raw_classifications.append(
+                self.classifier.classify(
+                    page_text=page.get("text", "") or "",
+                    page_number=int(page["page_number"]),
+                )
+            )
+
+        classifications = self._post_process_classifications(pages, raw_classifications)
+
+        page_results: List[PageParseResult] = []
+        merged_candidates: List[Dict[str, Any]] = []
+        merged_fields: Dict[str, Any] = {
+            "form_flags": {},
+            "attachments": {},
+        }
+
+        for page, classification in zip(pages, classifications):
+            page_number = int(page["page_number"])
+            page_text = page.get("text", "") or ""
+            ocr_blocks = page.get("ocr_blocks", [])
+
+            parser = self.parser_registry.get(
+                classification.page_type,
+                self.parser_registry[PageType.UNKNOWN],
+            )
+
+            try:
+                result = parser.parse_page(
+                    page_text=page_text,
+                    page_number=page_number,
+                    ocr_blocks=ocr_blocks,
+                )
+            except Exception as exc:
+                result = PageParseResult(
+                    page_number=page_number,
+                    page_type=classification.page_type,
+                    parser_name=parser.__class__.__name__,
+                    candidates=[],
+                    flags={},
+                    errors=[f"{type(exc).__name__}: {exc}"],
+                )
+
+            page_results.append(result)
+            merged_candidates.extend(result.candidates)
+
+            for k, v in result.fields.items():
+                merged_fields[k] = v
+
+            for k, v in result.flags.items():
+                merged_fields["form_flags"][k] = v
+
+        scoring_output = self.candidate_scorer.score(merged_candidates)
+        candidate_buckets = bucket_candidates(merged_candidates)
+
+        resolved_values = scoring_output.get("resolved_values", {})
+        if manual_override:
+            resolved_values = self._apply_manual_overrides(resolved_values, manual_override)
+
+        final_result = {
+            "processed_pages": len(pages),
+            "page_classifications": [
+                {
+                    "page_number": c.page_number,
+                    "page_type": c.page_type.value,
+                    "confidence": c.confidence,
+                    "reasons": c.reasons,
+                }
+                for c in classifications
+            ],
+            "merged_candidates": merged_candidates,
+            "candidates": candidate_buckets,
+            "scoring": scoring_output,
+            "resolved_values": resolved_values,
+            "manual_override": manual_override or {},
+            "form_flags": merged_fields.get("form_flags", {}),
+            "page_summaries": [
+                {
+                    "page_number": r.page_number,
+                    "page_type": r.page_type.value,
+                    "parser": r.parser_name,
+                    "candidate_count": len(r.candidates),
+                    "flags": r.flags,
+                }
+                for r in page_results
+            ],
+        }
+
+        return PipelineResult(
+            classifications=classifications,
+            page_results=page_results,
+            merged_fields=merged_fields,
+            merged_candidates=merged_candidates,
+            final_result=final_result,
+        )
+
+    def _apply_manual_overrides(
+        self,
+        resolved_values: Dict[str, Any],
+        manual_override: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        merged = dict(resolved_values)
+        for key, value in manual_override.items():
+            if value is not None:
+                merged[key] = value
+        return merged
+
+
+def load_pages_from_json(json_path: str) -> List[Dict[str, Any]]:
+    path = Path(json_path)
+    if not path.exists():
+        raise FileNotFoundError(f"JSON file not found: {json_path}")
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    if isinstance(data, dict):
+        if "pages" in data and isinstance(data["pages"], list):
+            data = data["pages"]
+        elif "document_pages" in data and isinstance(data["document_pages"], list):
+            data = data["document_pages"]
+        else:
+            raise ValueError("JSON dict must contain 'pages' or 'document_pages' list.")
+
+    if not isinstance(data, list):
+        raise ValueError("Expected a list of pages in JSON.")
+
+    pages: List[Dict[str, Any]] = []
+    for i, page in enumerate(data, start=1):
+        if not isinstance(page, dict):
+            raise ValueError(f"Page entry {i} is not a dict.")
+
+        text = (
+            page.get("text")
+            or page.get("page_text")
+            or page.get("content")
+            or ""
+        )
+
+        ocr_blocks = (
+            page.get("ocr_blocks")
+            or page.get("blocks")
+            or page.get("ocr")
+            or []
+        )
+
+        pages.append({
+            "page_number": page.get("page_number", page.get("page", i)),
+            "text": text,
+            "ocr_blocks": ocr_blocks,
+        })
+
+    return pages
+
+
+def load_pages_from_txt_folder(folder_path: str) -> List[Dict[str, Any]]:
+    folder = Path(folder_path)
+    if not folder.exists():
+        raise FileNotFoundError(f"Folder not found: {folder_path}")
+    if not folder.is_dir():
+        raise ValueError(f"Not a folder: {folder_path}")
+
+    txt_files = sorted(folder.glob("*.txt"))
+    if not txt_files:
+        raise ValueError(f"No .txt files found in folder: {folder_path}")
+
+    pages: List[Dict[str, Any]] = []
+    for i, txt_file in enumerate(txt_files, start=1):
+        raw_text = txt_file.read_text(encoding="utf-8", errors="ignore")
+        text = _normalize_text(raw_text)
+
+        pages.append({
+            "page_number": i,
+            "text": text,
+            "ocr_blocks": [],
+            "source_file": str(txt_file),
+        })
+
+    return pages
+
+
+def get_demo_pages() -> List[Dict[str, Any]]:
+    return [
+        {
+            "page_number": 1,
+            "text": "Business Personal Property Rendition General Information Good Faith Estimate 12000",
+            "ocr_blocks": [],
+        },
+        {
+            "page_number": 2,
+            "text": "Attachment Historical Cost 4500 Year Acquired 2022 Life 5",
+            "ocr_blocks": [],
+        },
+        {
+            "page_number": 3,
+            "text": "SCHIDULE E Furniture Fixtures Machinery Equipment Computers Total(by year acquired) Grand Total 25000",
+            "ocr_blocks": [],
+        },
+        {
+            "page_number": 4,
+            "text": "3:P != 6JE 96 gh E6 5ii continuation table page totals rows cost quantities",
+            "ocr_blocks": [],
+        },
+    ]
+
+
+def print_loaded_page_preview(pages: List[Dict[str, Any]], preview_chars: int = 300) -> None:
+    print("\nLOADED PAGE PREVIEW")
+    print("-" * 50)
+    for page in pages:
+        text = page.get("text", "") or ""
+        preview = text[:preview_chars]
+        preview = preview.replace("\n", " ").replace("\r", " ")
+        source_file = page.get("source_file", "")
+        print(f"Page {page.get('page_number')}: chars={len(text)}")
+        if source_file:
+            print(f"  source_file: {source_file}")
+        print(f"  preview: {preview if preview else '[EMPTY PAGE TEXT]'}")
+
+
+def print_pipeline_debug(result: PipelineResult) -> None:
+    print("\nPAGE CLASSIFICATIONS")
+    print("-" * 50)
+    for c in result.classifications:
+        print(f"Page {c.page_number}: {c.page_type.value} (confidence={c.confidence})")
+        if c.reasons:
+            print(f"  reasons: {', '.join(c.reasons)}")
+
+    print("\nPAGE PARSE RESULTS")
+    print("-" * 50)
+    for r in result.page_results:
+        print(
+            f"Page {r.page_number}: parser={r.parser_name}, "
+            f"candidates={len(r.candidates)}, errors={r.errors}"
+        )
+        for cand in r.candidates:
+            print(f"  - {cand}")
+
+    print("\nFINAL RESOLVED VALUES")
+    print("-" * 50)
+    for k, v in result.final_result.get("resolved_values", {}).items():
+        print(f"{k}: {v}")
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Page classification + parser routing pipeline")
+    parser.add_argument(
+        "--pages-json",
+        type=str,
+        default="",
+        help="Path to JSON file containing page text/OCR blocks.",
+    )
+    parser.add_argument(
+        "--pages-txt-folder",
+        type=str,
+        default="",
+        help="Folder of page .txt files, one file per page.",
+    )
+    parser.add_argument(
+        "--manual-override-json",
+        type=str,
+        default="",
+        help="Optional JSON file containing manual overrides.",
+    )
+    return parser
+
+
+def load_manual_override(path_str: str) -> Dict[str, Any]:
+    if not path_str:
+        return {}
+
+    path = Path(path_str)
+    if not path.exists():
+        raise FileNotFoundError(f"Manual override JSON not found: {path_str}")
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("Manual override JSON must be a dict/object.")
+
+    return data
+
+
+def _extract_pdf_pages(pdf_path: str) -> List[Dict[str, Any]]:
+    extractor = PDFExtractor()
+    pages = extractor.extract_pages(pdf_path)
+
+    for page in pages:
+        page_number = int(page.get("page_number", 1))
+        try:
+            words = extractor.extract_page_words(pdf_path, page_number)
+        except Exception:
+            words = []
+        normalized_words = []
+        for word in words:
+            if not isinstance(word, dict):
+                continue
+            normalized_words.append(
+                {
+                    **word,
+                    "top": word.get("top", word.get("y0", 0)),
+                    "y0": word.get("y0", word.get("top", 0)),
+                }
+            )
+        page["ocr_blocks"] = normalized_words
+
+    # Optional scanned-PDF fallback. If OCR dependencies or system binaries are absent,
+    # keep the normal text-extraction path alive and let review flags surface low text.
+    if pages and any(len((p.get("text") or "").strip()) >= 25 for p in pages):
+        return pages
+
+    try:
+        from pdf2image import convert_from_path
+        import pytesseract
+    except Exception:
+        return pages
+
+    try:
+        images = convert_from_path(pdf_path, dpi=300)
+        ocr_pages: List[Dict[str, Any]] = []
+        for idx, image in enumerate(images, start=1):
+            text = pytesseract.image_to_string(image) or ""
+            ocr_pages.append({"page_number": idx, "text": text, "ocr_blocks": []})
+        if any((p.get("text") or "").strip() for p in ocr_pages):
+            return ocr_pages
+    except Exception:
+        return pages
+
+    return pages
+
+
+def _best_schedule_e(pages: List[Dict[str, Any]], targeted_parser: TargetedRenditionParser) -> Dict[str, Any]:
+    best = {
+        "schedule_e_present": False,
+        "machinery_and_equipment_present": False,
+        "total": None,
+        "page_number": None,
+        "year_rows": [],
+    }
+    for page in pages:
+        page_number = int(page.get("page_number", 1))
+        text_result = targeted_parser.parse_schedule_e_total(page.get("text", "") or "")
+        rows = targeted_parser.parse_schedule_e_year_rows_from_words(page.get("ocr_blocks", []) or [])
+
+        if text_result.get("schedule_e_present"):
+            best["schedule_e_present"] = True
+        if text_result.get("machinery_and_equipment_present"):
+            best["machinery_and_equipment_present"] = True
+        if rows:
+            best["year_rows"].extend(rows)
+
+        total = text_result.get("schedule_e_total")
+        if total is not None and (best["total"] is None or float(total) > float(best["total"])):
+            best["total"] = total
+            best["page_number"] = page_number
+
+    return best
+
+
+def _review_flags(pages: List[Dict[str, Any]], schedule_e: Dict[str, Any], attachments: Dict[str, Any]) -> Dict[str, Any]:
+    text_chars = sum(len(p.get("text", "") or "") for p in pages)
+    return {
+        "needs_manual_row_review": bool(schedule_e.get("schedule_e_present") and not schedule_e.get("year_rows")),
+        "needs_attachment_review": bool(
+            attachments.get("attachment_summary_present")
+            and attachments.get("best_attachment_total") is None
+        ),
+        "low_text_extraction": text_chars < 50,
+    }
+
+
+def _extract_metadata(pages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    first_text = pages[0].get("text", "") if pages else ""
+    combined = "\n".join((page.get("text", "") or "") for page in pages[:2])
+
+    def first_match(patterns: List[str], text: str) -> Optional[str]:
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                value = _normalize_text(match.group(1))
+                if value:
+                    return value
+        return None
+
+    tax_year = first_match(
+        [
+            r"\b(20[0-4]\d)\s+(?:business personal property|rendition)",
+            r"(?:tax year|year)\D{0,15}(20[0-4]\d)",
+        ],
+        first_text,
+    )
+    owner_name = first_match(
+        [
+            r"(?:property owner|owner name|name of owner)\s*[:\-]?\s*([A-Z0-9&., '\-]{3,80})",
+            r"(?:owner)\s*[:\-]?\s*([A-Z0-9&., '\-]{3,80})",
+        ],
+        combined,
+    )
+    account_number = first_match(
+        [
+            r"(?:account number|account no\.?|acct\.?|property id|pid)\s*[:#\-]?\s*([A-Z0-9\-]{4,30})",
+            r"\b(?:account|acct)\D{0,10}([0-9]{4,30})\b",
+        ],
+        combined,
+    )
+    signed_date = first_match(
+        [
+            r"(?:date signed|signed date|date)\s*[:\-]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
+        ],
+        combined,
+    )
+
+    return {
+        "tax_year": tax_year,
+        "owner_name": owner_name,
+        "account_number": account_number,
+        "signed_date": signed_date,
+    }
+
+
+def _build_page_texts(pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "page_number": page.get("page_number"),
+            "text": page.get("text", "") or "",
+        }
+        for page in pages
+    ]
+
+
+def _dedupe_candidates(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen: set[tuple[str, str, int, str]] = set()
+    deduped: List[Dict[str, Any]] = []
+    for candidate in sorted(
+        candidates,
+        key=lambda item: float(item.get("score", item.get("confidence", 0)) or 0),
+        reverse=True,
+    ):
+        field_name = str(candidate.get("field") or candidate.get("label") or "")
+        value = str(candidate.get("value"))
+        page_number = int(candidate.get("page_number") or 0)
+        source = str(candidate.get("source") or "")
+        key = (field_name, value, page_number, source)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+    return deduped
+
+
+def _depreciate_manual_override(manual_override: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    manual_override = manual_override or {}
+    historical_cost = manual_override.get("historical_cost")
+    acquisition_year = manual_override.get("acquisition_year")
+    life_years = manual_override.get("life_years")
+
+    if historical_cost is None:
+        return {}
+
+    schedule_path = Path(__file__).resolve().parent.parent / "Data" / "depreciation_schedule.csv"
+    if not schedule_path.exists():
+        return {
+            "percent_good": None,
+            "depreciated_value": None,
+            "error": f"Depreciation schedule not found: {schedule_path}",
+        }
+
+    try:
+        from app.depreciation import DepreciationEngine
+
+        engine = DepreciationEngine(str(schedule_path))
+        pct, value = engine.assess_value(
+            original_cost=float(historical_cost),
+            life_years=int(life_years) if life_years is not None else None,
+            acquisition_year=int(acquisition_year) if acquisition_year is not None else None,
+        )
+        return {"percent_good": pct, "depreciated_value": value}
+    except Exception as exc:
+        return {"percent_good": None, "depreciated_value": None, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def run_rendition_pipeline(
+    pdf_path: str,
+    manual_override: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    pages = _extract_pdf_pages(pdf_path)
+    targeted_parser = TargetedRenditionParser()
+
+    form_flags = targeted_parser.parse_page_1_flags(pages[0].get("text", "") if pages else "")
+    schedule_e = _best_schedule_e(pages, targeted_parser)
+    attachments = targeted_parser.parse_attachment_summary([p.get("text", "") or "" for p in pages])
+    metadata = _extract_metadata(pages)
+
+    pipeline = Pipeline()
+    pipeline_result = pipeline.run(pages=pages, manual_override=manual_override)
+
+    value_candidates = CandidateExtractor().extract_candidates(pages)
+    merged_candidates = _dedupe_candidates(
+        (pipeline_result.final_result.get("merged_candidates", []) or []) + value_candidates
+    )
+    candidate_buckets = bucket_candidates(merged_candidates)
+    selected_candidate = CandidateExtractor().select_best_candidate(value_candidates) or {}
+
+    review_flags = _review_flags(pages, schedule_e, attachments)
+    depreciated_override_result = _depreciate_manual_override(manual_override)
+
+    result = dict(pipeline_result.final_result)
+    result.update(
+        {
+            "source_pdf": str(pdf_path),
+            "processed_at": datetime.now().isoformat(timespec="seconds"),
+            "processed_pages": len(pages),
+            "page_texts": _build_page_texts(pages),
+            "form_flags": {**(result.get("form_flags", {}) or {}), **form_flags},
+            "schedule_e": schedule_e,
+            "attachments": attachments,
+            "metadata": metadata,
+            "review_flags": review_flags,
+            "manual_override": manual_override or {},
+            "depreciated_override_result": depreciated_override_result,
+            "value_candidates": value_candidates,
+            "selected_candidate": selected_candidate,
+            "merged_candidates": merged_candidates,
+            "candidates": candidate_buckets,
+        }
+    )
+
+    # Preserve direct field access for older output readers while keeping structured candidates.
+    for field_name, value in (result.get("resolved_values", {}) or {}).items():
+        result.setdefault(field_name, value)
+    if attachments.get("best_attachment_total") is not None:
+        result.setdefault("attachment_total", attachments.get("best_attachment_total"))
+    if schedule_e.get("total") is not None:
+        result.setdefault("schedule_e_total", schedule_e.get("total"))
+
+    result["assessment_summary"] = AssessmentSummaryBuilder().build_summary(
+        rendition_result=result,
+        manual_override=manual_override,
+        depreciated_override_result=depreciated_override_result,
+    )
+
+    result["agent_review"] = review_parse_result(result)
+    return result
+
+
+if __name__ == "__main__":
+    args = build_arg_parser().parse_args()
+
+    if args.pages_json:
+        pages = load_pages_from_json(args.pages_json)
+    elif args.pages_txt_folder:
+        pages = load_pages_from_txt_folder(args.pages_txt_folder)
+    else:
+        pages = get_demo_pages()
+
+    print_loaded_page_preview(pages)
+
+    manual_override = load_manual_override(args.manual_override_json)
+
+    pipeline = Pipeline()
+    result = pipeline.run(pages=pages, manual_override=manual_override)
+    result.final_result["agent_review"] = review_parse_result(result.final_result)
+
+    print("\nFINAL RESULT")
+    print(result.final_result)
+
+    print_pipeline_debug(result)

@@ -1,0 +1,1142 @@
+from __future__ import annotations
+
+import json
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+import fitz  # PyMuPDF
+import pandas as pd
+import streamlit as st
+
+APP_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = APP_DIR.parent
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.cli import build_cli_summary
+from app.pipeline import run_rendition_pipeline
+from app.review_workflow import (
+    COMPLETED_DIR,
+    OUTPUT_DIR,
+    QUEUE_CSV,
+    append_queue_row,
+    build_final_review_record,
+    ensure_output_dirs,
+    get_recommended_value,
+    save_review_outputs,
+    stamp_reviewed_pdf,
+)
+
+
+st.set_page_config(
+    page_title="AppraisalPilot",
+    page_icon="📄",
+    layout="wide",
+)
+
+st.markdown(
+    """
+    <style>
+        .stApp {
+            background-color: #0B1F3A;
+            color: #FFFFFF;
+        }
+
+        html, body, [class*="css"] {
+            color: #E6EDF5 !important;
+        }
+
+        .block-container {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+            max-width: 1500px;
+        }
+
+        h1, h2, h3 {
+            color: #FFD700 !important;
+        }
+
+        label, .stSelectbox label, .stTextInput label, .stNumberInput label, .stTextArea label {
+            color: #E6EDF5 !important;
+            font-weight: 600;
+        }
+
+        input, textarea, select {
+            background-color: #112B4A !important;
+            color: #FFFFFF !important;
+            border: 1px solid rgba(255, 215, 0, 0.25) !important;
+        }
+
+        ::placeholder {
+            color: #AAB8CC !important;
+        }
+
+        .stButton > button {
+            background-color: #FFD700;
+            color: #0B1F3A;
+            font-weight: 700;
+            border: none;
+            border-radius: 10px;
+            min-height: 44px;
+        }
+
+        .stButton > button:hover {
+            background-color: #e6c200;
+            color: #0B1F3A;
+        }
+
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 18px;
+        }
+
+        .stTabs [data-baseweb="tab"] {
+            color: #D7DFEA !important;
+            font-weight: 600;
+        }
+
+        .stTabs [aria-selected="true"] {
+            color: #FFD700 !important;
+        }
+
+        div[data-testid="stFileUploader"] {
+            background: #102948;
+            border-radius: 14px;
+            padding: 12px;
+        }
+
+        .stDataFrame {
+            border: 1px solid rgba(255, 215, 0, 0.15);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .ap-title {
+            font-size: 2.2rem;
+            font-weight: 800;
+            color: #FFD700;
+            margin-bottom: 0.25rem;
+        }
+
+        .ap-subtitle {
+            color: #D7DFEA;
+            margin-bottom: 1.25rem;
+        }
+
+        .ap-card {
+            background: #102948;
+            border: 1px solid rgba(255, 215, 0, 0.20);
+            border-radius: 16px;
+            padding: 18px;
+            margin-bottom: 16px;
+        }
+
+        .ap-muted {
+            color: #C7D2E3 !important;
+            font-size: 0.95rem;
+        }
+
+        .ap-kv-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .ap-kv-row:last-child {
+            border-bottom: none;
+        }
+
+        .ap-kv-label {
+            color: #C7D2E3;
+            font-weight: 600;
+        }
+
+        .ap-kv-value {
+            color: #FFFFFF;
+            text-align: right;
+            font-weight: 500;
+        }
+
+        .ap-decision-card {
+            background: #102948;
+            border: 2px solid rgba(255, 215, 0, 0.35);
+            border-radius: 18px;
+            padding: 22px;
+            margin-bottom: 18px;
+        }
+
+        .ap-decision-label {
+            color: #C7D2E3;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .ap-decision-value {
+            color: #FFFFFF;
+            font-size: 2.6rem;
+            font-weight: 800;
+            margin-top: 6px;
+            margin-bottom: 16px;
+        }
+
+        .ap-mini-card {
+            background: #0f2a44;
+            border-radius: 14px;
+            padding: 16px;
+            min-height: 108px;
+        }
+
+        .ap-mini-label {
+            font-size: 0.9rem;
+            color: #D7DFEA;
+            margin-bottom: 8px;
+        }
+
+        .ap-mini-value {
+            font-size: 1.7rem;
+            font-weight: 800;
+            color: #FFFFFF;
+            line-height: 1.2;
+            word-break: break-word;
+        }
+
+        .ap-reason-box {
+            background: #112f4e;
+            border-left: 5px solid #FFD700;
+            padding: 16px;
+            border-radius: 10px;
+            color: #FFFFFF;
+            margin-top: 10px;
+            margin-bottom: 14px;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def build_manual_override(
+    mode: str,
+    attachment_total,
+    good_faith_value,
+    historical_cost,
+    acquisition_year,
+    life_years,
+    notes: str,
+) -> dict | None:
+    notes = notes or ""
+
+    if mode == "Auto / Recommended":
+        return None
+
+    if mode == "Force Attachment Total":
+        return {
+            "attachment_total": float(attachment_total) if attachment_total is not None else None,
+            "good_faith_value": None,
+            "historical_cost": None,
+            "acquisition_year": None,
+            "life_years": None,
+            "notes": notes,
+        }
+
+    if mode == "Force Good Faith Value":
+        return {
+            "attachment_total": None,
+            "good_faith_value": float(good_faith_value) if good_faith_value is not None else None,
+            "historical_cost": None,
+            "acquisition_year": None,
+            "life_years": None,
+            "notes": notes,
+        }
+
+    if mode == "Force Historical Cost Less Depreciation":
+        return {
+            "attachment_total": None,
+            "good_faith_value": None,
+            "historical_cost": float(historical_cost) if historical_cost is not None else None,
+            "acquisition_year": int(acquisition_year) if acquisition_year is not None else None,
+            "life_years": int(life_years) if life_years is not None else None,
+            "notes": notes,
+        }
+
+    return None
+
+
+def format_money(value) -> str:
+    if value is None or value == "":
+        return "-"
+    try:
+        return f"${float(value):,.2f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def format_percent(value) -> str:
+    if value is None or value == "":
+        return "-"
+    try:
+        return f"{float(value):.2%}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def format_text(value) -> str:
+    if value is None or value == "":
+        return "-"
+    if isinstance(value, list):
+        return " | ".join(str(v) for v in value) if value else "-"
+    return str(value)
+
+
+def parse_money_input(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(str(value).replace("$", "").replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def prettify_path(path: str | None) -> str:
+    mapping = {
+        "use_manual_attachment_total": "Manual Attachment Total",
+        "use_manual_good_faith_value": "Manual Good Faith Value",
+        "use_manual_historical_cost_depreciated": "Historical Cost Less Depreciation",
+        "use_attachment_total_pending_review": "Attachment Total",
+        "use_schedule_total_pending_review": "Schedule E Total",
+        "manual_review": "Manual Review",
+    }
+    if not path:
+        return "-"
+    return mapping.get(path, path)
+
+
+def prettify_confidence(confidence: str | None) -> str:
+    mapping = {
+        "high": "High",
+        "medium": "Medium",
+        "low": "Low",
+    }
+    if not confidence:
+        return "-"
+    return mapping.get(confidence.lower(), confidence)
+
+
+def confidence_color(confidence: str | None) -> str:
+    confidence = (confidence or "").lower()
+    if confidence == "high":
+        return "#2ECC71"
+    if confidence == "medium":
+        return "#F1C40F"
+    return "#E74C3C"
+
+
+def get_status_label(result: dict) -> str:
+    assessment = result.get("assessment_summary", {}) or {}
+    issues = assessment.get("issues", []) or []
+    agent_review = result.get("agent_review", {}) or {}
+    path = assessment.get("recommended_path")
+
+    if path == "manual_review":
+        return "Manual Review"
+    if agent_review.get("status") == "fallback":
+        return "Review Recommended"
+    if issues:
+        return "Review Recommended"
+    return "Ready"
+
+
+def status_badge_html(result: dict) -> str:
+    status = get_status_label(result)
+    if status == "Manual Review":
+        bg = "rgba(231, 76, 60, 0.15)"
+        border = "#E74C3C"
+        text = "🔴 Manual Review"
+    elif status == "Review Recommended":
+        bg = "rgba(241, 196, 15, 0.15)"
+        border = "#F1C40F"
+        text = "🟡 Review Recommended"
+    else:
+        bg = "rgba(46, 204, 113, 0.15)"
+        border = "#2ECC71"
+        text = "🟢 Ready"
+
+    return f"""
+    <div style="
+        background:{bg};
+        border:1px solid {border};
+        border-radius:12px;
+        padding:14px 16px;
+        color:#FFFFFF;
+        font-weight:700;
+        margin-bottom:16px;
+    ">
+        {text}
+    </div>
+    """
+
+
+def render_kv_section(title: str, items: list[tuple[str, str]]) -> None:
+    st.subheader(title)
+    rows = []
+    for label, value in items:
+        rows.append(
+            f"""
+            <div class="ap-kv-row">
+                <div class="ap-kv-label">{label}</div>
+                <div class="ap-kv-value">{value}</div>
+            </div>
+            """
+        )
+    st.markdown("".join(rows), unsafe_allow_html=True)
+
+
+def show_top_metrics(result: dict) -> None:
+    assessment = result.get("assessment_summary", {}) or {}
+    value = (
+        assessment.get("recommended_value")
+        or assessment.get("recommended_market_value")
+        or assessment.get("recommended_assessed_value")
+        or assessment.get("extracted_value")
+    )
+    path = prettify_path(assessment.get("recommended_path"))
+    confidence = prettify_confidence(assessment.get("confidence"))
+    confidence_border = confidence_color(assessment.get("confidence"))
+    reason = assessment.get("reason", "-")
+    percent_good = (result.get("depreciated_override_result", {}) or {}).get("percent_good")
+
+    st.markdown(
+        f"""
+        <div class="ap-decision-card">
+            <div class="ap-decision-label">Recommended Value</div>
+            <div class="ap-decision-value">{format_money(value)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.markdown(
+            f"""
+            <div class="ap-mini-card" style="border:1px solid rgba(255,215,0,0.35);">
+                <div class="ap-mini-label">Valuation Path</div>
+                <div class="ap-mini-value">{path}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with c2:
+        st.markdown(
+            f"""
+            <div class="ap-mini-card" style="border:1px solid rgba(255,215,0,0.35);">
+                <div class="ap-mini-label">Percent Good</div>
+                <div class="ap-mini-value">{format_percent(percent_good)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with c3:
+        st.markdown(
+            f"""
+            <div class="ap-mini-card" style="border:1px solid {confidence_border};">
+                <div class="ap-mini-label" style="color:{confidence_border};">Confidence</div>
+                <div class="ap-mini-value">{confidence}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(status_badge_html(result), unsafe_allow_html=True)
+
+    st.markdown("### Decision Reason")
+    st.markdown(
+        f"""
+        <div class="ap-reason-box">
+            <strong>Decision:</strong><br><br>
+            {reason if reason else "-"}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def show_flags_and_findings(result: dict) -> None:
+    form_flags = result.get("form_flags", {}) or {}
+    metadata = result.get("metadata", {}) or {}
+    schedule_e = result.get("schedule_e", {}) or {}
+    attachments = result.get("attachments", {}) or {}
+    review_flags = result.get("review_flags", {}) or {}
+    manual_override = result.get("manual_override", {}) or {}
+    assessment = result.get("assessment_summary", {}) or {}
+    depreciation = result.get("depreciated_override_result", {}) or {}
+
+    left, right = st.columns(2)
+
+    with left:
+        st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+        render_kv_section(
+            "Document Metadata",
+            [
+                ("Tax Year", format_text(metadata.get("tax_year"))),
+                ("Owner Name", format_text(metadata.get("owner_name"))),
+                ("Account Number", format_text(metadata.get("account_number"))),
+                ("Signed Date", format_text(metadata.get("signed_date"))),
+            ],
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
+        render_kv_section(
+            "Form Flags",
+            [
+                ("Section 5 Present", "Yes" if form_flags.get("section_5_present") else "No"),
+                ("Over $20k Language", "Yes" if form_flags.get("section_5_over_20k_detected") else "No"),
+                ("$125k Language", "Yes" if form_flags.get("section_5_125k_language_detected") else "No"),
+                ("Signature Detected", "Yes" if form_flags.get("signature_block_detected") else "No"),
+                ("SEE ATTACHED", "Yes" if form_flags.get("see_attached") else "No"),
+            ],
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
+        render_kv_section(
+            "Schedule / Attachments",
+            [
+                ("Schedule E Present", "Yes" if schedule_e.get("schedule_e_present") else "No"),
+                ("Schedule E Total", format_money(schedule_e.get("total"))),
+                ("Schedule E M&E Present", "Yes" if schedule_e.get("machinery_and_equipment_present") else "No"),
+                ("Attachment Summary Present", "Yes" if attachments.get("attachment_summary_present") else "No"),
+                ("Best Attachment Total", format_money(attachments.get("best_attachment_total"))),
+                ("Current Value Detected", "Yes" if attachments.get("current_value_detected") else "No"),
+                ("Reported Cost Detected", "Yes" if attachments.get("reported_cost_detected") else "No"),
+                ("Rendered Value Detected", "Yes" if attachments.get("rendered_value_detected") else "No"),
+                ("Attachment M&E Present", "Yes" if attachments.get("machinery_and_equipment_present") else "No"),
+            ],
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with right:
+        st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+        render_kv_section(
+            "Override Inputs Used",
+            [
+                ("Attachment Total", format_money(manual_override.get("attachment_total"))),
+                ("Good Faith Value", format_money(manual_override.get("good_faith_value"))),
+                ("Historical Cost", format_money(manual_override.get("historical_cost"))),
+                ("Acquisition Year", format_text(manual_override.get("acquisition_year"))),
+                ("Life Years", format_text(manual_override.get("life_years"))),
+                ("Notes", format_text(manual_override.get("notes"))),
+            ],
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
+        render_kv_section(
+            "Review / Decision Details",
+            [
+                ("Recommended Path", prettify_path(assessment.get("recommended_path"))),
+                ("Value Source", format_text(assessment.get("value_source"))),
+                ("Percent Good", format_percent(depreciation.get("percent_good"))),
+                ("Confidence", prettify_confidence(assessment.get("confidence"))),
+                ("Needs Manual Row Review", "Yes" if review_flags.get("needs_manual_row_review") else "No"),
+                ("Needs Attachment Review", "Yes" if review_flags.get("needs_attachment_review") else "No"),
+                ("Issues", format_text(assessment.get("issues"))),
+            ],
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+def normalize_candidates_for_table(candidates: list[dict] | None) -> pd.DataFrame:
+    candidates = candidates or []
+    if not candidates:
+        return pd.DataFrame(columns=["Page", "Label", "Value", "Score", "Context"])
+
+    rows = []
+    for c in candidates:
+        rows.append(
+            {
+                "Page": c.get("page_number", "-"),
+                "Field": c.get("field", c.get("label", "-")),
+                "Label": c.get("label", c.get("rule", "-")),
+                "Value": format_money(c.get("value")),
+                "Score": c.get("score", c.get("confidence", "-")),
+                "Source": c.get("source", "-"),
+                "Evidence": c.get("evidence_text", c.get("context", c.get("source_text", "-"))),
+            }
+        )
+    df = pd.DataFrame(rows)
+    if "Score" in df.columns:
+        try:
+            df = df.sort_values(by="Score", ascending=False)
+        except Exception:
+            pass
+    return df
+
+
+def show_agent_review(result: dict) -> None:
+    agent_review = result.get("agent_review", {}) or {}
+    values = agent_review.get("recommended_values", {}) or {}
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    render_kv_section(
+        "AI / Fallback Review",
+        [
+            ("Status", format_text(agent_review.get("status"))),
+            ("Selected Source", format_text(values.get("selected_source"))),
+            ("Attachment Total", format_money(values.get("attachment_total"))),
+            ("Good Faith Value", format_money(values.get("good_faith_value"))),
+            ("Rendered Value", format_money(values.get("rendered_value"))),
+            ("Historical Cost", format_money(values.get("historical_cost"))),
+            ("Acquisition Year", format_text(values.get("acquisition_year"))),
+            ("Confidence", format_text(agent_review.get("confidence"))),
+            ("Flags", format_text(agent_review.get("review_flags"))),
+        ],
+    )
+    st.markdown("### Review Reasoning")
+    st.write(agent_review.get("reasoning") or agent_review.get("reason") or "-")
+    rejected = agent_review.get("rejected_candidates") or {}
+    if rejected:
+        with st.expander("Rejected / Lower-Ranked Candidates", expanded=False):
+            st.json(rejected)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def show_candidate_debug(result: dict) -> None:
+    candidates = result.get("value_candidates", []) or []
+    selected = result.get("selected_candidate") or {}
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Extraction Candidates")
+    st.caption("Use this to debug why the system picked one number over the others.")
+
+    c1, c2 = st.columns([1, 3])
+
+    with c1:
+        st.metric("Candidates Found", len(candidates))
+
+    with c2:
+        selected_label = selected.get("label", "-")
+        selected_value = format_money(selected.get("value"))
+        selected_page = selected.get("page_number", "-")
+        selected_score = selected.get("score", "-")
+
+        st.markdown(
+            f"""
+            <div class="ap-mini-card" style="border:1px solid rgba(255,215,0,0.35); min-height: auto;">
+                <div class="ap-mini-label">Selected Candidate</div>
+                <div style="color:#FFFFFF; font-size:1rem; line-height:1.7;">
+                    <strong>Label:</strong> {selected_label}<br>
+                    <strong>Value:</strong> {selected_value}<br>
+                    <strong>Page:</strong> {selected_page}<br>
+                    <strong>Score:</strong> {selected_score}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    df = normalize_candidates_for_table(candidates)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+@st.cache_data(show_spinner=False)
+def render_pdf_pages(file_bytes: bytes) -> list[bytes]:
+    pages: list[bytes] = []
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+
+    for page in doc:
+        pix = page.get_pixmap(matrix=fitz.Matrix(1.4, 1.4), alpha=False)
+        pages.append(pix.tobytes("png"))
+
+    doc.close()
+    return pages
+
+
+def show_pdf_preview(file_bytes: bytes) -> None:
+    page_images = render_pdf_pages(file_bytes)
+
+    if not page_images:
+        st.warning("No PDF pages could be rendered.")
+        return
+
+    st.caption(f"{len(page_images)} page(s) rendered")
+
+    for i, img_bytes in enumerate(page_images, start=1):
+        with st.expander(f"Page {i}", expanded=(i == 1)):
+            st.image(img_bytes, use_container_width=True)
+
+
+def run_pipeline_from_upload(file_name: str, file_bytes: bytes, manual_override: dict | None = None) -> dict:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(file_bytes)
+        temp_pdf_path = Path(tmp.name)
+
+    try:
+        return run_rendition_pipeline(
+            pdf_path=str(temp_pdf_path),
+            manual_override=manual_override,
+        )
+    finally:
+        try:
+            temp_pdf_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> None:
+    recommended_value = get_recommended_value(result)
+    default_source = (result.get("assessment_summary", {}) or {}).get("value_source") or "pipeline_recommendation"
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Finalize Review")
+
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        final_value_text = st.text_input(
+            "Final Value",
+            value="" if recommended_value is None else str(recommended_value),
+            key=f"final_value_{file_name}",
+        )
+    with c2:
+        final_source = st.selectbox(
+            "Final Source",
+            [
+                default_source,
+                "agent_review",
+                "attachment_total",
+                "schedule_e_total",
+                "good_faith_value",
+                "manual_override",
+                "manual_review",
+            ],
+            key=f"final_source_{file_name}",
+        )
+
+    c3, c4 = st.columns([1, 1])
+    with c3:
+        appraiser_initials = st.text_input(
+            "Appraiser Initials",
+            value="",
+            max_chars=12,
+            key=f"final_initials_{file_name}",
+        )
+    with c4:
+        decision = st.radio(
+            "Review Decision",
+            ["Accepted Recommended Value", "Adjusted Value"],
+            horizontal=True,
+            key=f"final_decision_{file_name}",
+        )
+
+    final_notes = st.text_area(
+        "Appraiser Notes",
+        value="",
+        key=f"final_notes_{file_name}",
+        height=90,
+    )
+
+    save_only, lock_final = st.columns(2)
+    with save_only:
+        if st.button("Save Review Output", key=f"save_review_{file_name}", use_container_width=True):
+            paths = save_review_outputs(file_name=file_name, result=result)
+            append_queue_row(file_name=file_name, result=result, status=get_status_label(result))
+            st.success(f"Saved review JSON and CSV to {OUTPUT_DIR}")
+            st.caption(" | ".join(str(path) for path in paths.values()))
+
+    with lock_final:
+        if st.button("Lock Final Value", type="primary", key=f"lock_review_{file_name}", use_container_width=True):
+            final_value = parse_money_input(final_value_text)
+            if final_value is None:
+                st.error("Enter a valid final value before locking.")
+            elif not appraiser_initials.strip():
+                st.error("Enter appraiser initials before locking.")
+            else:
+                decision_code = "accepted" if decision == "Accepted Recommended Value" else "adjusted"
+                record = build_final_review_record(
+                    file_name=file_name,
+                    result=result,
+                    final_value=final_value,
+                    final_source=final_source,
+                    appraiser_notes=final_notes,
+                    appraiser_initials=appraiser_initials.strip().upper(),
+                    decision=decision_code,
+                )
+                stamped_pdf = stamp_reviewed_pdf(file_name=file_name, file_bytes=file_bytes, final_record=record)
+                record["stamped_pdf"] = str(stamped_pdf)
+                paths = save_review_outputs(file_name=file_name, result=result, final_record=record)
+                append_queue_row(file_name=file_name, result={**result, "final_review": record}, status="Locked")
+                st.success(f"Locked final value at {format_money(final_value)}")
+                st.caption(" | ".join(str(path) for path in {**paths, "stamped_pdf": stamped_pdf}.values()))
+                st.json(record)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def build_batch_row(file_name: str, result: dict) -> dict:
+    assessment = result.get("assessment_summary", {}) or {}
+    metadata = result.get("metadata", {}) or {}
+    review_flags = result.get("review_flags", {}) or {}
+    agent_review = result.get("agent_review", {}) or {}
+    form_flags = result.get("form_flags", {}) or {}
+    schedule_e = result.get("schedule_e", {}) or {}
+    attachments = result.get("attachments", {}) or {}
+
+    value = (
+        assessment.get("recommended_value")
+        or assessment.get("recommended_market_value")
+        or assessment.get("recommended_assessed_value")
+        or assessment.get("extracted_value")
+    )
+
+    issues = assessment.get("issues", []) or []
+    issues_text = " | ".join(issues) if issues else "-"
+
+    return {
+        "File Name": file_name,
+        "Tax Year": metadata.get("tax_year") or "-",
+        "Owner Name": metadata.get("owner_name") or "-",
+        "Account Number": metadata.get("account_number") or "-",
+        "Recommended Value": format_money(value),
+        "Valuation Path": prettify_path(assessment.get("recommended_path")),
+        "Confidence": prettify_confidence(assessment.get("confidence")),
+        "Status": get_status_label(result),
+        "Value Source": assessment.get("value_source") or "-",
+        "Signature Detected": bool(form_flags.get("signature_block_detected")),
+        "SEE ATTACHED": bool(form_flags.get("see_attached")),
+        "Schedule E Total": format_money(schedule_e.get("total")),
+        "Attachment Total": format_money(attachments.get("best_attachment_total")),
+        "Agent Status": agent_review.get("status") or "-",
+        "Agent Flags": " | ".join(str(x) for x in agent_review.get("review_flags", []) or []) or "-",
+        "Candidates Found": len(result.get("value_candidates", []) or []),
+        "Needs Manual Row Review": bool(review_flags.get("needs_manual_row_review")),
+        "Needs Attachment Review": bool(review_flags.get("needs_attachment_review")),
+        "Issues": issues_text,
+    }
+
+
+def render_single_review() -> None:
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Single Review Controls")
+
+    c1, c2 = st.columns([1.2, 1])
+
+    with c1:
+        uploaded_file = st.file_uploader(
+            "Upload rendition PDF",
+            type=["pdf"],
+            accept_multiple_files=False,
+            key="single_upload",
+        )
+
+    with c2:
+        mode = st.selectbox(
+            "Valuation Mode",
+            [
+                "Auto / Recommended",
+                "Force Attachment Total",
+                "Force Good Faith Value",
+                "Force Historical Cost Less Depreciation",
+            ],
+            key="single_mode",
+        )
+
+    attachment_total = None
+    good_faith_value = None
+    historical_cost = None
+    acquisition_year = None
+    life_years = None
+
+    dynamic_cols = st.columns(4)
+
+    if mode == "Force Attachment Total":
+        with dynamic_cols[0]:
+            attachment_total = st.number_input(
+                "Attachment Total",
+                min_value=0.0,
+                step=100.0,
+                format="%.2f",
+                key="single_attachment_total",
+            )
+
+    if mode == "Force Good Faith Value":
+        with dynamic_cols[0]:
+            good_faith_value = st.number_input(
+                "Good Faith Value",
+                min_value=0.0,
+                step=100.0,
+                format="%.2f",
+                key="single_good_faith_value",
+            )
+
+    if mode == "Force Historical Cost Less Depreciation":
+        with dynamic_cols[0]:
+            historical_cost = st.number_input(
+                "Historical Cost",
+                min_value=0.0,
+                step=100.0,
+                format="%.2f",
+                key="single_historical_cost",
+            )
+        with dynamic_cols[1]:
+            acquisition_year = st.number_input(
+                "Acquisition Year",
+                min_value=1900,
+                max_value=2100,
+                step=1,
+                value=2022,
+                key="single_acquisition_year",
+            )
+        with dynamic_cols[2]:
+            life_years = st.number_input(
+                "Life Years",
+                min_value=1,
+                max_value=50,
+                step=1,
+                value=5,
+                key="single_life_years",
+            )
+
+    notes = st.text_area("Notes", value="", key="single_notes", height=90)
+    run_review = st.button("Run Review", type="primary", use_container_width=False, key="single_run_review")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if not uploaded_file:
+        st.info("Upload a rendition PDF to begin.")
+        return
+
+    file_bytes = uploaded_file.getvalue()
+
+    left_col, right_col = st.columns([1.02, 1])
+
+    with left_col:
+        st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+        st.subheader("Rendition PDF")
+        st.download_button(
+            "Download PDF",
+            data=file_bytes,
+            file_name=uploaded_file.name,
+            mime="application/pdf",
+            use_container_width=True,
+            key="single_download_pdf",
+        )
+        show_pdf_preview(file_bytes)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with right_col:
+        st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+        st.subheader("Analysis")
+        st.markdown(
+            '<div class="ap-muted">Focus on Recommended Value, Valuation Path, Confidence, and Reason first.</div>',
+            unsafe_allow_html=True,
+        )
+
+        if run_review:
+            manual_override = build_manual_override(
+                mode=mode,
+                attachment_total=attachment_total,
+                good_faith_value=good_faith_value,
+                historical_cost=historical_cost,
+                acquisition_year=acquisition_year,
+                life_years=life_years,
+                notes=notes,
+            )
+
+            result = run_pipeline_from_upload(
+                file_name=uploaded_file.name,
+                file_bytes=file_bytes,
+                manual_override=manual_override,
+            )
+            st.session_state["single_result"] = result
+            st.session_state["single_file_name"] = uploaded_file.name
+            st.session_state["single_file_bytes"] = file_bytes
+
+            st.success("Review completed.")
+
+        result = st.session_state.get("single_result")
+        result_file_name = st.session_state.get("single_file_name", uploaded_file.name)
+        result_file_bytes = st.session_state.get("single_file_bytes", file_bytes)
+
+        if result:
+            show_top_metrics(result)
+            show_flags_and_findings(result)
+            show_agent_review(result)
+            show_candidate_debug(result)
+            finalize_review_panel(result_file_name, result, result_file_bytes)
+
+            with st.expander("One-Page Summary", expanded=False):
+                st.code(build_cli_summary(result=result, source_path=result_file_name), language="text")
+
+            with st.expander("Raw JSON", expanded=False):
+                st.json(result)
+
+            st.download_button(
+                "Download JSON Result",
+                data=json.dumps(result, indent=2, default=str),
+                file_name=f"{result_file_name.rsplit('.', 1)[0]}_review.json",
+                mime="application/json",
+                use_container_width=True,
+                key="single_download_json",
+            )
+        else:
+            st.info("Set inputs above, then click Run Review.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_batch_review() -> None:
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Batch Review Controls")
+    uploaded_files = st.file_uploader(
+        "Upload multiple rendition PDFs",
+        type=["pdf"],
+        accept_multiple_files=True,
+        key="batch_upload",
+    )
+    run_batch = st.button("Run Batch Review", type="primary", use_container_width=False, key="batch_run")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Batch Review")
+    st.markdown(
+        '<div class="ap-muted">Upload multiple PDFs, run the pipeline on all of them, and use the table to spot outliers fast.</div>',
+        unsafe_allow_html=True,
+    )
+
+    if not uploaded_files:
+        st.info("Upload one or more PDFs to begin batch review.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    st.caption(f"{len(uploaded_files)} file(s) ready")
+
+    if run_batch:
+        rows: list[dict] = []
+        results_payload: dict[str, dict] = {}
+
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        total = len(uploaded_files)
+
+        for idx, uploaded_file in enumerate(uploaded_files, start=1):
+            status_text.write(f"Processing {idx} of {total}: {uploaded_file.name}")
+            file_bytes = uploaded_file.getvalue()
+
+            result = run_pipeline_from_upload(
+                file_name=uploaded_file.name,
+                file_bytes=file_bytes,
+                manual_override=None,
+            )
+
+            rows.append(build_batch_row(uploaded_file.name, result))
+            results_payload[uploaded_file.name] = result
+            save_review_outputs(file_name=uploaded_file.name, result=result)
+            append_queue_row(file_name=uploaded_file.name, result=result, status=get_status_label(result))
+            progress_bar.progress(idx / total)
+
+        status_text.success("Batch review completed.")
+
+        df = pd.DataFrame(rows)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        d1, d2 = st.columns(2)
+        with d1:
+            st.download_button(
+                "Download Batch Results JSON",
+                data=json.dumps(results_payload, indent=2, default=str),
+                file_name="batch_review_results.json",
+                mime="application/json",
+                use_container_width=True,
+                key="batch_download_json",
+            )
+        with d2:
+            st.download_button(
+                "Download Batch Results CSV",
+                data=df.to_csv(index=False).encode("utf-8"),
+                file_name="batch_review_results.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key="batch_download_csv",
+            )
+
+        with st.expander("Raw Batch JSON", expanded=False):
+            st.json(results_payload)
+    else:
+        st.info("Click Run Batch Review to process all uploaded files.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_review_queue() -> None:
+    ensure_output_dirs()
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Review Queue")
+    st.caption(f"Saved outputs are written to {OUTPUT_DIR}")
+
+    if QUEUE_CSV.exists():
+        try:
+            df = pd.read_csv(QUEUE_CSV)
+            st.dataframe(df.sort_values(by="processed_at", ascending=False), use_container_width=True, hide_index=True)
+            st.download_button(
+                "Download Queue CSV",
+                data=QUEUE_CSV.read_bytes(),
+                file_name="review_queue.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key="queue_download_csv",
+            )
+        except Exception as exc:
+            st.error(f"Could not read review queue: {exc}")
+    else:
+        st.info("No saved review queue yet. Run a single or batch review and save/lock it.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Completed Reviews")
+    completed_files = sorted(COMPLETED_DIR.glob("*_final.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    if not completed_files:
+        st.info("No locked final reviews yet.")
+    else:
+        rows = []
+        for path in completed_files:
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+            rows.append(
+                {
+                    "File": data.get("file_name", path.name),
+                    "Final Value": format_money(data.get("final_value")),
+                    "Final Source": data.get("final_source", "-"),
+                    "Locked At": data.get("locked_at", "-"),
+                    "Notes": data.get("appraiser_notes", ""),
+                }
+            )
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def main() -> None:
+    st.markdown('<div class="ap-title">AppraisalPilot</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="ap-subtitle">Intelligent BPP rendition review with side-by-side document verification and batch triage.</div>',
+        unsafe_allow_html=True,
+    )
+
+    single_tab, batch_tab, queue_tab = st.tabs(["Single Review", "Batch Review", "Review Queue"])
+
+    with single_tab:
+        render_single_review()
+
+    with batch_tab:
+        render_batch_review()
+
+    with queue_tab:
+        render_review_queue()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,33 @@
+{
+  "file_name": "sample_rendition.pdf",
+  "locked_at": "2026-04-21T09:47:21",
+  "decision": "accepted",
+  "final_value": 126562.0,
+  "final_source": "pipeline_recommendation",
+  "appraiser_initials": "BT",
+  "appraiser_notes": "stamp smoke test",
+  "pipeline_recommended_value": 126562.0,
+  "pipeline_value_source": "attachment_summary_total",
+  "pipeline_path": "use_attachment_total_pending_review",
+  "pipeline_confidence": "low",
+  "pipeline_issues": [
+    "Schedule E row-level values were not extractable."
+  ],
+  "review_flags": {
+    "needs_manual_row_review": true,
+    "needs_attachment_review": false,
+    "low_text_extraction": false
+  },
+  "agent_status": "fallback",
+  "agent_confidence": 0.45,
+  "agent_reasoning": "Deterministic fallback review selected the highest-scored pipeline candidates and preserved manual overrides.",
+  "agent_recommended_values": {
+    "historical_cost": null,
+    "acquisition_year": null,
+    "rendered_value": null,
+    "good_faith_value": "150000.0",
+    "attachment_total": "126562.0",
+    "selected_source": "attachments.best_attachment_total"
+  },
+  "stamped_pdf": "C:\\Users\\Brooks\\Desktop\\BPP\\BPP Project\\Output\\appraiser_uploads\\sample_rendition_accepted_stamped.pdf"
+}

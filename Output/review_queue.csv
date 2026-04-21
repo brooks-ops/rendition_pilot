@@ -1,0 +1,2 @@
+processed_at,file_name,tax_year,owner_name,account_number,status,recommended_value,value_source,confidence,issues,agent_status
+2026-04-21T09:44:51,sample_rendition.pdf,,eh p rype,,Locked,126562.0,attachment_summary_total,low,Schedule E row-level values were not extractable.,fallback
