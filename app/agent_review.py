@@ -91,7 +91,8 @@ def _collect_top_candidates(parse_result: Dict[str, Any]) -> Dict[str, List[Dict
                 "value": str(best_attachment_total),
                 "source": "attachments.best_attachment_total",
                 "evidence_text": "Best attachment total found by existing pipeline.",
-                "confidence": 0.9,
+                "confidence": 0.99,
+                "score": 100.0,
             },
         )
 

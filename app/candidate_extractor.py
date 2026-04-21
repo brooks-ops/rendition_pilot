@@ -21,7 +21,7 @@ class CandidateExtractor:
         )
 
         self.label_rules: list[tuple[str, list[str], int]] = [
-            ("schedule_e_total", ["schedule e", "total market value", "market value", "inventory"], 12),
+            ("schedule_e_total", ["schedule e", "total market value", "inventory"], 12),
             ("rendered_value", ["rendered value", "total rendered value", "value rendered"], 11),
             ("good_faith_value", ["good faith", "good faith estimate"], 10),
             ("market_value", ["market value", "appraised value"], 9),
@@ -41,9 +41,15 @@ class CandidateExtractor:
             "parcel",
             "statement",
             "form",
+            "clovis road",
+            "lubbock, tx",
+            "mailing address",
+            "phone",
             "section 5",
             "20,000 or more",
             "125,000",
+            "not more than",
+            "or less",
         ]
 
     def extract_candidates(self, pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -63,9 +69,22 @@ class CandidateExtractor:
                     continue
                 if value < 100:
                     continue
+                if self._looks_like_year(value):
+                    continue
 
                 context = self._get_context_by_span(text, match.start(), match.end(), window=90)
                 label = self._guess_label(context)
+                normalized_context = self._normalize_text(context)
+                if (
+                    label in {"good_faith_value", "market_value"}
+                    and page_type in {"attachment", "schedule_e", "unknown"}
+                    and "total" not in normalized_context
+                ):
+                    continue
+                if label in {"good_faith_value", "market_value"} and (
+                    "not more than" in normalized_context or "or less" in normalized_context
+                ):
+                    continue
                 score = self._score_candidate(
                     value=value,
                     label=label,

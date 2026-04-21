@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import os
 import re
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -163,15 +166,49 @@ def _normalize_ocrish_text(text: str) -> str:
     return text
 
 
+def _configure_tesseract() -> bool:
+    try:
+        import pytesseract
+    except Exception:
+        return False
+
+    candidates = [
+        shutil.which("tesseract"),
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        r"C:\Users\Brooks\AppData\Local\Programs\Tesseract-OCR\tesseract.exe",
+    ]
+    for exe_path in candidates:
+        if exe_path and Path(exe_path).exists():
+            pytesseract.pytesseract.tesseract_cmd = exe_path
+            return True
+    return False
+
+
+def _get_openai_api_key() -> Optional[str]:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        return api_key.strip()
+
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.exists():
+        return None
+
+    try:
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            key, sep, value = line.partition("=")
+            if sep and key.strip() == "OPENAI_API_KEY":
+                return value.strip().strip('"').strip("'") or None
+    except Exception:
+        return None
+
+    return None
+
+
 def _parse_money(raw: str) -> Optional[float]:
-    cleaned = (
-        raw.replace(",", "")
-        .replace("$", "")
-        .replace(" ", "")
-        .replace("O", "0")
-        .replace("o", "0")
-        .strip("() ")
-    )
+    cleaned = _normalize_money_text(raw)
     try:
         value = float(cleaned)
     except ValueError:
@@ -179,6 +216,35 @@ def _parse_money(raw: str) -> Optional[float]:
     if value < 0:
         return None
     return value
+
+
+def _normalize_money_text(raw: str) -> str:
+    text = (
+        str(raw or "")
+        .replace("$", "")
+        .replace("O", "0")
+        .replace("o", "0")
+        .strip("() ")
+    )
+    text = re.sub(r"\s+", " ", text)
+
+    # OCR sometimes splits a leading digit off a comma-grouped amount:
+    # "$ 1 84,724.43" should be "184,724.43".
+    text = re.sub(r"\b(\d)\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"\1\2", text)
+    text = text.replace(" ", "")
+
+    if "," in text and "." in text:
+        return text.replace(",", "")
+
+    if "," in text:
+        if re.fullmatch(r"\d{1,3}(?:,\d{3})+", text):
+            return text.replace(",", "")
+        return text.replace(",", ".")
+
+    if text.count(".") > 1:
+        return text.replace(".", "")
+
+    return text
 
 
 def _money_candidates_with_spans(text: str) -> List[Dict[str, Any]]:
@@ -257,6 +323,12 @@ def _candidate_for_labeled_money(
                     score += 0.04
                 if any(bad in snippet for bad in ["phone", "fax", "zip", "account", "page"]):
                     score -= 0.20
+                if any(bad in snippet for bad in ["not more than", "or less", "under $20", "$20,000 or more"]):
+                    score -= 0.60
+                if money["value"] in {20000.0, 50000.0, 125000.0, 150000.0} and any(
+                    bad in snippet for bad in ["not more than", "or less", "under", "or more", "tax code"]
+                ):
+                    continue
                 scored.append((score, money, label, distance))
 
     if not scored:
@@ -1155,16 +1227,59 @@ def _extract_pdf_pages(pdf_path: str) -> List[Dict[str, Any]]:
             )
         page["ocr_blocks"] = normalized_words
 
-    # Optional scanned-PDF fallback. If OCR dependencies or system binaries are absent,
-    # keep the normal text-extraction path alive and let review flags surface low text.
-    if pages and any(len((p.get("text") or "").strip()) >= 25 for p in pages):
+    # Optional scanned-PDF fallback. Treat tiny/form-artifact text as low quality so
+    # image-only renditions and weak text layers still get OCR.
+    if pages and not _needs_ocr_fallback(pages):
         return pages
 
     ocr_pages = _ocr_pdf_pages_with_pymupdf(pdf_path)
     if any((p.get("text") or "").strip() for p in ocr_pages):
         return ocr_pages
 
+    vision_pages = _ocr_pdf_pages_with_openai_vision(pdf_path)
+    if any((p.get("text") or "").strip() for p in vision_pages):
+        return vision_pages
+    vision_errors = [
+        str(p.get("ocr_error"))
+        for p in vision_pages
+        if p.get("ocr_error")
+    ]
+
+    if _needs_ocr_fallback(pages):
+        for page in pages:
+            page["ocr_unavailable"] = True
+            if vision_errors:
+                page["ocr_error"] = _summarize_ocr_error(vision_errors[0])
+
     return pages
+
+
+def _needs_ocr_fallback(pages: List[Dict[str, Any]]) -> bool:
+    if not pages:
+        return False
+
+    combined = "\n".join((p.get("text") or "") for p in pages)
+    normalized = _normalize_ocrish_text(combined)
+    text_chars = len(combined.strip())
+    alpha_chars = sum(ch.isalpha() for ch in combined)
+    digit_chars = sum(ch.isdigit() for ch in combined)
+    page_count = max(len(pages), 1)
+
+    if text_chars < 75 * page_count:
+        return True
+    if alpha_chars < 25 * page_count and digit_chars < 10 * page_count:
+        return True
+
+    target_terms = [
+        "rendition",
+        "schedule",
+        "market value",
+        "good faith",
+        "historical cost",
+        "property owner",
+        "total fixed assets",
+    ]
+    return sum(1 for term in target_terms if term in normalized) < 2
 
 
 def _ocr_pdf_pages_with_pymupdf(pdf_path: str) -> List[Dict[str, Any]]:
@@ -1176,6 +1291,9 @@ def _ocr_pdf_pages_with_pymupdf(pdf_path: str) -> List[Dict[str, Any]]:
     except Exception:
         return []
 
+    if not _configure_tesseract():
+        return []
+
     try:
         doc = fitz.open(pdf_path)
     except Exception:
@@ -1184,8 +1302,9 @@ def _ocr_pdf_pages_with_pymupdf(pdf_path: str) -> List[Dict[str, Any]]:
     ocr_pages: List[Dict[str, Any]] = []
     try:
         for page_number, page in enumerate(doc, start=1):
-            pix = page.get_pixmap(matrix=fitz.Matrix(3, 3), alpha=False)
+            pix = page.get_pixmap(matrix=fitz.Matrix(4, 4), alpha=False)
             image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            image = _prepare_ocr_image(image)
 
             best_text = ""
             best_words: List[Dict[str, Any]] = []
@@ -1194,8 +1313,9 @@ def _ocr_pdf_pages_with_pymupdf(pdf_path: str) -> List[Dict[str, Any]]:
             for rotation in [0, 90, 270]:
                 rotated = image.rotate(rotation, expand=True) if rotation else image
                 try:
-                    text = pytesseract.image_to_string(rotated) or ""
-                    data = pytesseract.image_to_data(rotated, output_type=Output.DICT)
+                    config = "--oem 3 --psm 6 -c preserve_interword_spaces=1"
+                    text = pytesseract.image_to_string(rotated, config=config) or ""
+                    data = pytesseract.image_to_data(rotated, output_type=Output.DICT, config=config)
                 except Exception:
                     continue
 
@@ -1250,6 +1370,117 @@ def _ocr_pdf_pages_with_pymupdf(pdf_path: str) -> List[Dict[str, Any]]:
         doc.close()
 
     return ocr_pages
+
+
+def _prepare_ocr_image(image: Any) -> Any:
+    try:
+        from PIL import ImageEnhance, ImageFilter
+    except Exception:
+        return image
+
+    gray = image.convert("L")
+    gray = ImageEnhance.Contrast(gray).enhance(1.8)
+    gray = gray.filter(ImageFilter.SHARPEN)
+    return gray.point(lambda px: 255 if px > 185 else 0)
+
+
+def _summarize_ocr_error(error: str) -> str:
+    lowered = error.lower()
+    if "insufficient_quota" in lowered or "exceeded your current quota" in lowered:
+        return "OpenAI vision OCR unavailable: API quota or billing limit exceeded."
+    if "rate" in lowered and "limit" in lowered:
+        return "OpenAI vision OCR unavailable: rate limit reached."
+    if "api key" in lowered or "authentication" in lowered or "unauthorized" in lowered:
+        return "OpenAI vision OCR unavailable: API key/authentication failed."
+    return "OpenAI vision OCR unavailable."
+
+
+def _ocr_pdf_pages_with_openai_vision(pdf_path: str) -> List[Dict[str, Any]]:
+    api_key = _get_openai_api_key()
+    if not api_key:
+        return []
+
+    try:
+        import fitz
+        from openai import OpenAI
+    except Exception:
+        return []
+
+    model = os.getenv("OPENAI_VISION_OCR_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4.1-mini"
+
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return []
+
+    client = OpenAI(api_key=api_key)
+    pages: List[Dict[str, Any]] = []
+    try:
+        for page_number, page in enumerate(doc, start=1):
+            try:
+                pix = page.get_pixmap(matrix=fitz.Matrix(2.5, 2.5), alpha=False)
+                image_bytes = pix.tobytes("jpeg", jpg_quality=88)
+                image_url = "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii")
+            except Exception:
+                pages.append(
+                    {
+                        "page_number": page_number,
+                        "text": "",
+                        "ocr_blocks": [],
+                        "text_source": "openai_vision_ocr_error",
+                    }
+                )
+                continue
+
+            try:
+                response = client.responses.create(
+                    model=model,
+                    input=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "input_text",
+                                    "text": (
+                                        "Transcribe this business personal property rendition page. "
+                                        "Return only the visible text, preserving line breaks and dollar "
+                                        "amounts exactly as well as possible. Do not summarize or infer."
+                                    ),
+                                },
+                                {
+                                    "type": "input_image",
+                                    "image_url": image_url,
+                                },
+                            ],
+                        }
+                    ],
+                )
+                text = (getattr(response, "output_text", "") or "").strip()
+            except Exception as exc:
+                text = ""
+                pages.append(
+                    {
+                        "page_number": page_number,
+                        "text": text,
+                        "ocr_blocks": [],
+                        "text_source": "openai_vision_ocr_error",
+                        "ocr_error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+                continue
+
+            pages.append(
+                {
+                    "page_number": page_number,
+                    "text": text,
+                    "ocr_blocks": [],
+                    "text_source": "openai_vision_ocr",
+                }
+            )
+    finally:
+        doc.close()
+
+    return pages
 
 
 def _best_schedule_e(pages: List[Dict[str, Any]], targeted_parser: TargetedRenditionParser) -> Dict[str, Any]:
@@ -1390,6 +1621,13 @@ def _extract_schedule_values(pages: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def _review_flags(pages: List[Dict[str, Any]], schedule_e: Dict[str, Any], attachments: Dict[str, Any]) -> Dict[str, Any]:
     text_chars = sum(len(p.get("text", "") or "") for p in pages)
+    ocr_errors = sorted(
+        {
+            str(p.get("ocr_error"))
+            for p in pages
+            if p.get("ocr_error")
+        }
+    )
     return {
         "needs_manual_row_review": bool(schedule_e.get("schedule_e_present") and not schedule_e.get("year_rows")),
         "needs_attachment_review": bool(
@@ -1397,6 +1635,8 @@ def _review_flags(pages: List[Dict[str, Any]], schedule_e: Dict[str, Any], attac
             and attachments.get("best_attachment_total") is None
         ),
         "low_text_extraction": text_chars < 50,
+        "ocr_unavailable": any(bool(p.get("ocr_unavailable")) for p in pages),
+        "ocr_errors": ocr_errors,
     }
 
 
@@ -1538,9 +1778,25 @@ def run_rendition_pipeline(
     pipeline_result = pipeline.run(pages=pages, manual_override=manual_override)
 
     value_candidates = CandidateExtractor().extract_candidates(pages)
+    attachment_total_candidate: List[Dict[str, Any]] = []
+    if attachments.get("best_attachment_total") is not None:
+        attachment_total_candidate.append(
+            {
+                "field": "attachment_total",
+                "value": attachments.get("best_attachment_total"),
+                "raw_value": str(attachments.get("best_attachment_total")),
+                "source": "attachment_summary",
+                "rule": "labeled_attachment_total",
+                "page_number": None,
+                "confidence": 0.99,
+                "score": 100.0,
+                "evidence_text": "Labeled attachment total selected from attachment summary.",
+            }
+        )
     merged_candidates = _dedupe_candidates(
         (pipeline_result.final_result.get("merged_candidates", []) or [])
         + value_candidates
+        + attachment_total_candidate
         + (schedule_values.get("candidates", []) or [])
     )
     candidate_buckets = bucket_candidates(merged_candidates)

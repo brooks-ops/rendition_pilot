@@ -1,6 +1,34 @@
 import re
 
 
+def parse_money_text(raw: str) -> float | None:
+    text = (
+        str(raw or "")
+        .replace("$", "")
+        .replace("O", "0")
+        .replace("o", "0")
+        .strip("() ")
+    )
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\b(\d)\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"\1\2", text)
+    text = text.replace(" ", "")
+
+    if "," in text and "." in text:
+        text = text.replace(",", "")
+    elif "," in text:
+        if re.fullmatch(r"\d{1,3}(?:,\d{3})+", text):
+            text = text.replace(",", "")
+        else:
+            text = text.replace(",", ".")
+    elif text.count(".") > 1:
+        text = text.replace(".", "")
+
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
 class TargetedRenditionParser:
     def normalize_text(self, text: str) -> str:
         if not text:
@@ -104,23 +132,22 @@ class TargetedRenditionParser:
         ):
             result["machinery_and_equipment_present"] = True
 
-        total_match = re.search(r"TOTAL[: ]+.*?(\d{1,3}[.,]\d{3})", normalized)
+        total_match = re.search(
+            r"TOTAL(?:\s+[A-Z ]+)?[: ]+.*?(\$?\s*\d(?:\s+)?\d{1,3}[,]\d{3}(?:\.\d{1,2})?|\$?\s*\d{1,3}[,]\d{3}(?:\.\d{1,2})?)",
+            normalized,
+        )
         if total_match:
-            amount_text = total_match.group(1).replace(".", "").replace(",", "")
-            try:
-                result["schedule_e_total"] = float(amount_text)
+            amount = parse_money_text(total_match.group(1))
+            if amount is not None:
+                result["schedule_e_total"] = amount
                 return result
-            except ValueError:
-                pass
 
-        matches = re.findall(r"\b\d{1,3}[.,]\d{3}\b", normalized)
+        matches = re.findall(r"\b\d{1,3},\d{3}(?:\.\d{1,2})?\b", normalized)
         candidates = []
         for m in matches:
-            cleaned = m.replace(".", "").replace(",", "")
-            try:
-                candidates.append(float(cleaned))
-            except ValueError:
-                continue
+            value = parse_money_text(m)
+            if value is not None:
+                candidates.append(value)
 
         if candidates:
             result["schedule_e_total"] = max(candidates)
@@ -228,18 +255,44 @@ class TargetedRenditionParser:
         if "RENDERED VALUE" in combined:
             result["rendered_value_detected"] = True
 
-        money_matches = re.findall(r"\b\d{1,3}(?:[.,]\d{3})+(?:\.\d{2})?\b", combined)
+        money_matches = re.findall(
+            r"\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?\b",
+            combined,
+        )
 
         candidates = []
         for m in money_matches:
-            cleaned = m.replace(",", "").replace(".", "")
-            try:
-                candidates.append(float(cleaned))
-            except ValueError:
+            value = parse_money_text(m)
+            if value is None:
                 continue
+            if value in {20000.0, 50000.0, 125000.0, 150000.0}:
+                continue
+            candidates.append(value)
+
+        total_patterns = [
+            r"TOTAL\s+FIXED\s+ASSETS\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
+            r"GRAND\s+TOTAL\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
+            r"TOTAL\s+ASSETS\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
+            r"TOTAL\s+MARKET\s+VALUE\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
+        ]
+        labeled_totals = []
+        for pattern in total_patterns:
+            for match in re.finditer(pattern, combined):
+                value = parse_money_text(match.group(1))
+                if value is not None:
+                    labeled_totals.append(value)
 
         if candidates:
             result["attachment_total_candidates"] = sorted(set(candidates), reverse=True)
+
+        if labeled_totals:
+            result["attachment_summary_present"] = True
+            result["attachment_total_candidates"] = sorted(
+                set(result["attachment_total_candidates"] + labeled_totals),
+                reverse=True,
+            )
+            result["best_attachment_total"] = max(labeled_totals)
+        elif result["attachment_summary_present"] and candidates:
             result["best_attachment_total"] = max(candidates)
 
         return result

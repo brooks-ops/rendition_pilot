@@ -85,6 +85,12 @@ class AssessmentSummaryBuilder:
         if review_flags.get("needs_attachment_review"):
             issues.append("Attachment pages require manual review.")
 
+        if review_flags.get("ocr_unavailable"):
+            issues.append("OCR engine unavailable for scanned-image PDF.")
+
+        for ocr_error in review_flags.get("ocr_errors", []) or []:
+            issues.append(str(ocr_error))
+
         if not form_flags.get("signature_block_detected"):
             issues.append("Signature block not detected.")
 
