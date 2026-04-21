@@ -232,6 +232,17 @@ st.markdown(
             margin-top: 10px;
             margin-bottom: 14px;
         }
+        div[data-testid="stMetricValue"],
+        div[data-testid="stMetricValue"] div,
+        div[data-testid="stMetricLabel"],
+        div[data-testid="stMetricLabel"] div {
+            color: #FFFFFF !important;
+        }
+
+        .streamlit-expanderHeader {
+            color: #FFFFFF !important;
+            font-weight: 700;
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -927,9 +938,17 @@ def show_pdf_preview(file_bytes: bytes) -> None:
 
     st.caption(f"{len(page_images)} page(s) rendered")
 
-    for i, img_bytes in enumerate(page_images, start=1):
-        with st.expander(f"Page {i}", expanded=(i == 1)):
-            st.image(img_bytes, use_container_width=True)
+    if len(page_images) == 1:
+        st.image(page_images[0], use_container_width=True)
+        return
+
+    selected_page = st.selectbox(
+        "Page",
+        options=list(range(1, len(page_images) + 1)),
+        format_func=lambda page_number: f"Page {page_number}",
+        key="single_pdf_page_selector",
+    )
+    st.image(page_images[int(selected_page) - 1], use_container_width=True)
 
 
 def run_pipeline_from_upload(file_name: str, file_bytes: bytes, manual_override: dict | None = None) -> dict:
@@ -1543,11 +1562,17 @@ def render_single_review() -> None:
 
         if result:
             show_top_metrics(result)
-            show_flags_and_findings(result)
-            show_agent_review(result)
-            show_candidate_debug(result)
-            render_manual_assist_panel(result_file_name, result, result_file_bytes)
             finalize_review_panel(result_file_name, result, result_file_bytes)
+            render_manual_assist_panel(result_file_name, result, result_file_bytes)
+
+            with st.expander("Document / Form / Schedule Details", expanded=False):
+                show_flags_and_findings(result)
+
+            with st.expander("AI Review / Reasoning", expanded=False):
+                show_agent_review(result)
+
+            with st.expander("Extraction Candidates", expanded=False):
+                show_candidate_debug(result)
 
             with st.expander("One-Page Summary", expanded=False):
                 st.code(build_cli_summary(result=result, source_path=result_file_name), language="text")
