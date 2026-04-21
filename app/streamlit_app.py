@@ -883,7 +883,7 @@ def show_candidate_debug(result: dict) -> None:
 
     st.markdown('<div class="ap-card">', unsafe_allow_html=True)
     st.subheader("Extraction Candidates")
-    st.caption("Use this to debug why the system picked one number over the others.")
+    st.caption("Review extracted values and supporting evidence when needed.")
 
     c1, c2 = st.columns([1, 3])
 
@@ -1207,7 +1207,7 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
 
     st.markdown('<div class="ap-card">', unsafe_allow_html=True)
     st.subheader("Finalize Review")
-    st.caption(f"Stamped PDFs save to: {APPRAISER_UPLOAD_DIR}")
+    st.caption("Confirm the final value, enter initials/account, then lock and save the reviewed rendition.")
 
     c1, c2 = st.columns([1, 1])
     with c1:
@@ -1219,15 +1219,16 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
     with c2:
         final_source = st.selectbox(
             "Final Source",
-            [
+            list(dict.fromkeys([
                 default_source,
-                "agent_review",
-                "attachment_total",
-                "schedule_e_total",
-                "good_faith_value",
                 "manual_override",
+                "attachment_total",
+                "good_faith_value",
+                "historical_cost_depreciated",
+                "schedule_e_total",
+                "agent_review",
                 "manual_review",
-            ],
+            ])),
             key=f"final_source_{file_name}",
         )
 
@@ -1571,13 +1572,13 @@ def render_single_review() -> None:
             with st.expander("AI Review / Reasoning", expanded=False):
                 show_agent_review(result)
 
-            with st.expander("Extraction Candidates", expanded=False):
+            with st.expander("Extracted Value Evidence", expanded=False):
                 show_candidate_debug(result)
 
             with st.expander("One-Page Summary", expanded=False):
                 st.code(build_cli_summary(result=result, source_path=result_file_name), language="text")
 
-            with st.expander("Raw JSON", expanded=False):
+            with st.expander("Technical JSON", expanded=False):
                 st.json(result)
 
             st.download_button(
