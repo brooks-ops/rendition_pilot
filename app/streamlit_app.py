@@ -42,6 +42,7 @@ AUTHORIZED_USERS = {
 }
 
 DEFAULT_SUPABASE_URL = "https://pzawjgckzcgnfsfuylqy.supabase.co"
+DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_q6lNn59Y-kz8lG0cYfJkYw_lL7xElsA"
 
 
 st.set_page_config(
@@ -247,7 +248,7 @@ def get_secret(name: str, default: str = "") -> str:
 def get_supabase_config() -> tuple[str, str]:
     return (
         get_secret("SUPABASE_URL", DEFAULT_SUPABASE_URL).rstrip("/"),
-        get_secret("SUPABASE_ANON_KEY"),
+        get_secret("SUPABASE_ANON_KEY", DEFAULT_SUPABASE_ANON_KEY),
     )
 
 
@@ -854,6 +855,19 @@ def run_pipeline_from_upload(file_name: str, file_bytes: bytes, manual_override:
             pass
 
 
+def reset_single_review_state() -> None:
+    st.session_state["single_upload_reset_counter"] = (
+        int(st.session_state.get("single_upload_reset_counter", 0)) + 1
+    )
+    for key in [
+        "single_result",
+        "single_file_name",
+        "single_file_bytes",
+        "single_notes",
+    ]:
+        st.session_state.pop(key, None)
+
+
 def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> None:
     recommended_value = get_recommended_value(result)
     default_source = (result.get("assessment_summary", {}) or {}).get("value_source") or "pipeline_recommendation"
@@ -949,7 +963,9 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
                 append_queue_row(file_name=file_name, result={**result, "final_review": record}, status="Locked")
                 st.success(f"Locked final value at {format_money(final_value)}")
                 st.caption(" | ".join(str(path) for path in {**paths, "stamped_pdf": stamped_pdf}.values()))
-                st.json(record)
+                st.info("Final value locked. Loading a blank review screen for the next account.")
+                reset_single_review_state()
+                st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -999,6 +1015,7 @@ def build_batch_row(file_name: str, result: dict) -> dict:
 def render_single_review() -> None:
     st.markdown('<div class="ap-card">', unsafe_allow_html=True)
     st.subheader("Single Review Controls")
+    upload_key = f"single_upload_{st.session_state.get('single_upload_reset_counter', 0)}"
 
     c1, c2 = st.columns([1.2, 1])
 
@@ -1007,7 +1024,7 @@ def render_single_review() -> None:
             "Upload rendition PDF",
             type=["pdf"],
             accept_multiple_files=False,
-            key="single_upload",
+            key=upload_key,
         )
 
     with c2:
