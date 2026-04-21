@@ -246,6 +246,33 @@ def get_secret(name: str, default: str = "") -> str:
         return default
 
 
+def hydrate_analysis_env_from_secrets() -> None:
+    secret_names = [
+        "OPENAI_API_KEY",
+        "OPENAI_MODEL",
+        "OPENAI_VISION_OCR_MODEL",
+        "OPENAI_VISION_OCR_TIMEOUT_SECONDS",
+        "OPENAI_VISION_OCR_MAX_PAGES",
+        "OPENAI_REVIEW_ENABLED",
+        "OPENAI_REVIEW_TIMEOUT_SECONDS",
+        "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT",
+        "AZURE_DOCUMENT_INTELLIGENCE_KEY",
+        "AZURE_DOCUMENT_INTELLIGENCE_API_VERSION",
+        "AZURE_DOCUMENT_INTELLIGENCE_MODEL_ID",
+        "AZURE_DOCUMENT_INTELLIGENCE_TIMEOUT_SECONDS",
+        "AZURE_DOCUMENT_INTELLIGENCE_REQUEST_TIMEOUT_SECONDS",
+        "AZURE_FORM_RECOGNIZER_ENDPOINT",
+        "AZURE_FORM_RECOGNIZER_KEY",
+    ]
+
+    for name in secret_names:
+        if os.getenv(name):
+            continue
+        value = get_secret(name, "")
+        if value:
+            os.environ[name] = value
+
+
 def get_supabase_config() -> tuple[str, str]:
     return (
         get_secret("SUPABASE_URL", DEFAULT_SUPABASE_URL).rstrip("/"),
@@ -903,6 +930,8 @@ def show_pdf_preview(file_bytes: bytes) -> None:
 
 
 def run_pipeline_from_upload(file_name: str, file_bytes: bytes, manual_override: dict | None = None) -> dict:
+    hydrate_analysis_env_from_secrets()
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(file_bytes)
         temp_pdf_path = Path(tmp.name)

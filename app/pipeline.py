@@ -13,6 +13,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol
 
+import requests
+
 from app.assessment_summary import AssessmentSummaryBuilder
 from app.candidate_extractor import CandidateExtractor
 from app.extractor import PDFExtractor
@@ -148,6 +150,7 @@ MONEY_RE = re.compile(
 YEAR_RE = re.compile(r"\b(19[5-9]\d|20[0-4]\d)\b")
 
 _OPENAI_VISION_OCR_DISABLED_REASON: Optional[str] = None
+_AZURE_OCR_DISABLED_REASON: Optional[str] = None
 
 
 def _normalize_text(text: str) -> str:
@@ -188,10 +191,11 @@ def _configure_tesseract() -> bool:
     return False
 
 
-def _get_openai_api_key() -> Optional[str]:
-    api_key = os.getenv("OPENAI_API_KEY")
-    if api_key:
-        return api_key.strip()
+def _get_config_value(*names: str) -> Optional[str]:
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value.strip()
 
     env_path = Path(__file__).resolve().parent / ".env"
     if not env_path.exists():
@@ -202,12 +206,18 @@ def _get_openai_api_key() -> Optional[str]:
             if not line.strip() or line.lstrip().startswith("#"):
                 continue
             key, sep, value = line.partition("=")
-            if sep and key.strip() == "OPENAI_API_KEY":
-                return value.strip().strip('"').strip("'") or None
+            if sep and key.strip() in names:
+                cleaned = value.strip().strip('"').strip("'")
+                if cleaned:
+                    return cleaned
     except Exception:
         return None
 
     return None
+
+
+def _get_openai_api_key() -> Optional[str]:
+    return _get_config_value("OPENAI_API_KEY")
 
 
 def _parse_money(raw: str) -> Optional[float]:
@@ -1236,6 +1246,10 @@ def _extract_pdf_pages(pdf_path: str) -> List[Dict[str, Any]]:
     if pages and not _needs_ocr_fallback(pages):
         return pages
 
+    azure_pages = _ocr_pdf_pages_with_azure_document_intelligence(pdf_path)
+    if any((p.get("text") or "").strip() for p in azure_pages):
+        return azure_pages
+
     ocr_pages = _ocr_pdf_pages_with_pymupdf(pdf_path)
     if any((p.get("text") or "").strip() for p in ocr_pages):
         return ocr_pages
@@ -1243,7 +1257,11 @@ def _extract_pdf_pages(pdf_path: str) -> List[Dict[str, Any]]:
     vision_pages = _ocr_pdf_pages_with_openai_vision(pdf_path)
     if any((p.get("text") or "").strip() for p in vision_pages):
         return vision_pages
-    vision_errors = [
+    provider_errors = [
+        str(p.get("ocr_error"))
+        for p in azure_pages
+        if p.get("ocr_error")
+    ] + [
         str(p.get("ocr_error"))
         for p in vision_pages
         if p.get("ocr_error")
@@ -1252,8 +1270,8 @@ def _extract_pdf_pages(pdf_path: str) -> List[Dict[str, Any]]:
     if _needs_ocr_fallback(pages):
         for page in pages:
             page["ocr_unavailable"] = True
-            if vision_errors:
-                page["ocr_error"] = _summarize_ocr_error(vision_errors[0])
+            if provider_errors:
+                page["ocr_error"] = _summarize_ocr_error(provider_errors[0])
             page["extraction_seconds"] = round(time.perf_counter() - started_at, 2)
 
     return pages
@@ -1391,6 +1409,16 @@ def _prepare_ocr_image(image: Any) -> Any:
 
 def _summarize_ocr_error(error: str) -> str:
     lowered = error.lower()
+    if "azure document intelligence" in lowered:
+        if "not configured" in lowered:
+            return "Azure Document Intelligence OCR unavailable: endpoint/key not configured."
+        if "quota" in lowered or "billing" in lowered:
+            return "Azure Document Intelligence OCR unavailable: quota or billing limit reached."
+        if "unauthorized" in lowered or "forbidden" in lowered or "401" in lowered or "403" in lowered:
+            return "Azure Document Intelligence OCR unavailable: endpoint/key authentication failed."
+        if "timed out" in lowered or "timeout" in lowered:
+            return "Azure Document Intelligence OCR unavailable: timed out."
+        return "Azure Document Intelligence OCR unavailable."
     if "insufficient_quota" in lowered or "exceeded your current quota" in lowered:
         return "OpenAI vision OCR unavailable: API quota or billing limit exceeded."
     if "rate" in lowered and "limit" in lowered:
@@ -1398,6 +1426,221 @@ def _summarize_ocr_error(error: str) -> str:
     if "api key" in lowered or "authentication" in lowered or "unauthorized" in lowered:
         return "OpenAI vision OCR unavailable: API key/authentication failed."
     return "OpenAI vision OCR unavailable."
+
+
+def _is_terminal_azure_ocr_error(error: str) -> bool:
+    lowered = error.lower()
+    return any(
+        marker in lowered
+        for marker in [
+            "not configured",
+            "quota",
+            "billing",
+            "401",
+            "403",
+            "unauthorized",
+            "forbidden",
+            "invalid subscription",
+            "resource not found",
+        ]
+    )
+
+
+def _ocr_pdf_pages_with_azure_document_intelligence(pdf_path: str) -> List[Dict[str, Any]]:
+    global _AZURE_OCR_DISABLED_REASON
+
+    if _AZURE_OCR_DISABLED_REASON:
+        return [
+            {
+                "page_number": 1,
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "azure_document_intelligence_error",
+                "ocr_error": _AZURE_OCR_DISABLED_REASON,
+            }
+        ]
+
+    endpoint = _get_config_value(
+        "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT",
+        "AZURE_FORM_RECOGNIZER_ENDPOINT",
+    )
+    key = _get_config_value(
+        "AZURE_DOCUMENT_INTELLIGENCE_KEY",
+        "AZURE_FORM_RECOGNIZER_KEY",
+    )
+    if not endpoint or not key:
+        return []
+
+    endpoint = endpoint.rstrip("/")
+    api_version = _get_config_value("AZURE_DOCUMENT_INTELLIGENCE_API_VERSION") or "2023-07-31"
+    model_id = _get_config_value("AZURE_DOCUMENT_INTELLIGENCE_MODEL_ID") or "prebuilt-read"
+    if api_version.startswith("2024"):
+        analyze_url = f"{endpoint}/documentintelligence/documentModels/{model_id}:analyze?api-version={api_version}"
+    else:
+        analyze_url = f"{endpoint}/formrecognizer/documentModels/{model_id}:analyze?api-version={api_version}"
+
+    try:
+        total_timeout = float(_get_config_value("AZURE_DOCUMENT_INTELLIGENCE_TIMEOUT_SECONDS") or "18")
+    except ValueError:
+        total_timeout = 18.0
+    try:
+        request_timeout = float(_get_config_value("AZURE_DOCUMENT_INTELLIGENCE_REQUEST_TIMEOUT_SECONDS") or "8")
+    except ValueError:
+        request_timeout = 8.0
+
+    headers = {
+        "Ocp-Apim-Subscription-Key": key,
+        "Content-Type": "application/pdf",
+    }
+
+    try:
+        pdf_bytes = Path(pdf_path).read_bytes()
+    except Exception as exc:
+        return [
+            {
+                "page_number": 1,
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "azure_document_intelligence_error",
+                "ocr_error": f"Azure Document Intelligence file read failed: {type(exc).__name__}: {exc}",
+            }
+        ]
+
+    started = time.perf_counter()
+    try:
+        response = requests.post(
+            analyze_url,
+            headers=headers,
+            data=pdf_bytes,
+            timeout=request_timeout,
+        )
+    except requests.RequestException as exc:
+        error = f"Azure Document Intelligence request failed: {type(exc).__name__}: {exc}"
+        return [{"page_number": 1, "text": "", "ocr_blocks": [], "text_source": "azure_document_intelligence_error", "ocr_error": error}]
+
+    if response.status_code not in {200, 202}:
+        error = f"Azure Document Intelligence HTTP {response.status_code}: {response.text[:500]}"
+        if _is_terminal_azure_ocr_error(error):
+            _AZURE_OCR_DISABLED_REASON = error
+        return [{"page_number": 1, "text": "", "ocr_blocks": [], "text_source": "azure_document_intelligence_error", "ocr_error": error}]
+
+    operation_location = response.headers.get("operation-location") or response.headers.get("Operation-Location")
+    if response.status_code == 200:
+        result_payload = response.json()
+    elif operation_location:
+        result_payload = None
+        while time.perf_counter() - started < total_timeout:
+            try:
+                poll = requests.get(
+                    operation_location,
+                    headers={"Ocp-Apim-Subscription-Key": key},
+                    timeout=request_timeout,
+                )
+            except requests.RequestException as exc:
+                error = f"Azure Document Intelligence poll failed: {type(exc).__name__}: {exc}"
+                return [{"page_number": 1, "text": "", "ocr_blocks": [], "text_source": "azure_document_intelligence_error", "ocr_error": error}]
+
+            if poll.status_code >= 400:
+                error = f"Azure Document Intelligence poll HTTP {poll.status_code}: {poll.text[:500]}"
+                if _is_terminal_azure_ocr_error(error):
+                    _AZURE_OCR_DISABLED_REASON = error
+                return [{"page_number": 1, "text": "", "ocr_blocks": [], "text_source": "azure_document_intelligence_error", "ocr_error": error}]
+
+            result_payload = poll.json()
+            status = str(result_payload.get("status", "")).lower()
+            if status == "succeeded":
+                break
+            if status == "failed":
+                error = f"Azure Document Intelligence analysis failed: {json.dumps(result_payload)[:500]}"
+                return [{"page_number": 1, "text": "", "ocr_blocks": [], "text_source": "azure_document_intelligence_error", "ocr_error": error}]
+            time.sleep(1.0)
+        else:
+            return [
+                {
+                    "page_number": 1,
+                    "text": "",
+                    "ocr_blocks": [],
+                    "text_source": "azure_document_intelligence_error",
+                    "ocr_error": "Azure Document Intelligence timed out.",
+                }
+            ]
+    else:
+        return [
+            {
+                "page_number": 1,
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "azure_document_intelligence_error",
+                "ocr_error": "Azure Document Intelligence did not return an operation-location header.",
+            }
+        ]
+
+    return _azure_analyze_result_to_pages(result_payload or {})
+
+
+def _azure_analyze_result_to_pages(result_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    analyze_result = result_payload.get("analyzeResult") or result_payload
+    raw_pages = analyze_result.get("pages") or []
+    pages: List[Dict[str, Any]] = []
+
+    if raw_pages:
+        for raw_page in raw_pages:
+            page_number = int(raw_page.get("pageNumber") or len(pages) + 1)
+            lines = raw_page.get("lines") or []
+            words = raw_page.get("words") or []
+            line_text = "\n".join(str(line.get("content") or "") for line in lines if line.get("content"))
+            word_blocks = []
+            for word in words:
+                xs, ys = _polygon_xy(word.get("polygon") or word.get("boundingPolygon") or [])
+                word_blocks.append(
+                    {
+                        "text": str(word.get("content") or ""),
+                        "x0": min(xs) if xs else 0,
+                        "x1": max(xs) if xs else 0,
+                        "top": min(ys) if ys else 0,
+                        "y0": min(ys) if ys else 0,
+                        "y1": max(ys) if ys else 0,
+                        "confidence": word.get("confidence"),
+                        "source": "azure_document_intelligence",
+                    }
+                )
+            pages.append(
+                {
+                    "page_number": page_number,
+                    "text": line_text,
+                    "ocr_blocks": word_blocks,
+                    "text_source": "azure_document_intelligence",
+                }
+            )
+
+    if pages:
+        return pages
+
+    content = str(analyze_result.get("content") or "").strip()
+    if content:
+        return [
+            {
+                "page_number": 1,
+                "text": content,
+                "ocr_blocks": [],
+                "text_source": "azure_document_intelligence",
+            }
+        ]
+    return []
+
+
+def _polygon_xy(polygon: Any) -> tuple[List[float], List[float]]:
+    if not isinstance(polygon, list):
+        return [], []
+    if polygon and all(isinstance(point, dict) for point in polygon):
+        xs = [float(point.get("x", 0)) for point in polygon]
+        ys = [float(point.get("y", 0)) for point in polygon]
+        return xs, ys
+    if polygon and all(isinstance(point, (int, float)) for point in polygon):
+        xs = [float(polygon[idx]) for idx in range(0, len(polygon), 2)]
+        ys = [float(polygon[idx]) for idx in range(1, len(polygon), 2)]
+        return xs, ys
+    return [], []
 
 
 def _is_terminal_openai_ocr_error(error: str) -> bool:
