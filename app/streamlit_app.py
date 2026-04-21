@@ -41,7 +41,7 @@ AUTHORIZED_USERS = {
     "bbarrett@lubbockcad.org",
     "bgarnica@lubbockcad.org",
     "emontoya@lubbockcad.org",
-    "ctrimble@lubbocad.org",
+    "ctrimble@lubbockcad.org",
     "lflores@lubbockcad.org",
 }
 
