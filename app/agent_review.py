@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
@@ -27,6 +28,28 @@ def _safe_get(d: Any, key: str, default=None):
     if isinstance(d, dict):
         return d.get(key, default)
     return default
+
+
+def _get_openai_api_key() -> Optional[str]:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        return api_key.strip()
+
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.exists():
+        return None
+
+    try:
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            key, sep, value = line.partition("=")
+            if sep and key.strip() == "OPENAI_API_KEY":
+                return value.strip().strip('"').strip("'") or None
+    except Exception:
+        return None
+
+    return None
 
 
 def _normalize_candidate(value: Any) -> Optional[str]:
@@ -317,7 +340,15 @@ def review_parse_result(parse_result: Dict[str, Any]) -> Dict[str, Any]:
       "rejected_candidates": {...}
     }
     """
-    api_key = os.getenv("OPENAI_API_KEY")
+    if os.getenv("OPENAI_REVIEW_ENABLED", "").strip().lower() not in {"1", "true", "yes"}:
+        return _fallback_review(
+            parse_result,
+            status="fallback",
+            reason="OpenAI review disabled; deterministic review used",
+            flags=["ai_review_disabled"],
+        )
+
+    api_key = _get_openai_api_key()
     if not api_key:
         return _fallback_review(
             parse_result,
@@ -336,7 +367,12 @@ def review_parse_result(parse_result: Dict[str, Any]) -> Dict[str, Any]:
             flags=["ai_review_skipped_openai_sdk_missing"],
         )
 
-    client = OpenAI(api_key=api_key)
+    try:
+        timeout_seconds = float(os.getenv("OPENAI_REVIEW_TIMEOUT_SECONDS", "8"))
+    except ValueError:
+        timeout_seconds = 8.0
+
+    client = OpenAI(api_key=api_key, timeout=timeout_seconds, max_retries=0)
     agent_input = _build_agent_input(parse_result)
 
     schema = {

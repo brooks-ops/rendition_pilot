@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -145,6 +146,8 @@ MONEY_RE = re.compile(
 )
 
 YEAR_RE = re.compile(r"\b(19[5-9]\d|20[0-4]\d)\b")
+
+_OPENAI_VISION_OCR_DISABLED_REASON: Optional[str] = None
 
 
 def _normalize_text(text: str) -> str:
@@ -1205,6 +1208,7 @@ def load_manual_override(path_str: str) -> Dict[str, Any]:
 
 
 def _extract_pdf_pages(pdf_path: str) -> List[Dict[str, Any]]:
+    started_at = time.perf_counter()
     extractor = PDFExtractor()
     pages = extractor.extract_pages(pdf_path)
 
@@ -1250,6 +1254,7 @@ def _extract_pdf_pages(pdf_path: str) -> List[Dict[str, Any]]:
             page["ocr_unavailable"] = True
             if vision_errors:
                 page["ocr_error"] = _summarize_ocr_error(vision_errors[0])
+            page["extraction_seconds"] = round(time.perf_counter() - started_at, 2)
 
     return pages
 
@@ -1395,7 +1400,35 @@ def _summarize_ocr_error(error: str) -> str:
     return "OpenAI vision OCR unavailable."
 
 
+def _is_terminal_openai_ocr_error(error: str) -> bool:
+    lowered = error.lower()
+    return any(
+        marker in lowered
+        for marker in [
+            "insufficient_quota",
+            "exceeded your current quota",
+            "api key",
+            "authentication",
+            "unauthorized",
+            "billing",
+        ]
+    )
+
+
 def _ocr_pdf_pages_with_openai_vision(pdf_path: str) -> List[Dict[str, Any]]:
+    global _OPENAI_VISION_OCR_DISABLED_REASON
+
+    if _OPENAI_VISION_OCR_DISABLED_REASON:
+        return [
+            {
+                "page_number": 1,
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "openai_vision_ocr_error",
+                "ocr_error": _OPENAI_VISION_OCR_DISABLED_REASON,
+            }
+        ]
+
     api_key = _get_openai_api_key()
     if not api_key:
         return []
@@ -1413,73 +1446,110 @@ def _ocr_pdf_pages_with_openai_vision(pdf_path: str) -> List[Dict[str, Any]]:
     except Exception:
         return []
 
-    client = OpenAI(api_key=api_key)
-    pages: List[Dict[str, Any]] = []
+    try:
+        timeout_seconds = float(os.getenv("OPENAI_VISION_OCR_TIMEOUT_SECONDS", "12"))
+    except ValueError:
+        timeout_seconds = 12.0
+
+    client = OpenAI(api_key=api_key, timeout=timeout_seconds, max_retries=0)
+    rendered_pages: List[tuple[int, str]] = []
+    try:
+        max_pages = int(os.getenv("OPENAI_VISION_OCR_MAX_PAGES", "8"))
+    except ValueError:
+        max_pages = 8
+
     try:
         for page_number, page in enumerate(doc, start=1):
+            if page_number > max_pages:
+                break
             try:
                 pix = page.get_pixmap(matrix=fitz.Matrix(2.5, 2.5), alpha=False)
                 image_bytes = pix.tobytes("jpeg", jpg_quality=88)
                 image_url = "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii")
             except Exception:
-                pages.append(
-                    {
-                        "page_number": page_number,
-                        "text": "",
-                        "ocr_blocks": [],
-                        "text_source": "openai_vision_ocr_error",
-                    }
-                )
                 continue
-
-            try:
-                response = client.responses.create(
-                    model=model,
-                    input=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "input_text",
-                                    "text": (
-                                        "Transcribe this business personal property rendition page. "
-                                        "Return only the visible text, preserving line breaks and dollar "
-                                        "amounts exactly as well as possible. Do not summarize or infer."
-                                    ),
-                                },
-                                {
-                                    "type": "input_image",
-                                    "image_url": image_url,
-                                },
-                            ],
-                        }
-                    ],
-                )
-                text = (getattr(response, "output_text", "") or "").strip()
-            except Exception as exc:
-                text = ""
-                pages.append(
-                    {
-                        "page_number": page_number,
-                        "text": text,
-                        "ocr_blocks": [],
-                        "text_source": "openai_vision_ocr_error",
-                        "ocr_error": f"{type(exc).__name__}: {exc}",
-                    }
-                )
-                continue
-
-            pages.append(
-                {
-                    "page_number": page_number,
-                    "text": text,
-                    "ocr_blocks": [],
-                    "text_source": "openai_vision_ocr",
-                }
-            )
+            rendered_pages.append((page_number, image_url))
     finally:
         doc.close()
 
+    if not rendered_pages:
+        return []
+
+    content: List[Dict[str, Any]] = [
+        {
+            "type": "input_text",
+            "text": (
+                "Transcribe these business personal property rendition pages. "
+                "Return visible text only. Preserve line breaks and dollar amounts exactly. "
+                "Do not summarize or infer. Separate each page with a line exactly like PAGE 1:, PAGE 2:, etc."
+            ),
+        }
+    ]
+    for page_number, image_url in rendered_pages:
+        content.append({"type": "input_text", "text": f"PAGE {page_number}:"})
+        content.append({"type": "input_image", "image_url": image_url})
+
+    try:
+        response = client.responses.create(
+            model=model,
+            input=[
+                {
+                    "role": "user",
+                    "content": content,
+                }
+            ],
+        )
+        combined_text = (getattr(response, "output_text", "") or "").strip()
+    except Exception as exc:
+        error_text = f"{type(exc).__name__}: {exc}"
+        if _is_terminal_openai_ocr_error(error_text):
+            _OPENAI_VISION_OCR_DISABLED_REASON = error_text
+        return [
+            {
+                "page_number": rendered_pages[0][0],
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "openai_vision_ocr_error",
+                "ocr_error": error_text,
+            }
+        ]
+
+    page_texts = _split_openai_vision_pages(combined_text)
+    pages: List[Dict[str, Any]] = []
+    for page_number, _image_url in rendered_pages:
+        pages.append(
+            {
+                "page_number": page_number,
+                "text": page_texts.get(page_number, ""),
+                "ocr_blocks": [],
+                "text_source": "openai_vision_ocr",
+            }
+        )
+
+    if not any((page.get("text") or "").strip() for page in pages) and combined_text:
+        pages = [
+            {
+                "page_number": 1,
+                "text": combined_text,
+                "ocr_blocks": [],
+                "text_source": "openai_vision_ocr",
+            }
+        ]
+
+    return pages
+
+
+def _split_openai_vision_pages(text: str) -> Dict[int, str]:
+    matches = list(re.finditer(r"(?im)^\s*PAGE\s+(\d+)\s*:\s*$", text or ""))
+    if not matches:
+        return {1: text.strip()} if text.strip() else {}
+
+    pages: Dict[int, str] = {}
+    for idx, match in enumerate(matches):
+        page_number = int(match.group(1))
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        pages[page_number] = text[start:end].strip()
     return pages
 
 
