@@ -932,6 +932,8 @@ def reset_single_review_state() -> None:
         "single_saved_stamped_bytes",
         "single_saved_stamped_name",
         "single_saved_outputs",
+        "single_download_stamped_bytes",
+        "single_download_stamped_name",
         "single_notes",
     ]:
         st.session_state.pop(key, None)
@@ -1004,6 +1006,28 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
             f"Locked {format_money(locked_record.get('final_value'))} "
             f"for {locked_record.get('account_number') or account_number}."
         )
+        download_name = f"{locked_record.get('account_number') or Path(file_name).stem}.pdf"
+        if not st.session_state.get("single_download_stamped_bytes"):
+            try:
+                preview_pdf = stamp_reviewed_pdf(
+                    file_name=file_name,
+                    file_bytes=file_bytes,
+                    final_record=locked_record,
+                )
+                st.session_state["single_download_stamped_name"] = preview_pdf.name
+                st.session_state["single_download_stamped_bytes"] = preview_pdf.read_bytes()
+            except Exception as exc:
+                st.error(f"Could not create stamped PDF download: {exc}")
+        if st.session_state.get("single_download_stamped_bytes"):
+            st.download_button(
+                "Save Stamped Rendition to My Computer",
+                data=st.session_state["single_download_stamped_bytes"],
+                file_name=st.session_state.get("single_download_stamped_name") or download_name,
+                mime="application/pdf",
+                type="primary",
+                use_container_width=True,
+                key=f"download_locked_stamped_{file_name}",
+            )
 
     saved_path = st.session_state.get("single_saved_stamped_path")
     if saved_path:
