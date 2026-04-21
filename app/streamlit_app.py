@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.cli import build_cli_summary
+from app.depreciation import DepreciationEngine
 from app.pipeline import run_rendition_pipeline
 from app.review_workflow import (
     APPRAISER_UPLOAD_DIR,
@@ -948,6 +951,216 @@ def run_pipeline_from_upload(file_name: str, file_bytes: bytes, manual_override:
             pass
 
 
+def get_result_value(result: dict) -> Any:
+    assessment = result.get("assessment_summary", {}) or {}
+    return (
+        assessment.get("recommended_value")
+        or assessment.get("recommended_market_value")
+        or assessment.get("recommended_assessed_value")
+        or assessment.get("extracted_value")
+    )
+
+
+def needs_manual_assist(result: dict) -> bool:
+    assessment = result.get("assessment_summary", {}) or {}
+    review_flags = result.get("review_flags", {}) or {}
+    return bool(
+        assessment.get("recommended_path") == "manual_review"
+        or str(assessment.get("confidence") or "").lower() == "low"
+        or get_result_value(result) is None
+        or review_flags.get("low_text_extraction")
+        or review_flags.get("ocr_unavailable")
+    )
+
+
+def extract_money_values(text: str) -> list[float]:
+    values: list[float] = []
+    pattern = re.compile(r"\$\s*\(?[0-9][0-9,\s]*(?:\.\d{1,2})?\)?|\b\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?\b|\b\d+\.\d{2}\b")
+    for match in pattern.finditer(text or ""):
+        value = parse_money_input(match.group(0))
+        if value is not None and value > 0:
+            values.append(value)
+    return values
+
+
+def calculate_depreciated_value(historical_cost: float, acquisition_year: int, life_years: int) -> tuple[float | None, float | None]:
+    schedule_path = PROJECT_ROOT / "Data" / "depreciation_schedule.csv"
+    if not schedule_path.exists():
+        return None, None
+    engine = DepreciationEngine(str(schedule_path))
+    return engine.assess_value(
+        original_cost=float(historical_cost),
+        acquisition_year=int(acquisition_year),
+        life_years=int(life_years),
+    )
+
+
+def apply_manual_assist_override(file_name: str, file_bytes: bytes, manual_override: dict) -> None:
+    result = run_pipeline_from_upload(
+        file_name=file_name,
+        file_bytes=file_bytes,
+        manual_override=manual_override,
+    )
+    st.session_state["single_result"] = result
+    st.session_state["single_file_name"] = file_name
+    st.session_state["single_file_bytes"] = file_bytes
+    st.session_state.pop("single_locked_record", None)
+    st.session_state.pop("single_saved_stamped_path", None)
+    st.session_state.pop("single_saved_outputs", None)
+    st.success("Manual value applied. Review the final value, then lock and save.")
+    st.rerun()
+
+
+def render_manual_assist_panel(file_name: str, result: dict, file_bytes: bytes) -> None:
+    assessment = result.get("assessment_summary", {}) or {}
+    expand_panel = needs_manual_assist(result)
+
+    with st.expander("Manual Assist", expanded=expand_panel):
+        if expand_panel:
+            st.warning("Auto extraction is low confidence. Enter the value here and the app will still handle depreciation, summary, stamping, and queue output.")
+        else:
+            st.caption("Use this if the appraiser needs to override the extracted value.")
+
+        tab_total, tab_good_faith, tab_historical = st.tabs([
+            "Attachment Total",
+            "Good Faith Sum",
+            "Historical Cost",
+        ])
+
+        with tab_total:
+            attachment_total = st.number_input(
+                "Attachment Total",
+                min_value=0.0,
+                step=100.0,
+                format="%.2f",
+                key=f"assist_attachment_total_{file_name}",
+            )
+            notes = st.text_area(
+                "Attachment Notes",
+                value="",
+                height=70,
+                key=f"assist_attachment_notes_{file_name}",
+            )
+            if st.button("Apply Attachment Total", type="primary", key=f"assist_apply_attachment_{file_name}"):
+                if attachment_total <= 0:
+                    st.error("Enter an attachment total greater than zero.")
+                else:
+                    apply_manual_assist_override(
+                        file_name,
+                        file_bytes,
+                        {
+                            "attachment_total": float(attachment_total),
+                            "good_faith_value": None,
+                            "historical_cost": None,
+                            "acquisition_year": None,
+                            "life_years": None,
+                            "notes": notes or "Manual assist attachment total.",
+                        },
+                    )
+
+        with tab_good_faith:
+            amount_text = st.text_area(
+                "Good Faith Amounts",
+                value="",
+                height=140,
+                placeholder="$4,500.00\n$9,000.00\n$30,250.00",
+                key=f"assist_good_faith_amounts_{file_name}",
+            )
+            values = extract_money_values(amount_text)
+            good_faith_total = round(sum(values), 2)
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric("Line Items", len(values))
+            with c2:
+                st.metric("Good Faith Total", format_money(good_faith_total if values else None))
+            notes = st.text_area(
+                "Good Faith Notes",
+                value="",
+                height=70,
+                key=f"assist_good_faith_notes_{file_name}",
+            )
+            if st.button("Apply Good Faith Sum", type="primary", key=f"assist_apply_good_faith_{file_name}"):
+                if good_faith_total <= 0:
+                    st.error("Enter one or more good faith amounts.")
+                else:
+                    apply_manual_assist_override(
+                        file_name,
+                        file_bytes,
+                        {
+                            "attachment_total": None,
+                            "good_faith_value": good_faith_total,
+                            "historical_cost": None,
+                            "acquisition_year": None,
+                            "life_years": None,
+                            "notes": notes or f"Manual assist good faith sum from {len(values)} line item(s).",
+                        },
+                    )
+
+        with tab_historical:
+            default_year = min(max(datetime.now().year - 1, 1900), 2100)
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                historical_cost = st.number_input(
+                    "Historical Cost",
+                    min_value=0.0,
+                    step=100.0,
+                    format="%.2f",
+                    key=f"assist_historical_cost_{file_name}",
+                )
+            with c2:
+                acquisition_year = st.number_input(
+                    "Acquisition Year",
+                    min_value=1900,
+                    max_value=2100,
+                    step=1,
+                    value=default_year,
+                    key=f"assist_acquisition_year_{file_name}",
+                )
+            with c3:
+                life_years = st.number_input(
+                    "Life Years",
+                    min_value=1,
+                    max_value=50,
+                    step=1,
+                    value=5,
+                    key=f"assist_life_years_{file_name}",
+                )
+
+            percent_good, depreciated_value = calculate_depreciated_value(
+                historical_cost=historical_cost,
+                acquisition_year=int(acquisition_year),
+                life_years=int(life_years),
+            )
+            c4, c5 = st.columns(2)
+            with c4:
+                st.metric("Percent Good", format_percent(percent_good))
+            with c5:
+                st.metric("Depreciated Value", format_money(depreciated_value))
+
+            notes = st.text_area(
+                "Historical Cost Notes",
+                value="",
+                height=70,
+                key=f"assist_historical_notes_{file_name}",
+            )
+            if st.button("Apply Historical Cost", type="primary", key=f"assist_apply_historical_{file_name}"):
+                if historical_cost <= 0:
+                    st.error("Enter historical cost greater than zero.")
+                elif depreciated_value is None:
+                    st.error("No depreciation schedule match found for that year/life.")
+                else:
+                    apply_manual_assist_override(
+                        file_name,
+                        file_bytes,
+                        {
+                            "attachment_total": None,
+                            "good_faith_value": None,
+                            "historical_cost": float(historical_cost),
+                            "acquisition_year": int(acquisition_year),
+                            "life_years": int(life_years),
+                            "notes": notes or "Manual assist historical cost less depreciation.",
+                        },
+                    )
 def reset_single_review_state() -> None:
     st.session_state["single_upload_reset_counter"] = (
         int(st.session_state.get("single_upload_reset_counter", 0)) + 1
@@ -1333,6 +1546,7 @@ def render_single_review() -> None:
             show_flags_and_findings(result)
             show_agent_review(result)
             show_candidate_debug(result)
+            render_manual_assist_panel(result_file_name, result, result_file_bytes)
             finalize_review_panel(result_file_name, result, result_file_bytes)
 
             with st.expander("One-Page Summary", expanded=False):
