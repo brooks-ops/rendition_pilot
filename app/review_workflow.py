@@ -44,6 +44,28 @@ def get_recommended_value(result: dict[str, Any]) -> Any:
     )
 
 
+def wrap_text(text: Any, max_chars: int = 48, max_lines: int | None = None) -> list[str]:
+    words = str(text or "").replace("\r", "\n").split()
+    lines: list[str] = []
+    current = ""
+
+    for word in words:
+        candidate = word if not current else f"{current} {word}"
+        if len(candidate) <= max_chars:
+            current = candidate
+            continue
+        if current:
+            lines.append(current)
+        current = word
+        if max_lines is not None and len(lines) >= max_lines:
+            break
+
+    if current and (max_lines is None or len(lines) < max_lines):
+        lines.append(current)
+
+    return lines
+
+
 def build_final_review_record(
     file_name: str,
     result: dict[str, Any],
@@ -84,7 +106,8 @@ def build_final_review_record(
 
 def stamp_reviewed_pdf(file_name: str, file_bytes: bytes, final_record: dict[str, Any]) -> Path:
     """
-    Stamp page 1 with the locked value, appraiser initials, date, and decision.
+    Stamp page 1 with the locked value, appraiser initials, date, decision,
+    and appraiser notes. Long notes are also appended as a final review page.
     The original PDF is not modified.
     """
     ensure_output_dirs()
@@ -102,7 +125,7 @@ def stamp_reviewed_pdf(file_name: str, file_bytes: bytes, final_record: dict[str
 
     page = doc[0]
     page_width = float(page.rect.width)
-    stamp_rect = fitz.Rect(page_width - 245, 28, page_width - 28, 126)
+    stamp_rect = fitz.Rect(page_width - 265, 28, page_width - 28, 198)
 
     final_value = final_record.get("final_value")
     try:
@@ -113,6 +136,7 @@ def stamp_reviewed_pdf(file_name: str, file_bytes: bytes, final_record: dict[str
     locked_at = str(final_record.get("locked_at") or datetime.now().isoformat(timespec="seconds"))
     date_text = locked_at.split("T", 1)[0]
     decision_label = "ACCEPTED" if decision == "accepted" else "ADJUSTED"
+    appraiser_notes = str(final_record.get("appraiser_notes") or "").strip()
 
     stamp_lines = [
         "APPRAISAL REVIEW",
@@ -122,6 +146,10 @@ def stamp_reviewed_pdf(file_name: str, file_bytes: bytes, final_record: dict[str
         f"DATE: {date_text}",
         f"STATUS: {decision_label}",
     ]
+    note_lines = wrap_text(appraiser_notes, max_chars=42, max_lines=4)
+    if note_lines:
+        stamp_lines.append("NOTE:")
+        stamp_lines.extend(note_lines)
 
     page.draw_rect(stamp_rect, color=(0.05, 0.18, 0.34), fill=(1, 1, 1), width=1.2)
     y = stamp_rect.y0 + 12
@@ -134,7 +162,52 @@ def stamp_reviewed_pdf(file_name: str, file_bytes: bytes, final_record: dict[str
             fontname="helv",
             color=(0.05, 0.18, 0.34),
         )
-        y += 15
+        y += 14
+
+    if appraiser_notes:
+        notes_page = doc.new_page(width=612, height=792)
+        margin = 54
+        title_color = (0.05, 0.18, 0.34)
+        notes_page.insert_text(
+            fitz.Point(margin, 58),
+            "APPRAISER REVIEW NOTES",
+            fontsize=15,
+            fontname="helv",
+            color=title_color,
+        )
+        summary_lines = [
+            f"Account: {account_number or '-'}",
+            f"Final Value: {final_value_text}",
+            f"Source: {final_record.get('final_source') or '-'}",
+            f"Initials: {final_record.get('appraiser_initials') or '-'}",
+            f"Date: {date_text}",
+            f"Status: {decision_label}",
+            "",
+            "Notes:",
+        ]
+        y = 92
+        for line in summary_lines:
+            notes_page.insert_text(
+                fitz.Point(margin, y),
+                line,
+                fontsize=10.5,
+                fontname="helv",
+                color=(0, 0, 0),
+            )
+            y += 18
+
+        for line in wrap_text(appraiser_notes, max_chars=88):
+            if y > 742:
+                notes_page = doc.new_page(width=612, height=792)
+                y = 58
+            notes_page.insert_text(
+                fitz.Point(margin, y),
+                line,
+                fontsize=10.5,
+                fontname="helv",
+                color=(0, 0, 0),
+            )
+            y += 16
 
     doc.save(out_path, deflate=True, garbage=4)
     doc.close()
