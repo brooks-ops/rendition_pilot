@@ -21,6 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.cli import build_cli_summary
 from app.pipeline import run_rendition_pipeline
 from app.review_workflow import (
+    APPRAISER_UPLOAD_DIR,
     COMPLETED_DIR,
     OUTPUT_DIR,
     QUEUE_CSV,
@@ -536,6 +537,7 @@ def prettify_path(path: str | None) -> str:
         "use_manual_historical_cost_depreciated": "Historical Cost Less Depreciation",
         "use_attachment_total_pending_review": "Attachment Total",
         "use_schedule_total_pending_review": "Schedule E Total",
+        "use_good_faith_value_pending_review": "Good Faith Estimate",
         "manual_review": "Manual Review",
     }
     if not path:
@@ -700,6 +702,7 @@ def show_flags_and_findings(result: dict) -> None:
     form_flags = result.get("form_flags", {}) or {}
     metadata = result.get("metadata", {}) or {}
     schedule_e = result.get("schedule_e", {}) or {}
+    schedule_values = result.get("schedule_values", {}) or {}
     attachments = result.get("attachments", {}) or {}
     review_flags = result.get("review_flags", {}) or {}
     manual_override = result.get("manual_override", {}) or {}
@@ -736,6 +739,8 @@ def show_flags_and_findings(result: dict) -> None:
             [
                 ("Schedule E Present", "Yes" if schedule_e.get("schedule_e_present") else "No"),
                 ("Schedule E Total", format_money(schedule_e.get("total"))),
+                ("Schedule A GFE Total", format_money(schedule_values.get("good_faith_total"))),
+                ("Historical Cost Total", format_money(schedule_values.get("historical_cost_total"))),
                 ("Schedule E M&E Present", "Yes" if schedule_e.get("machinery_and_equipment_present") else "No"),
                 ("Attachment Summary Present", "Yes" if attachments.get("attachment_summary_present") else "No"),
                 ("Best Attachment Total", format_money(attachments.get("best_attachment_total"))),
@@ -923,6 +928,10 @@ def reset_single_review_state() -> None:
         "single_file_name",
         "single_file_bytes",
         "single_locked_record",
+        "single_saved_stamped_path",
+        "single_saved_stamped_bytes",
+        "single_saved_stamped_name",
+        "single_saved_outputs",
         "single_notes",
     ]:
         st.session_state.pop(key, None)
@@ -935,6 +944,7 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
 
     st.markdown('<div class="ap-card">', unsafe_allow_html=True)
     st.subheader("Finalize Review")
+    st.caption(f"Stamped PDFs save to: {APPRAISER_UPLOAD_DIR}")
 
     c1, c2 = st.columns([1, 1])
     with c1:
@@ -995,6 +1005,29 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
             f"for {locked_record.get('account_number') or account_number}."
         )
 
+    saved_path = st.session_state.get("single_saved_stamped_path")
+    if saved_path:
+        st.success(f"Stamped rendition saved to {saved_path}")
+        saved_outputs = st.session_state.get("single_saved_outputs")
+        if saved_outputs:
+            st.caption(saved_outputs)
+        saved_bytes = st.session_state.get("single_saved_stamped_bytes")
+        saved_name = st.session_state.get("single_saved_stamped_name") or "stamped_rendition.pdf"
+        if saved_bytes:
+            st.download_button(
+                "Download Stamped Rendition",
+                data=saved_bytes,
+                file_name=saved_name,
+                mime="application/pdf",
+                use_container_width=True,
+                key=f"download_stamped_{file_name}",
+            )
+        if st.button("Next Account", key=f"next_account_{file_name}", use_container_width=True):
+            reset_single_review_state()
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
     lock_final, save_rendition = st.columns(2)
     with lock_final:
         if st.button("Lock Final Value", type="primary", key=f"lock_review_{file_name}", use_container_width=True):
@@ -1027,18 +1060,29 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
             if not locked_record:
                 st.error("Lock the final value before saving the rendition.")
             else:
-                stamped_pdf = stamp_reviewed_pdf(
-                    file_name=file_name,
-                    file_bytes=file_bytes,
-                    final_record=locked_record,
-                )
-                locked_record["stamped_pdf"] = str(stamped_pdf)
-                paths = save_review_outputs(file_name=file_name, result=result, final_record=locked_record)
-                append_queue_row(file_name=file_name, result={**result, "final_review": locked_record}, status="Locked")
-                st.success(f"Saved stamped rendition to {stamped_pdf}")
-                st.caption(" | ".join(str(path) for path in {**paths, "stamped_pdf": stamped_pdf}.values()))
-                reset_single_review_state()
-                st.rerun()
+                try:
+                    stamped_pdf = stamp_reviewed_pdf(
+                        file_name=file_name,
+                        file_bytes=file_bytes,
+                        final_record=locked_record,
+                    )
+                    locked_record["stamped_pdf"] = str(stamped_pdf)
+                    paths = save_review_outputs(file_name=file_name, result=result, final_record=locked_record)
+                    append_queue_row(
+                        file_name=file_name,
+                        result={**result, "final_review": locked_record},
+                        status="Locked",
+                    )
+                except Exception as exc:
+                    st.error(f"Could not save stamped rendition: {exc}")
+                else:
+                    st.session_state["single_saved_stamped_path"] = str(stamped_pdf)
+                    st.session_state["single_saved_stamped_name"] = stamped_pdf.name
+                    st.session_state["single_saved_stamped_bytes"] = stamped_pdf.read_bytes()
+                    st.session_state["single_saved_outputs"] = " | ".join(
+                        str(path) for path in {**paths, "stamped_pdf": stamped_pdf}.values()
+                    )
+                    st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1050,6 +1094,7 @@ def build_batch_row(file_name: str, result: dict) -> dict:
     agent_review = result.get("agent_review", {}) or {}
     form_flags = result.get("form_flags", {}) or {}
     schedule_e = result.get("schedule_e", {}) or {}
+    schedule_values = result.get("schedule_values", {}) or {}
     attachments = result.get("attachments", {}) or {}
 
     value = (
@@ -1075,6 +1120,8 @@ def build_batch_row(file_name: str, result: dict) -> dict:
         "Signature Detected": bool(form_flags.get("signature_block_detected")),
         "SEE ATTACHED": bool(form_flags.get("see_attached")),
         "Schedule E Total": format_money(schedule_e.get("total")),
+        "Schedule A GFE Total": format_money(schedule_values.get("good_faith_total")),
+        "Historical Cost Total": format_money(schedule_values.get("historical_cost_total")),
         "Attachment Total": format_money(attachments.get("best_attachment_total")),
         "Agent Status": agent_review.get("status") or "-",
         "Agent Flags": " | ".join(str(x) for x in agent_review.get("review_flags", []) or []) or "-",

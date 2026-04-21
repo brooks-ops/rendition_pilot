@@ -25,6 +25,11 @@ class AssessmentSummaryBuilder:
 
         schedule_e_total = schedule_e.get("total")
         attachment_total = attachments.get("best_attachment_total")
+        good_faith_value = (
+            rendition_result.get("good_faith_value")
+            or (rendition_result.get("resolved_values", {}) or {}).get("good_faith_value")
+            or (rendition_result.get("schedule_values", {}) or {}).get("good_faith_total")
+        )
         depreciated_value = depreciated_override_result.get("depreciated_value")
         percent_good = depreciated_override_result.get("percent_good")
 
@@ -66,6 +71,11 @@ class AssessmentSummaryBuilder:
             extracted_value = schedule_e_total
             value_source = "schedule_e_total"
             recommended_path = "use_schedule_total_pending_review"
+
+        elif good_faith_value is not None:
+            extracted_value = good_faith_value
+            value_source = "schedule_good_faith_value"
+            recommended_path = "use_good_faith_value_pending_review"
 
         issues: list[str] = []
 
@@ -110,6 +120,9 @@ class AssessmentSummaryBuilder:
         elif recommended_path == "use_schedule_total_pending_review":
             reason = "Schedule E total selected as the best available extracted value."
 
+        elif recommended_path == "use_good_faith_value_pending_review":
+            reason = "Good faith estimate values were summed and selected as the best available extracted value."
+
         else:
             reason = "No reliable value source was found. Manual review required."
 
@@ -123,6 +136,7 @@ class AssessmentSummaryBuilder:
         elif recommended_path in {
             "use_attachment_total_pending_review",
             "use_schedule_total_pending_review",
+            "use_good_faith_value_pending_review",
         } and not issues:
             confidence = "medium"
 

@@ -209,6 +209,10 @@ def _is_plausible_money(value: float) -> bool:
     return True
 
 
+def _is_common_form_threshold(value: float) -> bool:
+    return float(value) in {20000.0, 125000.0, 150000.0} and value != 150000.0
+
+
 def _evidence_snippet(text: str, start: int, end: int, window: int = 90) -> str:
     snippet = (text or "")[max(0, start - window): min(len(text or ""), end + window)]
     return _normalize_text(snippet)
@@ -1156,24 +1160,96 @@ def _extract_pdf_pages(pdf_path: str) -> List[Dict[str, Any]]:
     if pages and any(len((p.get("text") or "").strip()) >= 25 for p in pages):
         return pages
 
-    try:
-        from pdf2image import convert_from_path
-        import pytesseract
-    except Exception:
-        return pages
-
-    try:
-        images = convert_from_path(pdf_path, dpi=300)
-        ocr_pages: List[Dict[str, Any]] = []
-        for idx, image in enumerate(images, start=1):
-            text = pytesseract.image_to_string(image) or ""
-            ocr_pages.append({"page_number": idx, "text": text, "ocr_blocks": []})
-        if any((p.get("text") or "").strip() for p in ocr_pages):
-            return ocr_pages
-    except Exception:
-        return pages
+    ocr_pages = _ocr_pdf_pages_with_pymupdf(pdf_path)
+    if any((p.get("text") or "").strip() for p in ocr_pages):
+        return ocr_pages
 
     return pages
+
+
+def _ocr_pdf_pages_with_pymupdf(pdf_path: str) -> List[Dict[str, Any]]:
+    try:
+        import fitz
+        import pytesseract
+        from PIL import Image
+        from pytesseract import Output
+    except Exception:
+        return []
+
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return []
+
+    ocr_pages: List[Dict[str, Any]] = []
+    try:
+        for page_number, page in enumerate(doc, start=1):
+            pix = page.get_pixmap(matrix=fitz.Matrix(3, 3), alpha=False)
+            image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+            best_text = ""
+            best_words: List[Dict[str, Any]] = []
+            best_score = -1
+
+            for rotation in [0, 90, 270]:
+                rotated = image.rotate(rotation, expand=True) if rotation else image
+                try:
+                    text = pytesseract.image_to_string(rotated) or ""
+                    data = pytesseract.image_to_data(rotated, output_type=Output.DICT)
+                except Exception:
+                    continue
+
+                norm = _normalize_ocrish_text(text)
+                score = len(text)
+                for term in ["schedule", "good faith", "historical cost", "rendition", "property owner"]:
+                    if term in norm:
+                        score += 500
+
+                words: List[Dict[str, Any]] = []
+                for idx, word_text in enumerate(data.get("text", [])):
+                    cleaned = str(word_text or "").strip()
+                    if not cleaned:
+                        continue
+                    try:
+                        conf = float(data.get("conf", ["-1"])[idx])
+                    except Exception:
+                        conf = -1
+                    if conf < 0:
+                        continue
+                    left = float(data.get("left", [0])[idx])
+                    top = float(data.get("top", [0])[idx])
+                    width = float(data.get("width", [0])[idx])
+                    height = float(data.get("height", [0])[idx])
+                    words.append(
+                        {
+                            "text": cleaned,
+                            "x0": left,
+                            "x1": left + width,
+                            "top": top,
+                            "y0": top,
+                            "y1": top + height,
+                            "confidence": conf,
+                            "rotation": rotation,
+                        }
+                    )
+
+                if score > best_score:
+                    best_score = score
+                    best_text = text
+                    best_words = words
+
+            ocr_pages.append(
+                {
+                    "page_number": page_number,
+                    "text": best_text,
+                    "ocr_blocks": best_words,
+                    "text_source": "pymupdf_tesseract_ocr",
+                }
+            )
+    finally:
+        doc.close()
+
+    return ocr_pages
 
 
 def _best_schedule_e(pages: List[Dict[str, Any]], targeted_parser: TargetedRenditionParser) -> Dict[str, Any]:
@@ -1202,6 +1278,114 @@ def _best_schedule_e(pages: List[Dict[str, Any]], targeted_parser: TargetedRendi
             best["page_number"] = page_number
 
     return best
+
+
+def _find_schedule_sections(text: str) -> Dict[str, str]:
+    matches = list(re.finditer(r"\bSCHEDULE\s+([A-F])\b", text or "", re.IGNORECASE))
+    sections: Dict[str, str] = {}
+    for idx, match in enumerate(matches):
+        letter = match.group(1).upper()
+        start = match.start()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        sections[letter] = text[start:end]
+    return sections
+
+
+def _find_explicit_dollar_values(text: str) -> List[float]:
+    values: List[float] = []
+    for match in re.finditer(r"\$\s*([0-9Ool]{1,3}(?:[,\s.][0-9Ool]{3})*|[0-9Ool]{2,9})(?:\.\d{1,2})?", text or ""):
+        value = _parse_money(match.group(0))
+        if value is None or not _is_plausible_money(value):
+            continue
+        if value in {20000.0, 125000.0}:
+            continue
+        values.append(value)
+    return values
+
+
+def _extract_schedule_values(pages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    result: Dict[str, Any] = {
+        "schedules": {},
+        "candidates": [],
+        "good_faith_total": None,
+        "historical_cost_total": None,
+    }
+
+    for page in pages:
+        page_number = int(page.get("page_number", 1))
+        page_text = page.get("text", "") or ""
+        sections = _find_schedule_sections(page_text)
+        if not sections:
+            continue
+
+        for letter, section_text in sections.items():
+            dollar_values = _find_explicit_dollar_values(section_text)
+            section_entry = result["schedules"].setdefault(
+                letter,
+                {
+                    "schedule": letter,
+                    "page_numbers": [],
+                    "dollar_values": [],
+                    "good_faith_values": [],
+                    "historical_cost_values": [],
+                    "total": None,
+                },
+            )
+            section_entry["page_numbers"].append(page_number)
+            section_entry["dollar_values"].extend(dollar_values)
+
+            norm_section = _normalize_ocrish_text(section_text)
+            if letter == "A" and dollar_values and "good faith" in norm_section:
+                section_entry["good_faith_values"].extend(dollar_values)
+                total = round(sum(dollar_values), 2)
+                section_entry["total"] = total
+                result["good_faith_total"] = round((result["good_faith_total"] or 0) + total, 2)
+                result["candidates"].append(
+                    {
+                        "field": "good_faith_value",
+                        "value": total,
+                        "raw_value": ", ".join(f"${v:,.2f}" for v in dollar_values),
+                        "source": "schedule_a",
+                        "rule": "sum_schedule_a_good_faith_estimates",
+                        "page_number": page_number,
+                        "confidence": 0.90,
+                        "score": 1.02,
+                        "evidence_text": _normalize_text(section_text[:500]),
+                    }
+                )
+            elif dollar_values:
+                total = round(sum(dollar_values), 2)
+                section_entry["total"] = total
+                result["candidates"].append(
+                    {
+                        "field": "attachment_total",
+                        "value": total,
+                        "raw_value": ", ".join(f"${v:,.2f}" for v in dollar_values),
+                        "source": f"schedule_{letter.lower()}",
+                        "rule": f"sum_schedule_{letter.lower()}_explicit_dollar_values",
+                        "page_number": page_number,
+                        "confidence": 0.78,
+                        "score": 0.90,
+                        "evidence_text": _normalize_text(section_text[:500]),
+                    }
+                )
+
+            if "historical cost" in norm_section:
+                historical_values = dollar_values
+                section_entry["historical_cost_values"].extend(historical_values)
+                if historical_values:
+                    result["historical_cost_total"] = round(
+                        (result["historical_cost_total"] or 0) + sum(historical_values),
+                        2,
+                    )
+
+    for section_entry in result["schedules"].values():
+        section_entry["page_numbers"] = sorted(set(section_entry["page_numbers"]))
+        section_entry["dollar_values"] = sorted(section_entry["dollar_values"], reverse=True)
+        section_entry["good_faith_values"] = sorted(section_entry["good_faith_values"], reverse=True)
+        section_entry["historical_cost_values"] = sorted(section_entry["historical_cost_values"], reverse=True)
+
+    return result
 
 
 def _review_flags(pages: List[Dict[str, Any]], schedule_e: Dict[str, Any], attachments: Dict[str, Any]) -> Dict[str, Any]:
@@ -1346,6 +1530,7 @@ def run_rendition_pipeline(
 
     form_flags = targeted_parser.parse_page_1_flags(pages[0].get("text", "") if pages else "")
     schedule_e = _best_schedule_e(pages, targeted_parser)
+    schedule_values = _extract_schedule_values(pages)
     attachments = targeted_parser.parse_attachment_summary([p.get("text", "") or "" for p in pages])
     metadata = _extract_metadata(pages)
 
@@ -1354,7 +1539,9 @@ def run_rendition_pipeline(
 
     value_candidates = CandidateExtractor().extract_candidates(pages)
     merged_candidates = _dedupe_candidates(
-        (pipeline_result.final_result.get("merged_candidates", []) or []) + value_candidates
+        (pipeline_result.final_result.get("merged_candidates", []) or [])
+        + value_candidates
+        + (schedule_values.get("candidates", []) or [])
     )
     candidate_buckets = bucket_candidates(merged_candidates)
     selected_candidate = CandidateExtractor().select_best_candidate(value_candidates) or {}
@@ -1371,6 +1558,7 @@ def run_rendition_pipeline(
             "page_texts": _build_page_texts(pages),
             "form_flags": {**(result.get("form_flags", {}) or {}), **form_flags},
             "schedule_e": schedule_e,
+            "schedule_values": schedule_values,
             "attachments": attachments,
             "metadata": metadata,
             "review_flags": review_flags,
@@ -1390,6 +1578,8 @@ def run_rendition_pipeline(
         result.setdefault("attachment_total", attachments.get("best_attachment_total"))
     if schedule_e.get("total") is not None:
         result.setdefault("schedule_e_total", schedule_e.get("total"))
+    if schedule_values.get("good_faith_total") is not None:
+        result.setdefault("good_faith_value", schedule_values.get("good_faith_total"))
 
     result["assessment_summary"] = AssessmentSummaryBuilder().build_summary(
         rendition_result=result,
