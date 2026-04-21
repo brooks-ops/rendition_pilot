@@ -1,3 +1,7 @@
-from app.agent_review import review_parse_result
+import os
 
-__all__ = ["review_parse_result"]
+try:
+    import streamlit as st
+    api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
+except:
+    api_key = os.getenv("OPENAI_API_KEY")
