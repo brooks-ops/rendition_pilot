@@ -27,6 +27,13 @@ def safe_stem(file_name: str) -> str:
     return stem or "rendition"
 
 
+def safe_account_number(value: Any) -> str:
+    if value is None:
+        return ""
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", str(value)).upper()
+    return cleaned if re.fullmatch(r"P\d{4,10}", cleaned) else cleaned
+
+
 def get_recommended_value(result: dict[str, Any]) -> Any:
     assessment = result.get("assessment_summary", {}) or {}
     return (
@@ -45,13 +52,17 @@ def build_final_review_record(
     appraiser_notes: str = "",
     appraiser_initials: str = "",
     decision: str = "accepted",
+    account_number: str = "",
 ) -> dict[str, Any]:
     assessment = result.get("assessment_summary", {}) or {}
     agent_review = result.get("agent_review", {}) or {}
     review_flags = result.get("review_flags", {}) or {}
+    metadata = result.get("metadata", {}) or {}
+    account_number = safe_account_number(account_number or metadata.get("account_number"))
 
     return {
         "file_name": file_name,
+        "account_number": account_number,
         "locked_at": datetime.now().isoformat(timespec="seconds"),
         "decision": decision,
         "final_value": final_value,
@@ -80,9 +91,10 @@ def stamp_reviewed_pdf(file_name: str, file_bytes: bytes, final_record: dict[str
 
     import fitz  # PyMuPDF
 
-    stem = safe_stem(file_name)
+    account_number = safe_account_number(final_record.get("account_number"))
+    stem = account_number or safe_stem(file_name)
     decision = str(final_record.get("decision") or "reviewed").lower()
-    out_path = APPRAISER_UPLOAD_DIR / f"{stem}_{decision}_stamped.pdf"
+    out_path = APPRAISER_UPLOAD_DIR / f"{stem}.pdf"
 
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     if len(doc) == 0:
@@ -104,6 +116,7 @@ def stamp_reviewed_pdf(file_name: str, file_bytes: bytes, final_record: dict[str
 
     stamp_lines = [
         "APPRAISAL REVIEW",
+        f"ACCOUNT: {account_number or '-'}",
         f"VALUE: {final_value_text}",
         f"INITIALS: {final_record.get('appraiser_initials') or '-'}",
         f"DATE: {date_text}",
@@ -121,7 +134,7 @@ def stamp_reviewed_pdf(file_name: str, file_bytes: bytes, final_record: dict[str
             fontname="helv",
             color=(0.05, 0.18, 0.34),
         )
-        y += 17
+        y += 15
 
     doc.save(out_path, deflate=True, garbage=4)
     doc.close()

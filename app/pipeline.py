@@ -1219,6 +1219,13 @@ def _review_flags(pages: List[Dict[str, Any]], schedule_e: Dict[str, Any], attac
 def _extract_metadata(pages: List[Dict[str, Any]]) -> Dict[str, Any]:
     first_text = pages[0].get("text", "") if pages else ""
     combined = "\n".join((page.get("text", "") or "") for page in pages[:2])
+    word_text = " ".join(
+        str(word.get("text", ""))
+        for page in pages[:2]
+        for word in (page.get("ocr_blocks", []) or [])
+        if isinstance(word, dict)
+    )
+    search_text = f"{combined}\n{word_text}"
 
     def first_match(patterns: List[str], text: str) -> Optional[str]:
         for pattern in patterns:
@@ -1245,11 +1252,15 @@ def _extract_metadata(pages: List[Dict[str, Any]]) -> Dict[str, Any]:
     )
     account_number = first_match(
         [
+            r"\b(P\s*[-#]?\s*\d{4,10})\b",
             r"(?:account number|account no\.?|acct\.?|property id|pid)\s*[:#\-]?\s*([A-Z0-9\-]{4,30})",
+            r"(?:appraisal district account|account)\D{0,30}(P\s*[-#]?\s*\d{4,10})",
             r"\b(?:account|acct)\D{0,10}([0-9]{4,30})\b",
         ],
-        combined,
+        search_text,
     )
+    if account_number:
+        account_number = re.sub(r"[^A-Z0-9]", "", account_number.upper())
     signed_date = first_match(
         [
             r"(?:date signed|signed date|date)\s*[:\-]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",

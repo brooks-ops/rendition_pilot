@@ -690,6 +690,7 @@ def run_pipeline_from_upload(file_name: str, file_bytes: bytes, manual_override:
 def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> None:
     recommended_value = get_recommended_value(result)
     default_source = (result.get("assessment_summary", {}) or {}).get("value_source") or "pipeline_recommendation"
+    metadata = result.get("metadata", {}) or {}
 
     st.markdown('<div class="ap-card">', unsafe_allow_html=True)
     st.subheader("Finalize Review")
@@ -732,6 +733,13 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
             key=f"final_decision_{file_name}",
         )
 
+    account_number = st.text_input(
+        "Appraisal District Account / P#",
+        value=str(metadata.get("account_number") or ""),
+        placeholder="Example: P164755",
+        key=f"final_account_number_{file_name}",
+    )
+
     final_notes = st.text_area(
         "Appraiser Notes",
         value="",
@@ -754,6 +762,8 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
                 st.error("Enter a valid final value before locking.")
             elif not appraiser_initials.strip():
                 st.error("Enter appraiser initials before locking.")
+            elif not account_number.strip():
+                st.error("Enter the appraisal district account / P# before locking.")
             else:
                 decision_code = "accepted" if decision == "Accepted Recommended Value" else "adjusted"
                 record = build_final_review_record(
@@ -763,6 +773,7 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
                     final_source=final_source,
                     appraiser_notes=final_notes,
                     appraiser_initials=appraiser_initials.strip().upper(),
+                    account_number=account_number.strip().upper(),
                     decision=decision_code,
                 )
                 stamped_pdf = stamp_reviewed_pdf(file_name=file_name, file_bytes=file_bytes, final_record=record)
