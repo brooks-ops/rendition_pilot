@@ -1562,8 +1562,8 @@ def render_single_review() -> None:
 
         if result:
             show_top_metrics(result)
-            finalize_review_panel(result_file_name, result, result_file_bytes)
             render_manual_assist_panel(result_file_name, result, result_file_bytes)
+            finalize_review_panel(result_file_name, result, result_file_bytes)
 
             with st.expander("Document / Form / Schedule Details", expanded=False):
                 show_flags_and_findings(result)
