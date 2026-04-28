@@ -56,6 +56,7 @@ AUTHORIZED_USERS = {
     "emontoya@lubbockcad.org",
     "ctrimble@lubbockcad.org",
     "lflores@lubbockcad.org",
+    "hmccauley@dallamcad.org",
 }
 
 DEFAULT_SUPABASE_URL = "https://pzawjgckzcgnfsfuylqy.supabase.co"
