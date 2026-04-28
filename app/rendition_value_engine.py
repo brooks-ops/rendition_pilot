@@ -173,6 +173,19 @@ def calculate_schedule_e(
         debug_rows.append(debug_row)
         flags.extend(row_flags)
 
+    year_based_items = [
+        item
+        for item in normalized
+        if item.year_acquired is not None and item.historical_cost is not None
+    ]
+    populated_subsections = {
+        _normalize_subsection_name(item.subsection)
+        for item in year_based_items
+        if _normalize_subsection_name(item.subsection)
+    }
+    if len(year_based_items) >= 3 and len(populated_subsections) <= 1:
+        flags.append("ambiguous_schedule_e_subsection_mapping")
+
     total = round(sum(subsection_totals.values()), 2)
     return {
         "total": total,
@@ -237,6 +250,8 @@ def calculate_rendition_value(
 
     confidence = _derive_confidence(all_items, flags)
     has_any_calculated_value = any(item.get("calculated_value") is not None for item in all_items)
+    if "ambiguous_schedule_e_subsection_mapping" in flags:
+        has_any_calculated_value = False
     result = ValuationResult(
         schedule_totals=schedule_totals,
         subsection_totals=schedule_e["subsection_totals"],
@@ -277,6 +292,7 @@ def extract_line_items(parsed_result: dict[str, Any]) -> list[RenditionLineItem]
         page_number = int(page.get("page_number", 1) or 1)
         page_text = str(page.get("text", "") or "")
         sections = _split_schedule_sections(page_text)
+        schedule_e_detected = targeted_parser.parse_schedule_e_total(page_text).get("schedule_e_present")
 
         for schedule, section_text in sections.items():
             if schedule == "F":
@@ -287,27 +303,28 @@ def extract_line_items(parsed_result: dict[str, Any]) -> list[RenditionLineItem]
                 items.extend(_parse_schedule_bc_text_rows(schedule, section_text, page_number))
 
         words = page.get("ocr_blocks", []) or []
-        schedule_e_rows = targeted_parser.parse_schedule_e_subsection_rows(words)
-        for row in schedule_e_rows:
-            items.append(
-                RenditionLineItem(
-                    schedule="E",
-                    subsection=row.get("subsection"),
-                    year_acquired=row.get("year_acquired"),
-                    historical_cost=row.get("historical_cost"),
-                    good_faith_value=row.get("good_faith_value"),
-                    raw_text=str(row.get("raw_text", "")),
-                    source_page=page_number,
-                    confidence=row.get("confidence"),
-                    flags=list(row.get("flags") or []),
-                    raw_values=dict(row.get("raw_values") or {}),
+        if schedule_e_detected:
+            schedule_e_rows = targeted_parser.parse_schedule_e_subsection_rows(words)
+            for row in schedule_e_rows:
+                items.append(
+                    RenditionLineItem(
+                        schedule="E",
+                        subsection=row.get("subsection"),
+                        year_acquired=row.get("year_acquired"),
+                        historical_cost=row.get("historical_cost"),
+                        good_faith_value=row.get("good_faith_value"),
+                        raw_text=str(row.get("raw_text", "")),
+                        source_page=page_number,
+                        confidence=row.get("confidence"),
+                        flags=list(row.get("flags") or []),
+                        raw_values=dict(row.get("raw_values") or {}),
+                    )
                 )
-            )
 
         # Schedule E is the most layout-sensitive page in the form. When we have
         # OCR word geometry, do not fall back to line-based text parsing because
         # collapsed OCR lines can merge adjacent cells and create invented amounts.
-        if "E" in sections and not schedule_e_rows and not words:
+        if "E" in sections and schedule_e_detected and not schedule_e_rows and not words:
             items.extend(_parse_schedule_e_text_rows(sections["E"], page_number))
 
     return _dedupe_line_items(items)

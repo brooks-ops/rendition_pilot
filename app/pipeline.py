@@ -245,7 +245,11 @@ def _normalize_money_text(raw: str) -> str:
 
     # OCR sometimes splits a leading digit off a comma-grouped amount:
     # "$ 1 84,724.43" should be "184,724.43".
-    text = re.sub(r"\b(\d)\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"\1\2", text)
+    # Only repair the common OCR split for leading "1" values like "1 84,724.43".
+    # Broad digit-merge rules create nonsense like "6 45,442" -> "645,442".
+    text = re.sub(r"\b1\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"1\1", text)
+    # If OCR leaves a stray leading digit before a valid amount, prefer the valid amount.
+    text = re.sub(r"\b[2-9]\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"\1", text)
     text = text.replace(" ", "")
 
     if "," in text and "." in text:
@@ -2139,9 +2143,13 @@ def _best_schedule_e(pages: List[Dict[str, Any]], targeted_parser: TargetedRendi
     for page in pages:
         page_number = int(page.get("page_number", 1))
         text_result = targeted_parser.parse_schedule_e_total(page.get("text", "") or "")
-        rows = targeted_parser.parse_schedule_e_year_rows_from_words(page.get("ocr_blocks", []) or [])
-        subsection_rows = targeted_parser.parse_schedule_e_subsection_rows(page.get("ocr_blocks", []) or [])
-        subsection_totals = targeted_parser.parse_schedule_e_subsection_totals(page.get("ocr_blocks", []) or [])
+        rows = []
+        subsection_rows = []
+        subsection_totals = {}
+        if text_result.get("schedule_e_present"):
+            rows = targeted_parser.parse_schedule_e_year_rows_from_words(page.get("ocr_blocks", []) or [])
+            subsection_rows = targeted_parser.parse_schedule_e_subsection_rows(page.get("ocr_blocks", []) or [])
+            subsection_totals = targeted_parser.parse_schedule_e_subsection_totals(page.get("ocr_blocks", []) or [])
 
         if text_result.get("schedule_e_present"):
             best["schedule_e_present"] = True

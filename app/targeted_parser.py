@@ -10,7 +10,11 @@ def parse_money_text(raw: str) -> float | None:
         .strip("() ")
     )
     text = re.sub(r"\s+", " ", text)
-    text = re.sub(r"\b(\d)\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"\1\2", text)
+    # Only repair the common OCR split for leading "1" values like "1 84,724.43".
+    # Broad digit-merge rules create nonsense like "6 45,442" -> "645,442".
+    text = re.sub(r"\b1\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"1\1", text)
+    # If OCR leaves a stray leading digit before a valid amount, prefer the valid amount.
+    text = re.sub(r"\b[2-9]\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"\1", text)
     text = text.replace(" ", "")
 
     if "," in text and "." in text:

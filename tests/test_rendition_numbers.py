@@ -1,4 +1,6 @@
 from app.pipeline import _azure_analyze_result_to_pages, _needs_ocr_fallback, _parse_money
+from app.assessment_summary import AssessmentSummaryBuilder
+from app.rendition_value_engine import calculate_rendition_value
 from app.targeted_parser import TargetedRenditionParser
 
 
@@ -6,6 +8,7 @@ def test_parse_money_keeps_cents_and_repairs_split_leading_digit():
     assert _parse_money("$ 1 84,724.43") == 184724.43
     assert _parse_money("$ 9,000.00") == 9000.0
     assert _parse_money("34,798.73") == 34798.73
+    assert _parse_money("6 45,442") == 45442.0
 
 
 def test_attachment_summary_uses_labeled_total_not_largest_bad_parse():
@@ -144,3 +147,59 @@ def test_needs_ocr_fallback_detects_garbled_embedded_text():
     ]
 
     assert _needs_ocr_fallback(pages) is True
+
+
+def test_ambiguous_schedule_e_mapping_disables_rule_engine_value():
+    valuation = calculate_rendition_value(
+        {
+            "metadata": {"tax_year": 2026},
+            "line_items": [
+                {
+                    "schedule": "E",
+                    "subsection": "computer_equipment",
+                    "year_acquired": 2025,
+                    "historical_cost": 161656.0,
+                    "source_page": 3,
+                    "confidence": 0.86,
+                },
+                {
+                    "schedule": "E",
+                    "subsection": "computer_equipment",
+                    "year_acquired": 2024,
+                    "historical_cost": 8395.0,
+                    "source_page": 3,
+                    "confidence": 0.86,
+                },
+                {
+                    "schedule": "E",
+                    "subsection": "computer_equipment",
+                    "year_acquired": 2016,
+                    "historical_cost": 45442.0,
+                    "source_page": 3,
+                    "confidence": 0.86,
+                },
+            ],
+        }
+    )
+
+    assert "ambiguous_schedule_e_subsection_mapping" in valuation["flags"]
+    assert valuation["final_recommended_value"] is None
+
+
+def test_assessment_summary_falls_back_to_schedule_e_total_when_rule_engine_is_ambiguous():
+    summary = AssessmentSummaryBuilder().build_summary(
+        {
+            "form_flags": {"signature_block_detected": True, "section_5_present": True},
+            "schedule_e": {"total": 45442.0},
+            "attachments": {"best_attachment_total": None},
+            "review_flags": {},
+            "ocr_reconciliation": {},
+            "recommended_value": 184292.65,
+            "recommended_value_source": "schedule_rule_engine",
+            "valuation_flags": ["ambiguous_schedule_e_subsection_mapping"],
+            "rendition_valuation": {"confidence": "high"},
+        }
+    )
+
+    assert summary["recommended_value"] == 45442.0
+    assert summary["recommended_path"] == "use_schedule_total_pending_review"

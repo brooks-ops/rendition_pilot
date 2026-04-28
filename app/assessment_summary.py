@@ -40,6 +40,10 @@ class AssessmentSummaryBuilder:
         depreciated_value = depreciated_override_result.get("depreciated_value")
         percent_good = depreciated_override_result.get("percent_good")
         valuation_flags = list(rendition_result.get("valuation_flags", []) or [])
+        schedule_rule_trustworthy = (
+            schedule_rule_value is not None
+            and "ambiguous_schedule_e_subsection_mapping" not in valuation_flags
+        )
 
         extracted_value = None
         value_source = None
@@ -73,7 +77,7 @@ class AssessmentSummaryBuilder:
             value_source = "manual_override_historical_cost_depreciated"
             recommended_path = "use_manual_historical_cost_depreciated"
 
-        elif schedule_rule_value is not None:
+        elif schedule_rule_trustworthy:
             extracted_value = schedule_rule_value
             value_source = recommended_value_source or "schedule_rule_engine"
             recommended_path = "use_schedule_rule_engine"
