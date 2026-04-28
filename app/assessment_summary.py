@@ -12,6 +12,7 @@ class AssessmentSummaryBuilder:
         schedule_e = rendition_result.get("schedule_e", {}) or {}
         attachments = rendition_result.get("attachments", {}) or {}
         review_flags = rendition_result.get("review_flags", {}) or {}
+        ocr_reconciliation = rendition_result.get("ocr_reconciliation", {}) or {}
 
         manual_override = manual_override or {}
         depreciated_override_result = depreciated_override_result or {}
@@ -88,6 +89,9 @@ class AssessmentSummaryBuilder:
         if review_flags.get("ocr_unavailable"):
             issues.append("OCR engine unavailable for scanned-image PDF.")
 
+        if review_flags.get("provider_disagreement"):
+            issues.append("OCR providers disagreed on one or more valuation-critical totals.")
+
         for ocr_error in review_flags.get("ocr_errors", []) or []:
             issues.append(str(ocr_error))
 
@@ -122,9 +126,13 @@ class AssessmentSummaryBuilder:
 
         elif recommended_path == "use_attachment_total_pending_review":
             reason = "Attachment total selected as the best available extracted value."
+            if review_flags.get("provider_agreement"):
+                reason = "Attachment total selected and cross-checked across OCR providers."
 
         elif recommended_path == "use_schedule_total_pending_review":
             reason = "Schedule E total selected as the best available extracted value."
+            if review_flags.get("provider_agreement"):
+                reason = "Schedule E total selected and cross-checked across OCR providers."
 
         elif recommended_path == "use_good_faith_value_pending_review":
             reason = "Good faith estimate values were summed and selected as the best available extracted value."
@@ -145,6 +153,8 @@ class AssessmentSummaryBuilder:
             "use_good_faith_value_pending_review",
         } and not issues:
             confidence = "medium"
+            if review_flags.get("provider_agreement"):
+                confidence = "high"
 
         return {
             "extracted_value": extracted_value,
@@ -155,4 +165,8 @@ class AssessmentSummaryBuilder:
             "issues": issues,
             "confidence": confidence,
             "override_notes": override_notes,
+            "ocr_provider_used": review_flags.get("ocr_provider_used"),
+            "ocr_secondary_providers": review_flags.get("ocr_secondary_providers", []),
+            "provider_agreement_fields": review_flags.get("provider_agreement_fields", []),
+            "ocr_reconciliation": ocr_reconciliation,
         }

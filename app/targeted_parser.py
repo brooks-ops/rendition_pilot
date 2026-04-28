@@ -20,6 +20,8 @@ def parse_money_text(raw: str) -> float | None:
             text = text.replace(",", "")
         else:
             text = text.replace(",", ".")
+    elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+", text):
+        text = text.replace(".", "")
     elif text.count(".") > 1:
         text = text.replace(".", "")
 
@@ -30,6 +32,35 @@ def parse_money_text(raw: str) -> float | None:
 
 
 class TargetedRenditionParser:
+    @staticmethod
+    def _word_text(word: dict) -> str:
+        return str(word.get("text", "") or "").strip()
+
+    @staticmethod
+    def _word_top(word: dict) -> float:
+        return float(word.get("top", word.get("y0", 0)) or 0)
+
+    @staticmethod
+    def _word_x0(word: dict) -> float:
+        return float(word.get("x0", 0) or 0)
+
+    def _money_word_value(self, word: dict) -> float | None:
+        text = self._word_text(word)
+        if not text:
+            return None
+
+        if not re.fullmatch(r"[$]?\d[\d,.\s]{2,}", text):
+            return None
+
+        value = parse_money_text(text)
+        if value is None:
+            return None
+        if value < 5000:
+            return None
+        if 1900 <= int(value) <= 2100 and float(value).is_integer():
+            return None
+        return value
+
     def normalize_text(self, text: str) -> str:
         if not text:
             return ""
@@ -132,21 +163,29 @@ class TargetedRenditionParser:
         ):
             result["machinery_and_equipment_present"] = True
 
-        total_match = re.search(
-            r"TOTAL(?:\s+[A-Z ]+)?[: ]+.*?(\$?\s*\d(?:\s+)?\d{1,3}[,]\d{3}(?:\.\d{1,2})?|\$?\s*\d{1,3}[,]\d{3}(?:\.\d{1,2})?)",
-            normalized,
-        )
-        if total_match:
-            amount = parse_money_text(total_match.group(1))
-            if amount is not None:
-                result["schedule_e_total"] = amount
-                return result
+        if not result["schedule_e_present"]:
+            return result
 
-        matches = re.findall(r"\b\d{1,3},\d{3}(?:\.\d{1,2})?\b", normalized)
+        labeled_candidates = []
+        total_patterns = [
+            r"TOTAL(?:\s+[A-Z ]+)?[: ]+.*?(\$?\s*\d(?:\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?|\$?\s*\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?)",
+            r"GRAND\s+TOTAL(?:\s+[A-Z ]+)?[: ]+.*?(\$?\s*\d(?:\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?|\$?\s*\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?)",
+        ]
+        for pattern in total_patterns:
+            for match in re.finditer(pattern, normalized):
+                amount = parse_money_text(match.group(1))
+                if amount is not None and amount not in {20000.0, 50000.0, 125000.0, 150000.0}:
+                    labeled_candidates.append(amount)
+
+        if labeled_candidates:
+            result["schedule_e_total"] = max(labeled_candidates)
+            return result
+
+        matches = re.findall(r"\b\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?\b", normalized)
         candidates = []
         for m in matches:
             value = parse_money_text(m)
-            if value is not None:
+            if value is not None and value not in {20000.0, 50000.0, 125000.0, 150000.0}:
                 candidates.append(value)
 
         if candidates:
@@ -155,61 +194,116 @@ class TargetedRenditionParser:
         return result
 
     def parse_schedule_e_year_rows_from_words(self, words: list[dict]) -> list[dict]:
-        rows = []
+        if not words:
+            return []
 
-        year_words = []
-        for w in words:
-            text = w["text"]
+        year_words: list[dict] = []
+        money_words: list[dict] = []
+        for word in words:
+            text = self._word_text(word)
             if re.fullmatch(r"20\d{2}", text):
                 year = int(text)
-                if 2015 <= year <= 2025 and 30 <= w["x0"] <= 80 and 410 <= w["top"] <= 560:
-                    year_words.append(w)
+                if 1900 <= year <= 2100:
+                    year_words.append(word)
+                    continue
 
-        year_words = sorted(year_words, key=lambda w: w["top"])
+            money_value = self._money_word_value(word)
+            if money_value is not None:
+                money_words.append({**word, "_money_value": money_value})
 
-        for yw in year_words:
-            year = int(yw["text"])
-            row_top = yw["top"]
+        if not year_words or not money_words:
+            return []
 
-            candidate_words = []
-            for w in words:
-                if abs(w["top"] - row_top) <= 6 and w["x0"] > 80:
-                    cleaned = w["text"].replace(",", "").replace(".", "")
+        min_year_top = min(self._word_top(word) for word in year_words)
+        total_row_candidates = [
+            self._word_top(word)
+            for word in words
+            if "TOTAL" in self._word_text(word).upper() and self._word_top(word) > min_year_top + 40
+        ]
+        total_row_top = min(total_row_candidates) if total_row_candidates else None
 
-                    if not cleaned.isdigit():
+        filtered_year_words = [
+            word for word in year_words
+            if total_row_top is None or self._word_top(word) < total_row_top - 10
+        ]
+        filtered_money_words = [
+            word for word in money_words
+            if total_row_top is None or self._word_top(word) < total_row_top - 10
+        ]
+
+        if not filtered_year_words or not filtered_money_words:
+            return []
+
+        row_clusters: list[dict] = []
+        row_tolerance = 8.0
+        for word in sorted(filtered_year_words, key=lambda item: self._word_top(item)):
+            top = self._word_top(word)
+            for cluster in row_clusters:
+                if abs(top - cluster["top"]) <= row_tolerance:
+                    cluster["words"].append(word)
+                    cluster["top"] = (cluster["top"] * (len(cluster["words"]) - 1) + top) / len(cluster["words"])
+                    break
+            else:
+                row_clusters.append({"top": top, "words": [word]})
+
+        rows = []
+        for cluster in row_clusters:
+            row_top = float(cluster["top"])
+            row_years = sorted(cluster["words"], key=lambda item: self._word_x0(item))
+            row_amounts = [
+                word for word in filtered_money_words
+                if abs(self._word_top(word) - row_top) <= row_tolerance
+            ]
+            if not row_amounts:
+                continue
+
+            used_year_keys: set[tuple[int, int]] = set()
+            for amount_word in sorted(row_amounts, key=lambda item: self._word_x0(item)):
+                amount_x0 = self._word_x0(amount_word)
+                amount_value = float(amount_word["_money_value"])
+
+                best_year_word = None
+                best_distance = None
+                for year_word in row_years:
+                    year_x0 = self._word_x0(year_word)
+                    distance = abs(year_x0 - amount_x0)
+                    if distance > 220:
                         continue
+                    if best_distance is None or distance < best_distance:
+                        best_distance = distance
+                        best_year_word = year_word
 
-                    try:
-                        val = int(cleaned)
-                    except ValueError:
-                        continue
+                if best_year_word is None:
+                    continue
 
-                    if val < 5000 or val == year:
-                        continue
-
-                    if 2400 <= val <= 2600:
-                        continue
-
-                    candidate_words.append((val, w))
-
-            if candidate_words:
-                best_val, best_word = max(candidate_words, key=lambda x: x[0])
+                year = int(self._word_text(best_year_word))
+                year_key = (year, round(self._word_x0(best_year_word)))
+                if year_key in used_year_keys:
+                    continue
+                used_year_keys.add(year_key)
 
                 rows.append({
                     "year_acquired": year,
-                    "amount": float(best_val),
+                    "amount": amount_value,
                     "source_section": "Schedule E",
-                    "amount_word": best_word["text"],
-                    "amount_x0": best_word["x0"],
+                    "amount_word": self._word_text(amount_word),
+                    "amount_x0": amount_x0,
+                    "year_x0": self._word_x0(best_year_word),
                     "row_top": row_top,
                 })
 
-        deduped = {}
+        deduped: dict[tuple[int, int], dict] = {}
         for row in rows:
-            deduped[row["year_acquired"]] = row
+            key = (int(row["year_acquired"]), int(round(float(row["amount"]))))
+            existing = deduped.get(key)
+            if existing is None or float(row["amount_x0"]) > float(existing["amount_x0"]):
+                deduped[key] = row
 
-        final_rows = list(deduped.values())
-        final_rows.sort(key=lambda x: x["year_acquired"], reverse=True)
+        final_rows = sorted(
+            deduped.values(),
+            key=lambda item: (int(item["year_acquired"]), float(item["amount"])),
+            reverse=True,
+        )
 
         return final_rows
 
@@ -218,7 +312,8 @@ class TargetedRenditionParser:
         Looks across attachment/support pages for summary-style value signals.
         Version 1: totals and class detection only.
         """
-        combined = "\n".join([self.normalize_text(t) for t in texts if t])
+        normalized_pages = [self.normalize_text(t) for t in texts if t]
+        combined = "\n".join(normalized_pages)
 
         result = {
             "attachment_summary_present": False,
@@ -255,44 +350,69 @@ class TargetedRenditionParser:
         if "RENDERED VALUE" in combined:
             result["rendered_value_detected"] = True
 
-        money_matches = re.findall(
-            r"\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?\b",
-            combined,
-        )
+        money_pattern = r"\$?\s*(?:\d\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?\b"
+        threshold_values = {20000.0, 50000.0, 125000.0, 150000.0}
+        page_totals: list[float] = []
+        rendered_total_candidates: list[float] = []
 
-        candidates = []
-        for m in money_matches:
-            value = parse_money_text(m)
-            if value is None:
-                continue
-            if value in {20000.0, 50000.0, 125000.0, 150000.0}:
-                continue
-            candidates.append(value)
+        for page_text in normalized_pages:
+            page_summary_clues = [
+                "SUMMARY",
+                "STATE CLASS",
+                "REPORTED COST",
+                "CURRENT VALUE",
+                "RENDERED VALUE",
+            ]
+            page_is_summary = sum(1 for clue in page_summary_clues if clue in page_text) >= 2
+            lines = [line.strip() for line in page_text.splitlines() if line.strip()]
 
-        total_patterns = [
-            r"TOTAL\s+FIXED\s+ASSETS\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
-            r"GRAND\s+TOTAL\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
-            r"TOTAL\s+ASSETS\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
-            r"TOTAL\s+MARKET\s+VALUE\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
-        ]
-        labeled_totals = []
-        for pattern in total_patterns:
-            for match in re.finditer(pattern, combined):
-                value = parse_money_text(match.group(1))
-                if value is not None:
-                    labeled_totals.append(value)
+            if page_is_summary:
+                triples: list[tuple[float, float, float]] = []
+                sequential_values: list[float] = []
+                for line in lines:
+                    values = []
+                    for match_text in re.findall(money_pattern, line):
+                        value = parse_money_text(match_text)
+                        if value is None or value in threshold_values:
+                            continue
+                        values.append(value)
+                    if len(values) >= 3:
+                        triples.append((values[-3], values[-2], values[-1]))
+                    elif len(values) == 1 and re.fullmatch(rf"{money_pattern}", line):
+                        sequential_values.append(values[0])
 
-        if candidates:
-            result["attachment_total_candidates"] = sorted(set(candidates), reverse=True)
+                if len(sequential_values) >= 3:
+                    usable_count = len(sequential_values) - (len(sequential_values) % 3)
+                    for idx in range(0, usable_count, 3):
+                        triple = sequential_values[idx: idx + 3]
+                        if len(triple) == 3:
+                            triples.append((triple[0], triple[1], triple[2]))
 
-        if labeled_totals:
+                if triples:
+                    best_triple = max(triples, key=lambda item: (item[2], item[1], item[0]))
+                    page_totals.extend(best_triple)
+                    rendered_total_candidates.append(best_triple[2])
+
+            total_patterns = [
+                r"TOTAL\s+FIXED\s+ASSETS\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?)",
+                r"GRAND\s+TOTALS?\s*:?\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?)",
+                r"TOTALS?\s*:?\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?)",
+                r"TOTAL\s+ASSETS\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?)",
+                r"TOTAL\s+MARKET\s+VALUE\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?)",
+            ]
+            for pattern in total_patterns:
+                for match in re.finditer(pattern, page_text):
+                    value = parse_money_text(match.group(1))
+                    if value is not None and value not in threshold_values:
+                        page_totals.append(value)
+
+        if page_totals:
+            result["attachment_total_candidates"] = sorted(set(page_totals), reverse=True)
+
+        if rendered_total_candidates:
             result["attachment_summary_present"] = True
-            result["attachment_total_candidates"] = sorted(
-                set(result["attachment_total_candidates"] + labeled_totals),
-                reverse=True,
-            )
-            result["best_attachment_total"] = max(labeled_totals)
-        elif result["attachment_summary_present"] and candidates:
-            result["best_attachment_total"] = max(candidates)
+            result["best_attachment_total"] = max(rendered_total_candidates)
+        elif result["attachment_summary_present"] and page_totals:
+            result["best_attachment_total"] = max(page_totals)
 
         return result

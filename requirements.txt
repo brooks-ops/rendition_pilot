@@ -6,3 +6,5 @@ openai
 pdf2image
 pytesseract
 requests
+python-dotenv
+pytest

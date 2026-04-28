@@ -3,5 +3,7 @@
 __pycache__/
 *.pyc
 app/data/
+app/page_texts_ocr/
 Output/
 .idea/
+write_test.txt

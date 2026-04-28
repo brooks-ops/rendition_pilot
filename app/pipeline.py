@@ -151,6 +151,7 @@ YEAR_RE = re.compile(r"\b(19[5-9]\d|20[0-4]\d)\b")
 
 _OPENAI_VISION_OCR_DISABLED_REASON: Optional[str] = None
 _AZURE_OCR_DISABLED_REASON: Optional[str] = None
+_GOOGLE_VISION_OCR_DISABLED_REASON: Optional[str] = None
 
 
 def _normalize_text(text: str) -> str:
@@ -1217,12 +1218,111 @@ def load_manual_override(path_str: str) -> Dict[str, Any]:
     return data
 
 
-def _extract_pdf_pages(pdf_path: str) -> List[Dict[str, Any]]:
+def _provider_has_text(pages: List[Dict[str, Any]]) -> bool:
+    return any((page.get("text") or "").strip() for page in pages)
+
+
+def _provider_text_chars(pages: List[Dict[str, Any]]) -> int:
+    return sum(len(page.get("text", "") or "") for page in pages)
+
+
+def _provider_value_summary(pages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    targeted_parser = TargetedRenditionParser()
+    schedule_e = _best_schedule_e(pages, targeted_parser)
+    attachments = targeted_parser.parse_attachment_summary([p.get("text", "") or "" for p in pages])
+    schedule_values = _extract_schedule_values(pages)
+    return {
+        "page_count": len(pages),
+        "text_chars": _provider_text_chars(pages),
+        "text_source": next((p.get("text_source") for p in pages if p.get("text_source")), None),
+        "schedule_e_total": schedule_e.get("total"),
+        "attachment_total": attachments.get("best_attachment_total"),
+        "good_faith_total": schedule_values.get("good_faith_total"),
+    }
+
+
+def _values_agree(left: Any, right: Any, tolerance: float = 1.0) -> bool:
+    if left is None or right is None:
+        return False
+    try:
+        return abs(float(left) - float(right)) <= tolerance
+    except (TypeError, ValueError):
+        return False
+
+
+OCR_PROVIDER_PRIORITY = [
+    "google_cloud_vision",
+    "openai_vision_ocr",
+    "azure_document_intelligence",
+    "pymupdf_tesseract_ocr",
+    "embedded_pdf_text",
+]
+
+
+def _reconcile_ocr_providers(
+    embedded_pages: List[Dict[str, Any]],
+    provider_pages: Dict[str, List[Dict[str, Any]]],
+    chosen_provider: str,
+) -> Dict[str, Any]:
+    provider_summaries: Dict[str, Dict[str, Any]] = {}
+    if _provider_has_text(embedded_pages):
+        provider_summaries["embedded_pdf_text"] = _provider_value_summary(embedded_pages)
+
+    for provider_name, pages in provider_pages.items():
+        if _provider_has_text(pages):
+            provider_summaries[provider_name] = _provider_value_summary(pages)
+
+    agreement_fields: Dict[str, Dict[str, Any]] = {}
+    disagreement_fields: Dict[str, Dict[str, float]] = {}
+    candidate_fields = ["attachment_total", "schedule_e_total", "good_faith_total"]
+
+    for field_name in candidate_fields:
+        values = {
+            provider_name: summary.get(field_name)
+            for provider_name, summary in provider_summaries.items()
+            if summary.get(field_name) is not None
+        }
+        if len(values) < 2:
+            continue
+
+        numeric_values = [float(value) for value in values.values()]
+        if max(numeric_values) - min(numeric_values) <= 1.0:
+            agreement_fields[field_name] = {
+                "value": round(sum(numeric_values) / len(numeric_values), 2),
+                "providers": sorted(values.keys()),
+            }
+        else:
+            disagreement_fields[field_name] = {
+                provider_name: float(value)
+                for provider_name, value in values.items()
+            }
+
+    preferred_summary = provider_summaries.get(chosen_provider, {})
+    secondary_providers = [
+        provider_name
+        for provider_name in OCR_PROVIDER_PRIORITY
+        if provider_name != chosen_provider and provider_name in provider_summaries
+    ]
+
+    return {
+        "used_fallback_ocr": chosen_provider != "embedded_pdf_text",
+        "chosen_provider": chosen_provider,
+        "secondary_providers": secondary_providers,
+        "provider_summaries": provider_summaries,
+        "provider_agreement": bool(agreement_fields),
+        "provider_disagreement": bool(disagreement_fields),
+        "agreement_fields": agreement_fields,
+        "disagreement_fields": disagreement_fields,
+        "chosen_provider_summary": preferred_summary,
+    }
+
+
+def _extract_pdf_bundle(pdf_path: str) -> Dict[str, Any]:
     started_at = time.perf_counter()
     extractor = PDFExtractor()
-    pages = extractor.extract_pages(pdf_path)
+    embedded_pages = extractor.extract_pages(pdf_path)
 
-    for page in pages:
+    for page in embedded_pages:
         page_number = int(page.get("page_number", 1))
         try:
             words = extractor.extract_page_words(pdf_path, page_number)
@@ -1240,41 +1340,58 @@ def _extract_pdf_pages(pdf_path: str) -> List[Dict[str, Any]]:
                 }
             )
         page["ocr_blocks"] = normalized_words
+        page.setdefault("text_source", "embedded_pdf_text")
 
-    # Optional scanned-PDF fallback. Treat tiny/form-artifact text as low quality so
-    # image-only renditions and weak text layers still get OCR.
-    if pages and not _needs_ocr_fallback(pages):
-        return pages
+    if embedded_pages and not _needs_ocr_fallback(embedded_pages):
+        reconciliation = _reconcile_ocr_providers(embedded_pages, {}, "embedded_pdf_text")
+        for page in embedded_pages:
+            page["extraction_provider"] = "embedded_pdf_text"
+            page["extraction_seconds"] = round(time.perf_counter() - started_at, 2)
+        return {
+            "pages": embedded_pages,
+            "ocr_reconciliation": reconciliation,
+        }
 
-    azure_pages = _ocr_pdf_pages_with_azure_document_intelligence(pdf_path)
-    if any((p.get("text") or "").strip() for p in azure_pages):
-        return azure_pages
+    provider_pages = {
+        "google_cloud_vision": _ocr_pdf_pages_with_google_vision(pdf_path),
+        "openai_vision_ocr": _ocr_pdf_pages_with_openai_vision(pdf_path),
+        "azure_document_intelligence": _ocr_pdf_pages_with_azure_document_intelligence(pdf_path),
+        "pymupdf_tesseract_ocr": _ocr_pdf_pages_with_pymupdf(pdf_path),
+    }
 
-    ocr_pages = _ocr_pdf_pages_with_pymupdf(pdf_path)
-    if any((p.get("text") or "").strip() for p in ocr_pages):
-        return ocr_pages
+    chosen_provider = next(
+        (provider_name for provider_name in OCR_PROVIDER_PRIORITY if _provider_has_text(provider_pages.get(provider_name, []))),
+        "embedded_pdf_text",
+    )
+    chosen_pages = provider_pages.get(chosen_provider) or embedded_pages
+    reconciliation = _reconcile_ocr_providers(embedded_pages, provider_pages, chosen_provider)
 
-    vision_pages = _ocr_pdf_pages_with_openai_vision(pdf_path)
-    if any((p.get("text") or "").strip() for p in vision_pages):
-        return vision_pages
-    provider_errors = [
-        str(p.get("ocr_error"))
-        for p in azure_pages
-        if p.get("ocr_error")
-    ] + [
-        str(p.get("ocr_error"))
-        for p in vision_pages
-        if p.get("ocr_error")
-    ]
+    provider_errors = []
+    for provider_name in ["google_cloud_vision", "openai_vision_ocr", "azure_document_intelligence", "pymupdf_tesseract_ocr"]:
+        provider_errors.extend(
+            str(page.get("ocr_error"))
+            for page in provider_pages.get(provider_name, [])
+            if page.get("ocr_error")
+        )
 
-    if _needs_ocr_fallback(pages):
-        for page in pages:
+    if chosen_provider == "embedded_pdf_text" and _needs_ocr_fallback(embedded_pages):
+        for page in chosen_pages:
             page["ocr_unavailable"] = True
             if provider_errors:
                 page["ocr_error"] = _summarize_ocr_error(provider_errors[0])
-            page["extraction_seconds"] = round(time.perf_counter() - started_at, 2)
 
-    return pages
+    for page in chosen_pages:
+        page["extraction_provider"] = chosen_provider
+        page["extraction_seconds"] = round(time.perf_counter() - started_at, 2)
+
+    return {
+        "pages": chosen_pages,
+        "ocr_reconciliation": reconciliation,
+    }
+
+
+def _extract_pdf_pages(pdf_path: str) -> List[Dict[str, Any]]:
+    return _extract_pdf_bundle(pdf_path)["pages"]
 
 
 def _needs_ocr_fallback(pages: List[Dict[str, Any]]) -> bool:
@@ -1283,6 +1400,7 @@ def _needs_ocr_fallback(pages: List[Dict[str, Any]]) -> bool:
 
     combined = "\n".join((p.get("text") or "") for p in pages)
     normalized = _normalize_ocrish_text(combined)
+    raw_tokens = re.findall(r"\b\S+\b", combined)
     text_chars = len(combined.strip())
     alpha_chars = sum(ch.isalpha() for ch in combined)
     digit_chars = sum(ch.isdigit() for ch in combined)
@@ -1302,7 +1420,23 @@ def _needs_ocr_fallback(pages: List[Dict[str, Any]]) -> bool:
         "property owner",
         "total fixed assets",
     ]
-    return sum(1 for term in target_terms if term in normalized) < 2
+    target_term_hits = sum(1 for term in target_terms if term in normalized)
+
+    suspicious_token_count = sum(
+        1
+        for token in raw_tokens
+        if (
+            len(token) >= 4
+            and re.search(r"[A-Za-z]", token)
+            and re.search(r"\d", token)
+        )
+        or "\\" in token
+        or "€" in token
+    )
+    if suspicious_token_count >= max(12, 6 * page_count):
+        return True
+
+    return target_term_hits < 2
 
 
 def _ocr_pdf_pages_with_pymupdf(pdf_path: str) -> List[Dict[str, Any]]:
@@ -1409,6 +1543,18 @@ def _prepare_ocr_image(image: Any) -> Any:
 
 def _summarize_ocr_error(error: str) -> str:
     lowered = error.lower()
+    if "google cloud vision" in lowered or "google vision" in lowered:
+        if "not configured" in lowered:
+            return "Google Cloud Vision OCR unavailable: API key not configured."
+        if "quota" in lowered or "billing" in lowered or "resource_exhausted" in lowered:
+            return "Google Cloud Vision OCR unavailable: quota or billing limit reached."
+        if "permission denied" in lowered or "403" in lowered:
+            return "Google Cloud Vision OCR unavailable: API key or service permissions failed."
+        if "unauthenticated" in lowered or "401" in lowered or "api key not valid" in lowered:
+            return "Google Cloud Vision OCR unavailable: API key authentication failed."
+        if "timed out" in lowered or "timeout" in lowered:
+            return "Google Cloud Vision OCR unavailable: timed out."
+        return "Google Cloud Vision OCR unavailable."
     if "azure document intelligence" in lowered:
         if "not configured" in lowered:
             return "Azure Document Intelligence OCR unavailable: endpoint/key not configured."
@@ -1426,6 +1572,162 @@ def _summarize_ocr_error(error: str) -> str:
     if "api key" in lowered or "authentication" in lowered or "unauthorized" in lowered:
         return "OpenAI vision OCR unavailable: API key/authentication failed."
     return "OpenAI vision OCR unavailable."
+
+
+def _is_terminal_google_ocr_error(error: str) -> bool:
+    lowered = error.lower()
+    return any(
+        marker in lowered
+        for marker in [
+            "api key not valid",
+            "permission denied",
+            "billing",
+            "quota",
+            "resource_exhausted",
+            "access not configured",
+            "service disabled",
+            "project",
+        ]
+    )
+
+
+def _ocr_pdf_pages_with_google_vision(pdf_path: str) -> List[Dict[str, Any]]:
+    global _GOOGLE_VISION_OCR_DISABLED_REASON
+
+    if _GOOGLE_VISION_OCR_DISABLED_REASON:
+        return [
+            {
+                "page_number": 1,
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "google_cloud_vision_error",
+                "ocr_error": _GOOGLE_VISION_OCR_DISABLED_REASON,
+            }
+        ]
+
+    api_key = _get_config_value("GOOGLE_VISION_API_KEY", "GOOGLE_CLOUD_VISION_API_KEY")
+    if not api_key:
+        return []
+
+    try:
+        import fitz
+    except Exception:
+        return []
+
+    try:
+        dpi_scale = float(_get_config_value("GOOGLE_VISION_OCR_DPI_SCALE") or "3.0")
+    except ValueError:
+        dpi_scale = 3.0
+    try:
+        request_timeout = float(_get_config_value("GOOGLE_VISION_OCR_REQUEST_TIMEOUT_SECONDS") or "20")
+    except ValueError:
+        request_timeout = 20.0
+    try:
+        max_pages = int(_get_config_value("GOOGLE_VISION_OCR_MAX_PAGES") or "0")
+    except ValueError:
+        max_pages = 0
+
+    endpoint = "https://vision.googleapis.com/v1/images:annotate"
+
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return []
+
+    pages: List[Dict[str, Any]] = []
+    try:
+        for page_number, page in enumerate(doc, start=1):
+            if max_pages > 0 and page_number > max_pages:
+                break
+
+            pix = page.get_pixmap(matrix=fitz.Matrix(dpi_scale, dpi_scale), alpha=False)
+            image_b64 = base64.b64encode(pix.tobytes("jpeg", jpg_quality=90)).decode("ascii")
+            payload = {
+                "requests": [
+                    {
+                        "image": {"content": image_b64},
+                        "features": [{"type": "DOCUMENT_TEXT_DETECTION"}],
+                    }
+                ]
+            }
+
+            try:
+                response = requests.post(
+                    endpoint,
+                    params={"key": api_key},
+                    json=payload,
+                    timeout=request_timeout,
+                )
+            except requests.RequestException as exc:
+                error = f"Google Cloud Vision request failed: {type(exc).__name__}: {exc}"
+                return [{"page_number": page_number, "text": "", "ocr_blocks": [], "text_source": "google_cloud_vision_error", "ocr_error": error}]
+
+            if response.status_code >= 400:
+                error = f"Google Cloud Vision HTTP {response.status_code}: {response.text[:500]}"
+                if _is_terminal_google_ocr_error(error):
+                    _GOOGLE_VISION_OCR_DISABLED_REASON = error
+                return [{"page_number": page_number, "text": "", "ocr_blocks": [], "text_source": "google_cloud_vision_error", "ocr_error": error}]
+
+            try:
+                response_payload = response.json()
+            except ValueError as exc:
+                error = f"Google Cloud Vision returned non-JSON response: {type(exc).__name__}: {exc}"
+                return [{"page_number": page_number, "text": "", "ocr_blocks": [], "text_source": "google_cloud_vision_error", "ocr_error": error}]
+
+            result = ((response_payload.get("responses") or [{}])[0]) if isinstance(response_payload, dict) else {}
+            if result.get("error"):
+                error = f"Google Cloud Vision API error: {json.dumps(result.get('error'))[:500]}"
+                if _is_terminal_google_ocr_error(error):
+                    _GOOGLE_VISION_OCR_DISABLED_REASON = error
+                return [{"page_number": page_number, "text": "", "ocr_blocks": [], "text_source": "google_cloud_vision_error", "ocr_error": error}]
+
+            text = str((result.get("fullTextAnnotation") or {}).get("text") or "").strip()
+            pages.append(
+                {
+                    "page_number": page_number,
+                    "text": text,
+                    "ocr_blocks": _google_vision_response_to_word_blocks(result),
+                    "text_source": "google_cloud_vision",
+                }
+            )
+    finally:
+        doc.close()
+
+    return pages
+
+
+def _google_vision_response_to_word_blocks(result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    word_blocks: List[Dict[str, Any]] = []
+    annotation = result.get("fullTextAnnotation") or {}
+    pages = annotation.get("pages") or []
+
+    for page in pages:
+        for block in page.get("blocks") or []:
+            for paragraph in block.get("paragraphs") or []:
+                for word in paragraph.get("words") or []:
+                    symbols = word.get("symbols") or []
+                    text = "".join(str(symbol.get("text") or "") for symbol in symbols).strip()
+                    if not text:
+                        continue
+                    vertices = (word.get("boundingBox") or {}).get("vertices") or []
+                    xs = [float(vertex.get("x", 0) or 0) for vertex in vertices]
+                    ys = [float(vertex.get("y", 0) or 0) for vertex in vertices]
+                    confidence = word.get("confidence")
+                    word_blocks.append(
+                        {
+                            "text": text,
+                            "x0": min(xs) if xs else 0,
+                            "x1": max(xs) if xs else 0,
+                            "top": min(ys) if ys else 0,
+                            "y0": min(ys) if ys else 0,
+                            "y1": max(ys) if ys else 0,
+                            "confidence": confidence,
+                            "source": "google_cloud_vision",
+                        }
+                    )
+
+    word_blocks.sort(key=lambda item: (round(float(item.get("top", 0)), 1), round(float(item.get("x0", 0)), 1)))
+    return word_blocks
 
 
 def _is_terminal_azure_ocr_error(error: str) -> bool:
@@ -1817,9 +2119,19 @@ def _best_schedule_e(pages: List[Dict[str, Any]], targeted_parser: TargetedRendi
             best["year_rows"].extend(rows)
 
         total = text_result.get("schedule_e_total")
-        if total is not None and (best["total"] is None or float(total) > float(best["total"])):
+        if (
+            text_result.get("schedule_e_present")
+            and total is not None
+            and (best["total"] is None or float(total) > float(best["total"]))
+        ):
             best["total"] = total
             best["page_number"] = page_number
+
+        if text_result.get("schedule_e_present") and best["total"] is None and rows:
+            computed_total = round(sum(float(row.get("amount") or 0) for row in rows), 2)
+            if computed_total > 0:
+                best["total"] = computed_total
+                best["page_number"] = page_number
 
     return best
 
@@ -1932,7 +2244,12 @@ def _extract_schedule_values(pages: List[Dict[str, Any]]) -> Dict[str, Any]:
     return result
 
 
-def _review_flags(pages: List[Dict[str, Any]], schedule_e: Dict[str, Any], attachments: Dict[str, Any]) -> Dict[str, Any]:
+def _review_flags(
+    pages: List[Dict[str, Any]],
+    schedule_e: Dict[str, Any],
+    attachments: Dict[str, Any],
+    ocr_reconciliation: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     text_chars = sum(len(p.get("text", "") or "") for p in pages)
     ocr_errors = sorted(
         {
@@ -1941,6 +2258,7 @@ def _review_flags(pages: List[Dict[str, Any]], schedule_e: Dict[str, Any], attac
             if p.get("ocr_error")
         }
     )
+    ocr_reconciliation = ocr_reconciliation or {}
     return {
         "needs_manual_row_review": bool(schedule_e.get("schedule_e_present") and not schedule_e.get("year_rows")),
         "needs_attachment_review": bool(
@@ -1950,6 +2268,11 @@ def _review_flags(pages: List[Dict[str, Any]], schedule_e: Dict[str, Any], attac
         "low_text_extraction": text_chars < 50,
         "ocr_unavailable": any(bool(p.get("ocr_unavailable")) for p in pages),
         "ocr_errors": ocr_errors,
+        "ocr_provider_used": ocr_reconciliation.get("chosen_provider"),
+        "ocr_secondary_providers": ocr_reconciliation.get("secondary_providers", []),
+        "provider_agreement": bool(ocr_reconciliation.get("provider_agreement")),
+        "provider_disagreement": bool(ocr_reconciliation.get("provider_disagreement")),
+        "provider_agreement_fields": sorted((ocr_reconciliation.get("agreement_fields") or {}).keys()),
     }
 
 
@@ -2078,7 +2401,9 @@ def run_rendition_pipeline(
     pdf_path: str,
     manual_override: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    pages = _extract_pdf_pages(pdf_path)
+    extraction_bundle = _extract_pdf_bundle(pdf_path)
+    pages = extraction_bundle.get("pages", [])
+    ocr_reconciliation = extraction_bundle.get("ocr_reconciliation", {}) or {}
     targeted_parser = TargetedRenditionParser()
 
     form_flags = targeted_parser.parse_page_1_flags(pages[0].get("text", "") if pages else "")
@@ -2115,7 +2440,7 @@ def run_rendition_pipeline(
     candidate_buckets = bucket_candidates(merged_candidates)
     selected_candidate = CandidateExtractor().select_best_candidate(value_candidates) or {}
 
-    review_flags = _review_flags(pages, schedule_e, attachments)
+    review_flags = _review_flags(pages, schedule_e, attachments, ocr_reconciliation)
     depreciated_override_result = _depreciate_manual_override(manual_override)
 
     result = dict(pipeline_result.final_result)
@@ -2131,6 +2456,7 @@ def run_rendition_pipeline(
             "attachments": attachments,
             "metadata": metadata,
             "review_flags": review_flags,
+            "ocr_reconciliation": ocr_reconciliation,
             "manual_override": manual_override or {},
             "depreciated_override_result": depreciated_override_result,
             "value_candidates": value_candidates,

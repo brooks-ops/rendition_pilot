@@ -1,38 +1,37 @@
-import os
-import json
 import argparse
-from pdf2image import convert_from_path
-import pytesseract
+import json
+from pathlib import Path
 
 
-def extract_pages_ocr(pdf_path: str, out_folder: str):
-    os.makedirs(out_folder, exist_ok=True)
+def extract_pages_ocr(pdf_path: str, out_folder: str, provider: str) -> None:
+    out_dir = Path(out_folder)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    images = convert_from_path(pdf_path, dpi=300)
+    if provider == "google-vision":
+        from app.pipeline import _ocr_pdf_pages_with_google_vision
 
-    pages = []
+        pages = _ocr_pdf_pages_with_google_vision(pdf_path)
+    elif provider == "tesseract":
+        from app.pipeline import _ocr_pdf_pages_with_pymupdf
 
-    for i, image in enumerate(images):
-        text = pytesseract.image_to_string(image)
+        pages = _ocr_pdf_pages_with_pymupdf(pdf_path)
+    else:
+        raise ValueError(f"Unsupported OCR provider: {provider}")
 
-        page_data = {
-            "page_number": i + 1,
-            "text": text
-        }
+    if not pages:
+        raise RuntimeError(
+            f"No OCR output produced with provider '{provider}'. "
+            "Check credentials/configuration and confirm the PDF is readable."
+        )
 
-        pages.append(page_data)
+    for page in pages:
+        page_number = int(page.get("page_number", 1))
+        text = page.get("text", "") or ""
+        (out_dir / f"page{page_number}.txt").write_text(text, encoding="utf-8")
+        print(f"OCR processed page {page_number} with {provider}")
 
-        # Optional debug text file
-        with open(os.path.join(out_folder, f"page{i+1}.txt"), "w", encoding="utf-8") as f:
-            f.write(text)
-
-        print(f"OCR processed page {i+1}")
-
-    # Save JSON for pipeline
-    json_path = os.path.join(out_folder, "pages.json")
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(pages, f, indent=2)
-
+    json_path = out_dir / "pages.json"
+    json_path.write_text(json.dumps({"pages": pages}, indent=2), encoding="utf-8")
     print(f"\nSaved OCR output to: {json_path}")
 
 
@@ -40,7 +39,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--pdf", required=True)
     parser.add_argument("--out", default="app/page_texts_ocr")
+    parser.add_argument(
+        "--provider",
+        default="google-vision",
+        choices=["google-vision", "tesseract"],
+        help="OCR backend to use. Google Vision is the default.",
+    )
 
     args = parser.parse_args()
 
-    extract_pages_ocr(args.pdf, args.out)
+    extract_pages_ocr(args.pdf, args.out, args.provider)

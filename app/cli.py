@@ -155,6 +155,7 @@ def build_cli_summary(result: dict[str, Any], source_path: str | None = None) ->
     assessment_summary = safe_get(result, "assessment_summary", default={}) or {}
     depreciated_override_result = safe_get(result, "depreciated_override_result", default={}) or {}
     agent_review = safe_get(result, "agent_review", default={}) or {}
+    review_flags = safe_get(result, "review_flags", default={}) or {}
     agent_values = safe_get(agent_review, "recommended_values", default={}) or {}
 
     schedule_e_total = first_present(
@@ -222,6 +223,9 @@ def build_cli_summary(result: dict[str, Any], source_path: str | None = None) ->
     lines.append(f"Value Source:           {format_text(assessment_summary.get('value_source'))}")
     lines.append(f"Percent Good:           {format_percent(depreciated_override_result.get('percent_good'))}")
     lines.append(f"Reason:                 {path_reason}")
+    lines.append(f"OCR Provider:           {format_text(assessment_summary.get('ocr_provider_used') or review_flags.get('ocr_provider_used'))}")
+    lines.append(f"Provider Agreement:     {format_bool(review_flags.get('provider_agreement'))}")
+    lines.append(f"Agreement Fields:       {format_text(assessment_summary.get('provider_agreement_fields') or review_flags.get('provider_agreement_fields'))}")
     lines.append(f"Issues:                 {format_text(assessment_summary.get('issues'))}")
     lines.append("")
 

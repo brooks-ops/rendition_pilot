@@ -1,32 +1,59 @@
-from dataclasses import dataclass
+## BPP Project
 
-@dataclass
-class AssetRow:
-    description: str
-    acquisition_year: int | None
-    original_cost: float | None
-    matched_category: str | None = None
-    depreciation_percent: float | None = None
-    assessed_value: float | None = None
-    confidence: str = "Needs review"
-    notes: str = ""
+OCR flow:
 
-## Streamlit deployment secrets
+- Embedded PDF text is used first.
+- If the PDF looks scanned or the text layer is weak, the pipeline now tries `Google Cloud Vision` first.
+- If Google Vision is not configured or fails, the pipeline falls back to `Azure Document Intelligence`, then local `Tesseract`, then the existing OpenAI vision OCR path.
 
-Set these in Streamlit app secrets for scanned/handwritten PDF OCR:
+## Google Vision setup
+
+Add this to `app/.env` or your environment:
 
 ```text
-AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT="https://<resource-name>.cognitiveservices.azure.com"
-AZURE_DOCUMENT_INTELLIGENCE_KEY="<azure-key>"
+GOOGLE_VISION_API_KEY="<google-cloud-vision-api-key>"
 ```
 
 Optional tuning:
 
 ```text
-AZURE_DOCUMENT_INTELLIGENCE_TIMEOUT_SECONDS="18"
-AZURE_DOCUMENT_INTELLIGENCE_REQUEST_TIMEOUT_SECONDS="8"
-OPENAI_API_KEY="<openai-key>"
-OPENAI_REVIEW_ENABLED="false"
+GOOGLE_VISION_OCR_DPI_SCALE="3.0"
+GOOGLE_VISION_OCR_REQUEST_TIMEOUT_SECONDS="20"
+GOOGLE_VISION_OCR_MAX_PAGES="0"
 ```
 
-The app uses embedded PDF text first. Azure OCR only runs for scanned or low-text PDFs, and failed OCR exits quickly to manual review.
+Notes:
+
+- `GOOGLE_VISION_OCR_MAX_PAGES="0"` means no page limit.
+- The Google Vision integration uses `DOCUMENT_TEXT_DETECTION` on rendered PDF pages.
+
+## One-off OCR export
+
+Run Google Vision against a PDF and save page text plus `pages.json`:
+
+```bash
+python extract_pages_ocr.py --pdf "Data/samples/sample_rendition.pdf" --out "app/page_texts_ocr"
+```
+
+Optional local fallback:
+
+```bash
+python extract_pages_ocr.py --pdf "Data/samples/sample_rendition.pdf" --provider tesseract
+```
+
+## Streamlit Deployment
+
+The repository now includes a root [streamlit_app.py](/C:/Users/Brooks/Desktop/BPP/BPP%20Project/streamlit_app.py:1) entrypoint for Streamlit Cloud.
+
+Set these app secrets in Streamlit:
+
+```text
+GOOGLE_VISION_API_KEY="<google-cloud-vision-api-key>"
+OPENAI_API_KEY="<openai-api-key>"
+OPENAI_REVIEW_ENABLED="true"
+```
+
+Important:
+
+- The current OpenAI OCR/review path only works if the OpenAI project has active quota/billing.
+- If OpenAI quota is exhausted, Google Vision still carries the OCR path and the app will continue to run.
