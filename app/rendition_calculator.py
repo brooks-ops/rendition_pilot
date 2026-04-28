@@ -10,6 +10,39 @@ import pandas as pd
 
 DISPLAY_YEAR_COUNT = 15
 
+SECTION_PRESETS = {
+    "schedule_a_furniture": {
+        "label": "Schedule A - Furniture & Fixtures",
+        "schedule": "A",
+        "category": "Furniture & Fixtures",
+        "default_table": "9_year",
+    },
+    "schedule_a_machinery": {
+        "label": "Schedule A - Machinery & Equipment",
+        "schedule": "A",
+        "category": "Machinery & Equipment",
+        "default_table": "9_year",
+    },
+    "schedule_d_vehicles": {
+        "label": "Schedule D - Vehicles",
+        "schedule": "D",
+        "category": "Vehicles",
+        "default_table": "9_year",
+    },
+    "schedule_e_computers": {
+        "label": "Schedule E - Computers",
+        "schedule": "E",
+        "category": "Computers",
+        "default_table": "5_year",
+    },
+    "custom": {
+        "label": "Custom",
+        "schedule": "Custom",
+        "category": "Custom",
+        "default_table": "8_year",
+    },
+}
+
 TABLE_METADATA = {
     "5_year": {"label": "5 year", "life_years": 5},
     "8_year": {"label": "8 year", "life_years": 8},
@@ -101,9 +134,10 @@ def build_calculator_rows(
     table = definitions[table_key]
     cost_map = costs or {}
     rows: list[dict[str, Any]] = []
+    base_year = int(tax_year) - 1
 
     for offset, factor in enumerate(table.factors):
-        year = int(tax_year) - offset
+        year = base_year - offset
         bucket = str(year)
         cost = round(float(cost_map.get(bucket, 0.0) or 0.0), 2)
         value = round(cost * factor, 2)
@@ -118,7 +152,7 @@ def build_calculator_rows(
             }
         )
 
-    prior_year = int(tax_year) - len(table.factors)
+    prior_year = base_year - len(table.factors)
     prior_cost = round(float(cost_map.get("prior", 0.0) or 0.0), 2)
     rows.append(
         {

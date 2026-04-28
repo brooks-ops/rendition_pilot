@@ -10,16 +10,16 @@ from app.rendition_calculator import (
 def test_build_calculator_rows_uses_selected_tax_year_and_prior_bucket():
     rows = build_calculator_rows("8_year", 2026, costs={"2026": 1000, "prior": 500})
 
-    assert rows[0]["display_year"] == "2026"
+    assert rows[0]["display_year"] == "2025"
     assert rows[0]["factor"] == 0.75
-    assert rows[0]["value"] == 750.0
-    assert rows[-1]["display_year"] == "2011 & Prior"
+    assert rows[0]["value"] == 0.0
+    assert rows[-1]["display_year"] == "2010 & Prior"
     assert rows[-1]["factor"] == 0.05
     assert rows[-1]["value"] == 25.0
 
 
 def test_five_year_table_uses_excel_style_prompt_factors():
-    rows = build_calculator_rows("5_year", 2025, costs={"2024": 1000, "2018": 1000, "prior": 1000})
+    rows = build_calculator_rows("5_year", 2026, costs={"2024": 1000, "2018": 1000, "prior": 1000})
 
     factor_by_year = {row["display_year"]: row["factor"] for row in rows}
 
@@ -38,7 +38,7 @@ def test_nine_and_twelve_year_tables_load_from_existing_schedule():
 
 
 def test_saved_calculator_payload_and_combined_total():
-    rows = build_calculator_rows("8_year", 2025, costs={"2025": 1000, "2024": 500})
+    rows = build_calculator_rows("8_year", 2026, costs={"2025": 1000, "2024": 500})
     calculator = build_saved_calculator(
         name="Schedule A - Machinery & Equipment",
         schedule="A",

@@ -66,6 +66,119 @@ def wrap_text(text: Any, max_chars: int = 48, max_lines: int | None = None) -> l
     return lines
 
 
+def append_calculator_summary_pages(doc, final_record: dict[str, Any]) -> None:
+    calculators = list(final_record.get("saved_calculators", []) or [])
+    if not calculators:
+        return
+
+    import fitz  # PyMuPDF
+
+    title_color = (0.05, 0.18, 0.34)
+    margin = 42
+    row_height = 18
+    page_width = 792
+    page_height = 612
+
+    def new_page():
+        page = doc.new_page(width=page_width, height=page_height)
+        page.insert_text(
+            fitz.Point(margin, 38),
+            "APPRAISER CALCULATOR WORKSHEET",
+            fontsize=15,
+            fontname="helv",
+            color=title_color,
+        )
+        page.insert_text(
+            fitz.Point(margin, 58),
+            f"Calculated Total Value: ${float(final_record.get('calculated_total_value') or 0.0):,.2f}",
+            fontsize=10.5,
+            fontname="helv",
+            color=(0, 0, 0),
+        )
+        return page, 84
+
+    page, y = new_page()
+
+    for calculator in calculators:
+        section_total = calculator.get("section_total")
+        try:
+            section_total_text = f"${float(section_total):,.2f}"
+        except (TypeError, ValueError):
+            section_total_text = str(section_total or "-")
+
+        heading = (
+            f"{calculator.get('name') or 'Calculator'} | "
+            f"{calculator.get('depreciation_table') or '-'} | "
+            f"Tax Year {calculator.get('tax_year') or '-'} | "
+            f"Total {section_total_text}"
+        )
+        if y > page_height - 72:
+            page, y = new_page()
+        page.insert_text(
+            fitz.Point(margin, y),
+            heading,
+            fontsize=10.5,
+            fontname="helv",
+            color=title_color,
+        )
+        y += 14
+        page.insert_text(
+            fitz.Point(margin, y),
+            "Year",
+            fontsize=9,
+            fontname="helv",
+            color=(0, 0, 0),
+        )
+        page.insert_text(
+            fitz.Point(margin + 150, y),
+            "Cost",
+            fontsize=9,
+            fontname="helv",
+            color=(0, 0, 0),
+        )
+        page.insert_text(
+            fitz.Point(margin + 290, y),
+            "Factor",
+            fontsize=9,
+            fontname="helv",
+            color=(0, 0, 0),
+        )
+        page.insert_text(
+            fitz.Point(margin + 390, y),
+            "Value",
+            fontsize=9,
+            fontname="helv",
+            color=(0, 0, 0),
+        )
+        y += 12
+
+        for row in calculator.get("rows", []) or []:
+            if y > page_height - 36:
+                page, y = new_page()
+            page.insert_text(fitz.Point(margin, y), str(row.get("display_year") or "-"), fontsize=9, fontname="helv")
+            page.insert_text(
+                fitz.Point(margin + 150, y),
+                f"${float(row.get('cost') or 0.0):,.2f}",
+                fontsize=9,
+                fontname="helv",
+            )
+            page.insert_text(
+                fitz.Point(margin + 290, y),
+                f"{float(row.get('factor') or 0.0):.2f}",
+                fontsize=9,
+                fontname="helv",
+            )
+            page.insert_text(
+                fitz.Point(margin + 390, y),
+                f"${float(row.get('value') or 0.0):,.2f}",
+                fontsize=9,
+                fontname="helv",
+            )
+            y += row_height
+
+        y += 10
+
+
 def build_final_review_record(
     file_name: str,
     result: dict[str, Any],
@@ -208,6 +321,8 @@ def stamp_reviewed_pdf(file_name: str, file_bytes: bytes, final_record: dict[str
                 color=(0, 0, 0),
             )
             y += 16
+
+    append_calculator_summary_pages(doc, final_record)
 
     doc.save(out_path, deflate=True, garbage=4)
     doc.close()

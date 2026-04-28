@@ -26,6 +26,7 @@ from app.cli import build_cli_summary
 from app.depreciation import DepreciationEngine
 from app.pipeline import run_rendition_pipeline
 from app.rendition_calculator import (
+    SECTION_PRESETS,
     TABLE_METADATA,
     build_calculator_rows,
     build_saved_calculator,
@@ -59,15 +60,6 @@ AUTHORIZED_USERS = {
 
 DEFAULT_SUPABASE_URL = "https://pzawjgckzcgnfsfuylqy.supabase.co"
 DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_q6lNn59Y-kz8lG0cYfJkYw_lL7xElsA"
-
-CALCULATOR_CATEGORY_OPTIONS = [
-    "Furniture & Fixtures",
-    "Machinery & Equipment",
-    "Vehicles",
-    "Computers",
-    "Custom",
-]
-
 
 st.set_page_config(
     page_title="AppraisalPilot",
@@ -621,12 +613,14 @@ def set_saved_calculators(file_name: str, calculators: list[dict[str, Any]]) -> 
 
 
 def build_default_calculator_editor(tax_year: int) -> dict[str, Any]:
+    preset = SECTION_PRESETS["schedule_a_furniture"]
     return {
-        "name": "",
-        "schedule": "A",
-        "category_option": "Furniture & Fixtures",
-        "custom_category": "",
-        "depreciation_table": "8_year",
+        "section_key": "schedule_a_furniture",
+        "name": str(preset["label"]),
+        "schedule": str(preset["schedule"]),
+        "category": str(preset["category"]),
+        "custom_name": "",
+        "depreciation_table": str(preset["default_table"]),
         "tax_year": int(tax_year),
         "costs": {},
         "editing_id": None,
@@ -656,13 +650,19 @@ def reset_calculator_editor(file_name: str, tax_year: int) -> None:
 
 
 def load_saved_calculator_into_editor(file_name: str, calculator: dict[str, Any]) -> None:
+    schedule = str(calculator.get("schedule") or "Custom")
     category = str(calculator.get("category") or "").strip()
-    category_option = category if category in CALCULATOR_CATEGORY_OPTIONS[:-1] else "Custom"
+    section_key = "custom"
+    for key, preset in SECTION_PRESETS.items():
+        if preset["schedule"] == schedule and preset["category"] == category:
+            section_key = key
+            break
     editor = {
         "name": str(calculator.get("name") or ""),
-        "schedule": str(calculator.get("schedule") or "A"),
-        "category_option": category_option,
-        "custom_category": "" if category_option != "Custom" else category,
+        "section_key": section_key,
+        "schedule": schedule,
+        "category": category,
+        "custom_name": "" if section_key != "custom" else str(calculator.get("name") or ""),
         "depreciation_table": str(calculator.get("depreciation_table") or "8_year"),
         "tax_year": int(resolve_tax_year(calculator.get("tax_year"))),
         "costs": {
@@ -1415,27 +1415,26 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
     editor = get_calculator_editor(file_name, tax_year)
 
     editor["tax_year"] = resolve_tax_year(editor.get("tax_year") or tax_year)
-    editor["schedule"] = str(editor.get("schedule") or "A")
+    editor["section_key"] = str(editor.get("section_key") or "schedule_a_furniture")
+    preset = SECTION_PRESETS.get(editor["section_key"], SECTION_PRESETS["schedule_a_furniture"])
+    editor["schedule"] = str(editor.get("schedule") or preset["schedule"])
+    editor["category"] = str(editor.get("category") or preset["category"])
     editor["depreciation_table"] = str(editor.get("depreciation_table") or "8_year")
-    editor["category_option"] = str(editor.get("category_option") or "Furniture & Fixtures")
-    editor["custom_category"] = str(editor.get("custom_category") or "")
+    editor["custom_name"] = str(editor.get("custom_name") or "")
     editor["name"] = str(editor.get("name") or "")
     editor["costs"] = dict(editor.get("costs") or {})
     save_calculator_editor(file_name, editor)
 
-    schedule_key = f"calculator_schedule_{file_name}"
-    category_key = f"calculator_category_{file_name}"
-    custom_category_key = f"calculator_custom_category_{file_name}"
+    section_key = f"calculator_section_{file_name}"
+    custom_name_key = f"calculator_custom_name_{file_name}"
     name_key = f"calculator_name_{file_name}"
     table_key = f"calculator_table_{file_name}"
     tax_year_key = f"calculator_tax_year_{file_name}"
 
-    if schedule_key not in st.session_state:
-        st.session_state[schedule_key] = editor["schedule"]
-    if category_key not in st.session_state:
-        st.session_state[category_key] = editor["category_option"]
-    if custom_category_key not in st.session_state:
-        st.session_state[custom_category_key] = editor["custom_category"]
+    if section_key not in st.session_state:
+        st.session_state[section_key] = editor["section_key"]
+    if custom_name_key not in st.session_state:
+        st.session_state[custom_name_key] = editor["custom_name"]
     if name_key not in st.session_state:
         st.session_state[name_key] = editor["name"]
     if table_key not in st.session_state:
@@ -1452,30 +1451,38 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
     with left_col:
         c1, c2 = st.columns(2)
         with c1:
-            schedule = st.selectbox(
-                "Schedule",
-                ["A", "D", "E", "Custom"],
-                key=schedule_key,
+            selected_section_key = st.selectbox(
+                "Section",
+                list(SECTION_PRESETS.keys()),
+                format_func=lambda key: str(SECTION_PRESETS[key]["label"]),
+                key=section_key,
             )
         with c2:
-            category_option = st.selectbox(
-                "Category",
-                CALCULATOR_CATEGORY_OPTIONS,
-                key=category_key,
+            selected_tax_year = st.number_input(
+                "Tax Year",
+                min_value=2000,
+                max_value=2100,
+                step=1,
+                key=tax_year_key,
             )
 
-        custom_category = ""
-        if category_option == "Custom":
-            custom_category = st.text_input(
-                "Custom Category",
-                key=custom_category_key,
-                placeholder="Enter a custom category",
-            )
+        selected_preset = SECTION_PRESETS[selected_section_key]
+        custom_name = ""
+        if selected_section_key == "custom":
+            custom_name = st.text_input(
+                "Custom Section Name",
+                key=custom_name_key,
+                placeholder="Example: Schedule A - Leasehold Improvements",
+            ).strip()
         else:
-            st.session_state[custom_category_key] = ""
+            st.session_state[custom_name_key] = ""
 
-        category_value = custom_category.strip() if category_option == "Custom" else category_option
-        generated_name = generate_calculator_name(schedule, category_value)
+        schedule = str(selected_preset["schedule"])
+        category_value = str(selected_preset["category"])
+        if selected_section_key == "custom":
+            category_value = custom_name or "Custom"
+
+        generated_name = custom_name if selected_section_key == "custom" and custom_name else generate_calculator_name(schedule, category_value)
         if not st.session_state.get(name_key):
             st.session_state[name_key] = generated_name
 
@@ -1485,26 +1492,20 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
             placeholder=generated_name,
         ).strip()
 
-        c3, c4 = st.columns(2)
-        with c3:
-            depreciation_table = st.selectbox(
-                "Depreciation Table",
-                list(TABLE_METADATA.keys()),
-                format_func=lambda key: TABLE_METADATA[key]["label"],
-                key=table_key,
-            )
-        with c4:
-            selected_tax_year = st.number_input(
-                "Tax Year",
-                min_value=2000,
-                max_value=2100,
-                step=1,
-                key=tax_year_key,
-            )
+        if table_key not in st.session_state or editor.get("section_key") != selected_section_key:
+            st.session_state[table_key] = str(selected_preset["default_table"])
 
+        depreciation_table = st.selectbox(
+            "Depreciation Table",
+            list(TABLE_METADATA.keys()),
+            format_func=lambda key: TABLE_METADATA[key]["label"],
+            key=table_key,
+        )
+
+        editor["section_key"] = selected_section_key
         editor["schedule"] = schedule
-        editor["category_option"] = category_option
-        editor["custom_category"] = custom_category.strip()
+        editor["category"] = category_value
+        editor["custom_name"] = custom_name
         editor["name"] = calculator_name
         editor["depreciation_table"] = depreciation_table
         editor["tax_year"] = int(selected_tax_year)
@@ -1553,8 +1554,8 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
         action_cols = st.columns([1, 1, 1.2])
         with action_cols[0]:
             if st.button("Save Calculator", type="primary", key=f"save_calculator_{file_name}", use_container_width=True):
-                if not category_value:
-                    st.error("Enter a category before saving this calculator.")
+                if selected_section_key == "custom" and not (custom_name or calculator_name):
+                    st.error("Enter a custom section name before saving this calculator.")
                 else:
                     saved_calculators = get_saved_calculators(file_name)
                     saved_name = calculator_name or generated_name
@@ -1580,7 +1581,7 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
 
                     set_saved_calculators(file_name, saved_calculators)
                     reset_calculator_editor(file_name, int(selected_tax_year))
-                    for widget_key in [schedule_key, category_key, custom_category_key, name_key, table_key, tax_year_key]:
+                    for widget_key in [section_key, custom_name_key, name_key, table_key, tax_year_key]:
                         st.session_state.pop(widget_key, None)
                     st.success(f"Saved {saved_name}.")
                     st.rerun()
@@ -1588,7 +1589,7 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
         with action_cols[1]:
             if st.button("New Calculator", key=f"new_calculator_{file_name}", use_container_width=True):
                 reset_calculator_editor(file_name, int(selected_tax_year))
-                for widget_key in [schedule_key, category_key, custom_category_key, name_key, table_key, tax_year_key]:
+                for widget_key in [section_key, custom_name_key, name_key, table_key, tax_year_key]:
                     st.session_state.pop(widget_key, None)
                 st.rerun()
 
@@ -1644,7 +1645,7 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
                             use_container_width=True,
                         ):
                             load_saved_calculator_into_editor(file_name, calculator)
-                            for widget_key in [schedule_key, category_key, custom_category_key, name_key, table_key, tax_year_key]:
+                            for widget_key in [section_key, custom_name_key, name_key, table_key, tax_year_key]:
                                 st.session_state.pop(widget_key, None)
                             st.rerun()
                     with summary_cols[1]:
@@ -1689,9 +1690,8 @@ def reset_single_review_state() -> None:
         for prefix in [
             "saved_calculators_",
             "calculator_editor_",
-            "calculator_schedule_",
-            "calculator_category_",
-            "calculator_custom_category_",
+            "calculator_section_",
+            "calculator_custom_name_",
             "calculator_name_",
             "calculator_table_",
             "calculator_tax_year_",
@@ -1857,6 +1857,8 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
                     account_number=account_number.strip().upper(),
                     decision=decision_code,
                 )
+                record["saved_calculators"] = get_saved_calculators(file_name)
+                record["calculated_total_value"] = combined_total
                 st.session_state["single_locked_record"] = record
                 st.success("Final value locked. Click Save Rendition to create the stamped upload PDF.")
                 st.rerun()
