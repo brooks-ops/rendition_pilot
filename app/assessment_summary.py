@@ -30,6 +30,8 @@ class AssessmentSummaryBuilder:
             rendition_result.get("rendered_value")
             or (rendition_result.get("resolved_values", {}) or {}).get("rendered_value")
         )
+        schedule_rule_value = rendition_result.get("recommended_value")
+        recommended_value_source = rendition_result.get("recommended_value_source")
         good_faith_value = (
             rendition_result.get("good_faith_value")
             or (rendition_result.get("resolved_values", {}) or {}).get("good_faith_value")
@@ -37,6 +39,7 @@ class AssessmentSummaryBuilder:
         )
         depreciated_value = depreciated_override_result.get("depreciated_value")
         percent_good = depreciated_override_result.get("percent_good")
+        valuation_flags = list(rendition_result.get("valuation_flags", []) or [])
 
         extracted_value = None
         value_source = None
@@ -47,11 +50,12 @@ class AssessmentSummaryBuilder:
         # 1) Manual attachment total override
         # 2) Manual good faith override
         # 3) Manual historical cost less depreciation
-        # 4) Extracted rendered value
-        # 5) Extracted attachment total
-        # 6) Extracted Schedule E total
-        # 7) Extracted good faith value
-        # 8) Manual review
+        # 4) Deterministic schedule rule engine
+        # 5) Extracted rendered value
+        # 6) Extracted attachment total
+        # 7) Extracted Schedule E total
+        # 8) Extracted good faith value
+        # 9) Manual review
         # ------------------------------------------------------------
 
         if attachment_total_override is not None:
@@ -68,6 +72,11 @@ class AssessmentSummaryBuilder:
             extracted_value = depreciated_value
             value_source = "manual_override_historical_cost_depreciated"
             recommended_path = "use_manual_historical_cost_depreciated"
+
+        elif schedule_rule_value is not None:
+            extracted_value = schedule_rule_value
+            value_source = recommended_value_source or "schedule_rule_engine"
+            recommended_path = "use_schedule_rule_engine"
 
         elif rendered_value is not None:
             extracted_value = rendered_value
@@ -106,6 +115,9 @@ class AssessmentSummaryBuilder:
         for ocr_error in review_flags.get("ocr_errors", []) or []:
             issues.append(str(ocr_error))
 
+        for valuation_flag in valuation_flags:
+            issues.append(str(valuation_flag))
+
         if not form_flags.get("signature_block_detected"):
             issues.append("Signature block not detected.")
 
@@ -135,6 +147,9 @@ class AssessmentSummaryBuilder:
             else:
                 reason = "Historical cost override applied using LCAD depreciation schedule."
 
+        elif recommended_path == "use_schedule_rule_engine":
+            reason = "Schedule-specific rule engine calculated the recommended value from Schedules A-E."
+
         elif recommended_path == "use_attachment_total_pending_review":
             reason = "Attachment total selected as the best available extracted value."
             if review_flags.get("provider_agreement"):
@@ -163,6 +178,8 @@ class AssessmentSummaryBuilder:
             "use_manual_historical_cost_depreciated",
         }:
             confidence = "high"
+        elif recommended_path == "use_schedule_rule_engine":
+            confidence = rendition_result.get("rendition_valuation", {}).get("confidence", "medium")
         elif recommended_path in {
             "use_rendered_value_pending_review",
             "use_attachment_total_pending_review",
@@ -186,4 +203,5 @@ class AssessmentSummaryBuilder:
             "ocr_secondary_providers": review_flags.get("ocr_secondary_providers", []),
             "provider_agreement_fields": review_flags.get("provider_agreement_fields", []),
             "ocr_reconciliation": ocr_reconciliation,
+            "valuation_flags": valuation_flags,
         }

@@ -32,6 +32,15 @@ def parse_money_text(raw: str) -> float | None:
 
 
 class TargetedRenditionParser:
+    SCHEDULE_E_SUBSECTIONS = {
+        (0, 0): "furniture_fixtures",
+        (1, 0): "machinery_equipment",
+        (2, 0): "office_equipment",
+        (0, 1): "computer_equipment",
+        (1, 1): "pos_servers_mainframes",
+        (2, 1): "other",
+    }
+
     @staticmethod
     def _word_text(word: dict) -> str:
         return str(word.get("text", "") or "").strip()
@@ -43,6 +52,49 @@ class TargetedRenditionParser:
     @staticmethod
     def _word_x0(word: dict) -> float:
         return float(word.get("x0", 0) or 0)
+
+    def _schedule_e_y_split(self, words: list[dict]) -> float:
+        valid_words = [word for word in words if self._word_text(word)]
+        tops = sorted(self._word_top(word) for word in valid_words)
+        if not tops:
+            return 0.0
+
+        total_row_tops = sorted(
+            {
+                self._word_top(word)
+                for word in valid_words
+                if "TOTAL" in self._word_text(word).upper()
+            }
+        )
+        non_total_tops = sorted(
+            {
+                self._word_top(word)
+                for word in valid_words
+                if "TOTAL" not in self._word_text(word).upper()
+            }
+        )
+        for total_top in total_row_tops:
+            later_tops = [top for top in non_total_tops if top > total_top + 20.0]
+            if later_tops:
+                return (total_top + later_tops[0]) / 2.0
+
+        clustered_tops: list[float] = []
+        for top in tops:
+            if not clustered_tops or abs(top - clustered_tops[-1]) > 12.0:
+                clustered_tops.append(top)
+
+        if len(clustered_tops) < 2:
+            return (min(tops) + max(tops)) / 2.0
+
+        gaps = [
+            (clustered_tops[idx + 1] - clustered_tops[idx], idx)
+            for idx in range(len(clustered_tops) - 1)
+        ]
+        largest_gap, gap_idx = max(gaps, key=lambda item: item[0])
+        if largest_gap < 40.0:
+            return (min(tops) + max(tops)) / 2.0
+
+        return (clustered_tops[gap_idx] + clustered_tops[gap_idx + 1]) / 2.0
 
     def _money_word_value(self, word: dict) -> float | None:
         text = self._word_text(word)
@@ -355,6 +407,174 @@ class TargetedRenditionParser:
 
         return final_rows
 
+    def parse_schedule_e_subsection_rows(self, words: list[dict]) -> list[dict]:
+        if not words:
+            return []
+
+        valid_words = [word for word in words if self._word_text(word)]
+        if not valid_words:
+            return []
+
+        min_x = min(self._word_x0(word) for word in valid_words)
+        max_x = max(self._word_x0(word) for word in valid_words)
+        min_top = min(self._word_top(word) for word in valid_words)
+        max_top = max(self._word_top(word) for word in valid_words)
+        width = max(max_x - min_x, 1.0)
+        x_band = width / 3.0
+        y_split = self._schedule_e_y_split(valid_words)
+
+        region_words: dict[tuple[int, int], list[dict]] = {}
+        for word in valid_words:
+            x_index = min(2, max(0, int((self._word_x0(word) - min_x) / x_band)))
+            y_index = 0 if self._word_top(word) <= y_split else 1
+            region_words.setdefault((x_index, y_index), []).append(word)
+
+        rows: list[dict] = []
+        for region, subsection_words in region_words.items():
+            subsection = self.SCHEDULE_E_SUBSECTIONS.get(region)
+            if subsection is None:
+                continue
+
+            clusters: list[dict] = []
+            for word in sorted(subsection_words, key=lambda item: self._word_top(item)):
+                top = self._word_top(word)
+                for cluster in clusters:
+                    if abs(top - cluster["top"]) <= 8.0:
+                        cluster["words"].append(word)
+                        cluster["top"] = (cluster["top"] * (len(cluster["words"]) - 1) + top) / len(cluster["words"])
+                        break
+                else:
+                    clusters.append({"top": top, "words": [word]})
+
+            for cluster in clusters:
+                ordered = sorted(cluster["words"], key=lambda item: self._word_x0(item))
+                row_text = " ".join(self._word_text(word) for word in ordered).strip()
+                upper_row = row_text.upper()
+                if not row_text or "TOTAL" in upper_row:
+                    continue
+
+                year_words = [word for word in ordered if re.fullmatch(r"20\d{2}", self._word_text(word))]
+                money_words: list[dict] = []
+                for word in ordered:
+                    value = self._money_word_value(word)
+                    if value is None:
+                        text_value = parse_money_text(self._word_text(word))
+                        if text_value is None or text_value < 1:
+                            continue
+                        if float(text_value).is_integer() and 1900 <= int(text_value) <= 2100:
+                            continue
+                        value = text_value
+                    money_words.append({**word, "_money_value": value})
+
+                if not year_words and not money_words:
+                    continue
+
+                year_acquired = None
+                if year_words:
+                    try:
+                        year_acquired = int(self._word_text(year_words[0]))
+                    except ValueError:
+                        year_acquired = None
+
+                historical_cost = None
+                good_faith_value = None
+                if year_acquired is not None:
+                    if money_words:
+                        historical_cost = float(money_words[0]["_money_value"])
+                    if len(money_words) >= 2:
+                        good_faith_value = float(money_words[-1]["_money_value"])
+                elif money_words:
+                    good_faith_value = float(money_words[-1]["_money_value"])
+
+                if historical_cost is None and good_faith_value is None:
+                    continue
+
+                rows.append(
+                    {
+                        "subsection": subsection,
+                        "year_acquired": year_acquired,
+                        "historical_cost": historical_cost,
+                        "good_faith_value": good_faith_value,
+                        "raw_text": row_text,
+                        "raw_values": {
+                            "money_tokens": [self._word_text(word) for word in money_words],
+                            "year_tokens": [self._word_text(word) for word in year_words],
+                            "region": {"x_index": region[0], "y_index": region[1]},
+                        },
+                        "confidence": 0.86 if year_acquired is not None else 0.74,
+                        "flags": [],
+                    }
+                )
+
+        deduped: dict[tuple[str, int | None, float | None, float | None, str], dict] = {}
+        for row in rows:
+            key = (
+                str(row.get("subsection")),
+                row.get("year_acquired"),
+                row.get("historical_cost"),
+                row.get("good_faith_value"),
+                str(row.get("raw_text", "")).upper(),
+            )
+            existing = deduped.get(key)
+            if existing is None or float(row.get("confidence") or 0) > float(existing.get("confidence") or 0):
+                deduped[key] = row
+
+        return list(deduped.values())
+
+    def parse_schedule_e_subsection_totals(self, words: list[dict]) -> dict[str, float]:
+        if not words:
+            return {}
+
+        valid_words = [word for word in words if self._word_text(word)]
+        if not valid_words:
+            return {}
+
+        min_x = min(self._word_x0(word) for word in valid_words)
+        max_x = max(self._word_x0(word) for word in valid_words)
+        min_top = min(self._word_top(word) for word in valid_words)
+        max_top = max(self._word_top(word) for word in valid_words)
+        width = max(max_x - min_x, 1.0)
+        x_band = width / 3.0
+        y_split = self._schedule_e_y_split(valid_words)
+
+        totals: dict[str, float] = {}
+        for word in valid_words:
+            if "TOTAL" not in self._word_text(word).upper():
+                continue
+
+            row_top = self._word_top(word)
+            x_index = min(2, max(0, int((self._word_x0(word) - min_x) / x_band)))
+            y_index = 0 if row_top <= y_split else 1
+            subsection = self.SCHEDULE_E_SUBSECTIONS.get((x_index, y_index))
+            if subsection is None:
+                continue
+
+            column_left = min_x + (x_index * x_band) - 25.0
+            column_right = min_x + ((x_index + 1) * x_band) + 25.0
+
+            row_words = [
+                candidate
+                for candidate in valid_words
+                if abs(self._word_top(candidate) - row_top) <= 10.0
+                and column_left <= self._word_x0(candidate) <= column_right
+            ]
+            if not row_words:
+                continue
+
+            money_candidates: list[float] = []
+            for row_word in row_words:
+                value = parse_money_text(self._word_text(row_word))
+                if value is None or value < 1:
+                    continue
+                if float(value).is_integer() and 1900 <= int(value) <= 2100:
+                    continue
+                money_candidates.append(float(value))
+
+            if money_candidates:
+                totals[subsection] = max(money_candidates)
+
+        return totals
+
     def parse_attachment_summary(self, texts: list[str]) -> dict:
         """
         Looks across attachment/support pages for summary-style value signals.
@@ -382,6 +602,8 @@ class TargetedRenditionParser:
             "REPORTED COST",
             "CURRENT VALUE",
             "RENDERED VALUE",
+            "GOOD FAITH ESTIMATE",
+            "TOTAL FIXED ASSETS",
         ]
         if sum(1 for clue in summary_clues if clue in combined) >= 2:
             result["attachment_summary_present"] = True

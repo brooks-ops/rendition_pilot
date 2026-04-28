@@ -18,6 +18,7 @@ import requests
 from app.assessment_summary import AssessmentSummaryBuilder
 from app.candidate_extractor import CandidateExtractor
 from app.extractor import PDFExtractor
+from app.rendition_value_engine import calculate_rendition_value
 from app.targeted_parser import TargetedRenditionParser
 
 try:
@@ -759,7 +760,13 @@ class ScheduleParser:
         )
 
         if total_candidate is None and any(term in lowered for term in ["schedule", "schidule", "fixtures", "machinery", "equipment"]):
-            total_value = _extract_best_total_money(combined_text)
+            # Do not infer a schedule total from the largest row value on Schedule E-style
+            # detail tables. Those pages often contain year-by-year costs where the largest
+            # handwritten row is not the section total.
+            if "schedule e" in lowered or "furniture" in lowered or "computer equipment" in lowered:
+                total_value = None
+            else:
+                total_value = _extract_best_total_money(combined_text)
             if total_value is not None:
                 total_candidate = {
                     "field": "attachment_total",
@@ -2126,11 +2133,15 @@ def _best_schedule_e(pages: List[Dict[str, Any]], targeted_parser: TargetedRendi
         "total": None,
         "page_number": None,
         "year_rows": [],
+        "subsection_rows": [],
+        "subsection_totals": {},
     }
     for page in pages:
         page_number = int(page.get("page_number", 1))
         text_result = targeted_parser.parse_schedule_e_total(page.get("text", "") or "")
         rows = targeted_parser.parse_schedule_e_year_rows_from_words(page.get("ocr_blocks", []) or [])
+        subsection_rows = targeted_parser.parse_schedule_e_subsection_rows(page.get("ocr_blocks", []) or [])
+        subsection_totals = targeted_parser.parse_schedule_e_subsection_totals(page.get("ocr_blocks", []) or [])
 
         if text_result.get("schedule_e_present"):
             best["schedule_e_present"] = True
@@ -2138,6 +2149,12 @@ def _best_schedule_e(pages: List[Dict[str, Any]], targeted_parser: TargetedRendi
             best["machinery_and_equipment_present"] = True
         if rows:
             best["year_rows"].extend(rows)
+        if subsection_rows:
+            best["subsection_rows"].extend(
+                [{**row, "source_page": page_number} for row in subsection_rows]
+            )
+        if subsection_totals:
+            best["subsection_totals"].update(subsection_totals)
 
         total = text_result.get("schedule_e_total")
         if (
@@ -2147,6 +2164,12 @@ def _best_schedule_e(pages: List[Dict[str, Any]], targeted_parser: TargetedRendi
         ):
             best["total"] = total
             best["page_number"] = page_number
+
+        if text_result.get("schedule_e_present") and best["total"] is None and subsection_totals:
+            computed_total = round(sum(float(value or 0) for value in subsection_totals.values()), 2)
+            if computed_total > 0:
+                best["total"] = computed_total
+                best["page_number"] = page_number
 
         if text_result.get("schedule_e_present") and best["total"] is None and rows:
             computed_total = round(sum(float(row.get("amount") or 0) for row in rows), 2)
@@ -2465,6 +2488,31 @@ def run_rendition_pipeline(
     depreciated_override_result = _depreciate_manual_override(manual_override)
 
     result = dict(pipeline_result.final_result)
+    valuation_result = calculate_rendition_value(
+        {
+            **result,
+            "pages": pages,
+            "metadata": metadata,
+            "schedule_e": schedule_e,
+            "schedule_values": schedule_values,
+            "review_flags": review_flags,
+        }
+    )
+    schedule_breakdown = {
+        "schedule_a_total": (valuation_result.get("schedule_totals", {}) or {}).get("A", 0.0),
+        "schedule_b_total": (valuation_result.get("schedule_totals", {}) or {}).get("B", 0.0),
+        "schedule_c_total": (valuation_result.get("schedule_totals", {}) or {}).get("C", 0.0),
+        "schedule_d_total": (valuation_result.get("schedule_totals", {}) or {}).get("D", 0.0),
+        "schedule_e_total": (valuation_result.get("schedule_totals", {}) or {}).get("E", 0.0),
+    }
+    schedule_e_breakdown = {
+        "furniture_fixtures": (valuation_result.get("subsection_totals", {}) or {}).get("furniture_fixtures", 0.0),
+        "machinery_equipment": (valuation_result.get("subsection_totals", {}) or {}).get("machinery_equipment", 0.0),
+        "office_equipment": (valuation_result.get("subsection_totals", {}) or {}).get("office_equipment", 0.0),
+        "computer_equipment": (valuation_result.get("subsection_totals", {}) or {}).get("computer_equipment", 0.0),
+        "pos_servers_mainframes": (valuation_result.get("subsection_totals", {}) or {}).get("pos_servers_mainframes", 0.0),
+        "other": (valuation_result.get("subsection_totals", {}) or {}).get("other", 0.0),
+    }
     result.update(
         {
             "source_pdf": str(pdf_path),
@@ -2484,6 +2532,13 @@ def run_rendition_pipeline(
             "selected_candidate": selected_candidate,
             "merged_candidates": merged_candidates,
             "candidates": candidate_buckets,
+            "rendition_valuation": valuation_result,
+            "recommended_value": valuation_result.get("final_recommended_value"),
+            "recommended_value_source": "schedule_rule_engine" if valuation_result.get("final_recommended_value") is not None else None,
+            "schedule_breakdown": schedule_breakdown,
+            "schedule_e_breakdown": schedule_e_breakdown,
+            "valuation_flags": valuation_result.get("flags", []),
+            "extracted_line_items": valuation_result.get("line_items", []),
         }
     )
 
@@ -2496,6 +2551,8 @@ def run_rendition_pipeline(
         result.setdefault("schedule_e_total", schedule_e.get("total"))
     if schedule_values.get("good_faith_total") is not None:
         result.setdefault("good_faith_value", schedule_values.get("good_faith_total"))
+    if valuation_result.get("final_recommended_value") is not None:
+        result.setdefault("rendered_value", valuation_result.get("final_recommended_value"))
 
     result["assessment_summary"] = AssessmentSummaryBuilder().build_summary(
         rendition_result=result,

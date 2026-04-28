@@ -78,6 +78,7 @@ def infer_valuation_path(result: dict[str, Any]) -> str:
             "use_manual_attachment_total": "Manual Override - Attachment Total",
             "use_manual_good_faith_value": "Manual Override - Good Faith Value",
             "use_manual_historical_cost_depreciated": "Manual Override - Historical Cost Less Depreciation",
+            "use_schedule_rule_engine": "Schedule Rule Engine",
             "use_attachment_total_pending_review": "Attachment Total",
             "use_schedule_total_pending_review": "Schedule E Total",
             "use_good_faith_value_pending_review": "Good Faith Estimate",

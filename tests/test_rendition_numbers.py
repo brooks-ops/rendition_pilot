@@ -111,6 +111,56 @@ def test_parse_schedule_e_total_accepts_dotted_thousands_separator():
     assert result["schedule_e_total"] == 126562.0
 
 
+def test_schedule_e_subsection_parser_uses_visual_regions():
+    words = [
+        {"text": "2024", "x0": 100, "top": 200},
+        {"text": "16,656", "x0": 150, "top": 200},
+        {"text": "2023", "x0": 510, "top": 205},
+        {"text": "8,395", "x0": 560, "top": 205},
+        {"text": "2022", "x0": 920, "top": 210},
+        {"text": "19,586", "x0": 980, "top": 210},
+        {"text": "2021", "x0": 110, "top": 740},
+        {"text": "51,573", "x0": 165, "top": 740},
+        {"text": "2020", "x0": 525, "top": 748},
+        {"text": "4,055", "x0": 580, "top": 748},
+        {"text": "2019", "x0": 940, "top": 752},
+        {"text": "45,442", "x0": 995, "top": 752},
+    ]
+
+    rows = TargetedRenditionParser().parse_schedule_e_subsection_rows(words)
+
+    pairs = {(row["subsection"], row["year_acquired"], row["historical_cost"]) for row in rows}
+    assert ("furniture_fixtures", 2024, 16656.0) in pairs
+    assert ("machinery_equipment", 2023, 8395.0) in pairs
+    assert ("office_equipment", 2022, 19586.0) in pairs
+    assert ("computer_equipment", 2021, 51573.0) in pairs
+    assert ("pos_servers_mainframes", 2020, 4055.0) in pairs
+    assert ("other", 2019, 45442.0) in pairs
+
+
+def test_schedule_e_subsection_totals_only_come_from_total_rows():
+    words = [
+        {"text": "2025", "x0": 100, "top": 200},
+        {"text": "16,656", "x0": 150, "top": 200},
+        {"text": "2025", "x0": 600, "top": 200},
+        {"text": "2,000", "x0": 660, "top": 200},
+        {"text": "2016", "x0": 100, "top": 480},
+        {"text": "45,442", "x0": 150, "top": 480},
+        {"text": "TOTAL:", "x0": 60, "top": 690},
+        {"text": "89,091", "x0": 150, "top": 690},
+        {"text": "TOTAL:", "x0": 300, "top": 690},
+        {"text": "12,500", "x0": 360, "top": 690},
+        {"text": "2025", "x0": 100, "top": 860},
+        {"text": "1,000", "x0": 150, "top": 860},
+    ]
+
+    totals = TargetedRenditionParser().parse_schedule_e_subsection_totals(words)
+
+    assert totals["furniture_fixtures"] == 89091.0
+    assert totals["machinery_equipment"] == 12500.0
+    assert 45442.0 not in totals.values()
+
+
 def test_needs_ocr_fallback_detects_garbled_embedded_text():
     pages = [
         {

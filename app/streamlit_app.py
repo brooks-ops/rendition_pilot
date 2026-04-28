@@ -578,6 +578,7 @@ def prettify_path(path: str | None) -> str:
         "use_manual_attachment_total": "Manual Attachment Total",
         "use_manual_good_faith_value": "Manual Good Faith Value",
         "use_manual_historical_cost_depreciated": "Historical Cost Less Depreciation",
+        "use_schedule_rule_engine": "Schedule Rule Engine",
         "use_attachment_total_pending_review": "Attachment Total",
         "use_schedule_total_pending_review": "Schedule E Total",
         "use_good_faith_value_pending_review": "Good Faith Estimate",
@@ -751,6 +752,9 @@ def show_flags_and_findings(result: dict) -> None:
     manual_override = result.get("manual_override", {}) or {}
     assessment = result.get("assessment_summary", {}) or {}
     depreciation = result.get("depreciated_override_result", {}) or {}
+    schedule_breakdown = result.get("schedule_breakdown", {}) or {}
+    schedule_e_breakdown = result.get("schedule_e_breakdown", {}) or {}
+    valuation_flags = result.get("valuation_flags", []) or []
 
     left, right = st.columns(2)
 
@@ -799,6 +803,23 @@ def show_flags_and_findings(result: dict) -> None:
                 ("Attachment M&E Present", "Yes" if attachments.get("machinery_and_equipment_present") else "No"),
             ],
         )
+        st.markdown("<br>", unsafe_allow_html=True)
+        render_kv_section(
+            "Rule Engine Breakdown",
+            [
+                ("Schedule A", format_money(schedule_breakdown.get("schedule_a_total"))),
+                ("Schedule B", format_money(schedule_breakdown.get("schedule_b_total"))),
+                ("Schedule C", format_money(schedule_breakdown.get("schedule_c_total"))),
+                ("Schedule D", format_money(schedule_breakdown.get("schedule_d_total"))),
+                ("Schedule E", format_money(schedule_breakdown.get("schedule_e_total"))),
+                ("E Furniture & Fixtures", format_money(schedule_e_breakdown.get("furniture_fixtures"))),
+                ("E Machinery & Equipment", format_money(schedule_e_breakdown.get("machinery_equipment"))),
+                ("E Office Equipment", format_money(schedule_e_breakdown.get("office_equipment"))),
+                ("E Computer Equipment", format_money(schedule_e_breakdown.get("computer_equipment"))),
+                ("E POS / Servers / Mainframes", format_money(schedule_e_breakdown.get("pos_servers_mainframes"))),
+                ("E Other", format_money(schedule_e_breakdown.get("other"))),
+            ],
+        )
         st.markdown("</div>", unsafe_allow_html=True)
 
     with right:
@@ -824,6 +845,7 @@ def show_flags_and_findings(result: dict) -> None:
                 ("Confidence", prettify_confidence(assessment.get("confidence"))),
                 ("Needs Manual Row Review", "Yes" if review_flags.get("needs_manual_row_review") else "No"),
                 ("Needs Attachment Review", "Yes" if review_flags.get("needs_attachment_review") else "No"),
+                ("Valuation Flags", format_text(valuation_flags)),
                 ("Issues", format_text(assessment.get("issues"))),
             ],
         )
@@ -921,6 +943,42 @@ def show_candidate_debug(result: dict) -> None:
 
     df = normalize_candidates_for_table(candidates)
     st.dataframe(df, use_container_width=True, hide_index=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def show_extracted_line_items(result: dict) -> None:
+    line_items = result.get("extracted_line_items", []) or []
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Extracted Line Items")
+    st.caption("Rows below show the schedule rule inputs, chosen values, and row-level flags.")
+
+    if not line_items:
+        st.info("No line items were extracted.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    rows = []
+    for item in line_items:
+        rows.append(
+            {
+                "Schedule": item.get("schedule"),
+                "Subsection": item.get("subsection"),
+                "Page": item.get("source_page"),
+                "Year Acquired": item.get("year_acquired"),
+                "Historical Cost": format_money(item.get("historical_cost")),
+                "Good Faith": format_money(item.get("good_faith_value")),
+                "Exact Value": format_money(item.get("exact_value")),
+                "Calculated Value": format_money(item.get("calculated_value")),
+                "Factor": format_percent(item.get("depreciation_factor")),
+                "Source": item.get("value_source"),
+                "Confidence": item.get("confidence"),
+                "Flags": format_text(item.get("flags")),
+                "Raw Text": item.get("raw_text"),
+            }
+        )
+
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -1636,12 +1694,20 @@ def render_single_review() -> None:
         result_file_bytes = st.session_state.get("single_file_bytes", file_bytes)
 
         if result:
+            ocr_errors = (result.get("review_flags", {}) or {}).get("ocr_errors", []) or []
+            if ocr_errors:
+                for ocr_error in ocr_errors:
+                    st.error(f"OCR provider error: {ocr_error}")
+
             show_top_metrics(result)
             render_manual_assist_panel(result_file_name, result, result_file_bytes)
             finalize_review_panel(result_file_name, result, result_file_bytes)
 
             with st.expander("Document / Form / Schedule Details", expanded=False):
                 show_flags_and_findings(result)
+
+            with st.expander("Extracted Line Items", expanded=False):
+                show_extracted_line_items(result)
 
             with st.expander("AI Review / Reasoning", expanded=False):
                 show_agent_review(result)
