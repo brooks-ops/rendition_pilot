@@ -1264,6 +1264,7 @@ def _values_agree(left: Any, right: Any, tolerance: float = 1.0) -> bool:
 
 
 OCR_PROVIDER_PRIORITY = [
+    "google_ocr_merged",
     "google_document_ai",
     "google_cloud_vision",
     "openai_vision_ocr",
@@ -1331,6 +1332,100 @@ def _reconcile_ocr_providers(
     }
 
 
+def _merge_ocr_blocks(
+    primary_blocks: Optional[List[Dict[str, Any]]],
+    secondary_blocks: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    merged: List[Dict[str, Any]] = []
+    seen: set[tuple[str, int, int]] = set()
+
+    for blocks in [primary_blocks or [], secondary_blocks or []]:
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            text = str(block.get("text", "") or "").strip()
+            if not text:
+                continue
+            top = int(round(float(block.get("top", block.get("y0", 0)) or 0)))
+            x0 = int(round(float(block.get("x0", block.get("left", 0)) or 0)))
+            key = (text, top, x0)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(block)
+    return merged
+
+
+def _build_merged_google_ocr_pages(
+    document_ai_pages: List[Dict[str, Any]],
+    vision_pages: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    page_numbers = sorted(
+        {
+            int(page.get("page_number", 1))
+            for page in [*(document_ai_pages or []), *(vision_pages or [])]
+            if isinstance(page, dict)
+        }
+    )
+    if not page_numbers:
+        return []
+
+    document_ai_by_page = {
+        int(page.get("page_number", 1)): page
+        for page in document_ai_pages or []
+        if isinstance(page, dict)
+    }
+    vision_by_page = {
+        int(page.get("page_number", 1)): page
+        for page in vision_pages or []
+        if isinstance(page, dict)
+    }
+
+    merged_pages: List[Dict[str, Any]] = []
+    for page_number in page_numbers:
+        document_ai_page = document_ai_by_page.get(page_number, {})
+        vision_page = vision_by_page.get(page_number, {})
+
+        document_ai_text = str(document_ai_page.get("text", "") or "")
+        vision_text = str(vision_page.get("text", "") or "")
+
+        primary_page = document_ai_page
+        secondary_page = vision_page
+        if len(vision_text.strip()) > len(document_ai_text.strip()):
+            primary_page = vision_page
+            secondary_page = document_ai_page
+
+        merged_text = str(primary_page.get("text", "") or secondary_page.get("text", "") or "")
+        merged_blocks = _merge_ocr_blocks(
+            primary_page.get("ocr_blocks"),
+            secondary_page.get("ocr_blocks"),
+        )
+
+        merged_page: Dict[str, Any] = {
+            "page_number": page_number,
+            "text": merged_text,
+            "ocr_blocks": merged_blocks,
+            "text_source": "google_ocr_merged",
+            "source_providers": [
+                provider_name
+                for provider_name, text in [
+                    ("google_document_ai", document_ai_text),
+                    ("google_cloud_vision", vision_text),
+                ]
+                if text.strip()
+            ],
+            "preferred_text_provider": str(primary_page.get("text_source", "") or ""),
+        }
+        if not merged_text.strip():
+            merged_page["ocr_error"] = (
+                str(document_ai_page.get("ocr_error") or "")
+                or str(vision_page.get("ocr_error") or "")
+            )
+        merged_pages.append(merged_page)
+
+    return merged_pages
+
+
 def _extract_pdf_bundle(pdf_path: str) -> Dict[str, Any]:
     started_at = time.perf_counter()
     extractor = PDFExtractor()
@@ -1380,6 +1475,10 @@ def _extract_pdf_bundle(pdf_path: str) -> Dict[str, Any]:
         "azure_document_intelligence": _ocr_pdf_pages_with_azure_document_intelligence(pdf_path),
         "pymupdf_tesseract_ocr": _ocr_pdf_pages_with_pymupdf(pdf_path),
     }
+    provider_pages["google_ocr_merged"] = _build_merged_google_ocr_pages(
+        provider_pages.get("google_document_ai", []),
+        provider_pages.get("google_cloud_vision", []),
+    )
 
     chosen_provider = next(
         (provider_name for provider_name in OCR_PROVIDER_PRIORITY if _provider_has_text(provider_pages.get(provider_name, []))),

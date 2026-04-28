@@ -2,6 +2,8 @@ from unittest.mock import patch
 
 from app.pipeline import (
     _azure_analyze_result_to_pages,
+    _build_merged_google_ocr_pages,
+    _extract_pdf_bundle,
     _google_document_ai_result_to_pages,
     _needs_ocr_fallback,
     _ocr_pdf_pages_with_google_document_ai,
@@ -136,6 +138,68 @@ def test_google_document_ai_unsupported_pdf_detection_is_retryable():
     assert _should_retry_google_document_ai_as_images(
         'Google Document AI HTTP 400: {"error":{"message":"Unsupported input file format.","status":"INVALID_ARGUMENT"}}'
     ) is True
+
+
+def test_build_merged_google_ocr_pages_prefers_richer_text_and_combines_blocks():
+    merged_pages = _build_merged_google_ocr_pages(
+        [
+            {
+                "page_number": 1,
+                "text": "Total Fixed Assets\n$ 184,724.43",
+                "ocr_blocks": [{"text": "184,724.43", "x0": 70, "top": 20}],
+                "text_source": "google_document_ai",
+            }
+        ],
+        [
+            {
+                "page_number": 1,
+                "text": "Total Fixed Assets",
+                "ocr_blocks": [
+                    {"text": "Total", "x0": 10, "top": 20},
+                    {"text": "184,724.43", "x0": 70, "top": 20},
+                ],
+                "text_source": "google_cloud_vision",
+            }
+        ],
+    )
+
+    assert merged_pages[0]["text"] == "Total Fixed Assets\n$ 184,724.43"
+    assert merged_pages[0]["text_source"] == "google_ocr_merged"
+    assert merged_pages[0]["source_providers"] == ["google_document_ai", "google_cloud_vision"]
+    assert [block["text"] for block in merged_pages[0]["ocr_blocks"]] == ["184,724.43", "Total"]
+
+
+def test_extract_pdf_bundle_prefers_merged_google_ocr_when_embedded_text_needs_fallback():
+    with patch("app.pipeline.PDFExtractor") as extractor_cls, \
+         patch("app.pipeline._needs_ocr_fallback", return_value=True), \
+         patch("app.pipeline._ocr_pdf_pages_with_google_document_ai", return_value=[
+             {
+                 "page_number": 1,
+                 "text": "Document AI total $ 184,724.43",
+                 "ocr_blocks": [{"text": "184,724.43", "x0": 50, "top": 20}],
+                 "text_source": "google_document_ai",
+             }
+         ]), \
+         patch("app.pipeline._ocr_pdf_pages_with_google_vision", return_value=[
+             {
+                 "page_number": 1,
+                 "text": "Document AI total",
+                 "ocr_blocks": [{"text": "Document", "x0": 10, "top": 20}],
+                 "text_source": "google_cloud_vision",
+             }
+         ]), \
+         patch("app.pipeline._ocr_pdf_pages_with_openai_vision", return_value=[]), \
+         patch("app.pipeline._ocr_pdf_pages_with_azure_document_intelligence", return_value=[]), \
+         patch("app.pipeline._ocr_pdf_pages_with_pymupdf", return_value=[]):
+        extractor = extractor_cls.return_value
+        extractor.extract_pages.return_value = [{"page_number": 1, "text": "bad"}]
+        extractor.extract_page_words.return_value = []
+
+        bundle = _extract_pdf_bundle("fake.pdf")
+
+    assert bundle["pages"][0]["text_source"] == "google_ocr_merged"
+    assert bundle["pages"][0]["extraction_provider"] == "google_ocr_merged"
+    assert bundle["ocr_reconciliation"]["chosen_provider"] == "google_ocr_merged"
 
 
 def test_schedule_e_row_parser_pairs_years_with_amounts_by_geometry():
