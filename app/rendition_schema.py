@@ -412,11 +412,11 @@ def _build_document_ai_auth() -> tuple[dict[str, str], dict[str, str]]:
     params: dict[str, str] = {}
     access_token = _get_env("GOOGLE_DOCUMENT_AI_ACCESS_TOKEN")
     api_key = _get_env("GOOGLE_DOCUMENT_AI_API_KEY")
-    if access_token:
-        headers["Authorization"] = f"Bearer {access_token}"
-        return headers, params
     if api_key:
         params["key"] = api_key
+        return headers, params
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
         return headers, params
 
     token = _load_google_auth_access_token()

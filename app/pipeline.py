@@ -1790,10 +1790,10 @@ def _google_document_ai_request_headers_and_params() -> tuple[Dict[str, str], Di
     access_token = _get_config_value("GOOGLE_DOCUMENT_AI_ACCESS_TOKEN")
     headers = {"Content-Type": "application/json; charset=utf-8"}
     params: Dict[str, str] = {}
-    if access_token:
-        headers["Authorization"] = f"Bearer {access_token}"
-    elif api_key:
+    if api_key:
         params["key"] = api_key
+    elif access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
     return headers, params
 
 
@@ -3063,13 +3063,43 @@ def run_rendition_pipeline(
             "review_flags": review_flags,
         }
     )
-    schedule_breakdown = structured_result.get("schedule_breakdown") or {}
+    structured_line_items = list(structured_result.get("line_items") or [])
+    structured_recommended_value = structured_result.get("recommended_value")
+    use_legacy_schedule_rule = (
+        structured_result.get("extraction_provider") == "fallback_text"
+        and not structured_line_items
+        and legacy_valuation_result.get("final_recommended_value") is not None
+    )
+    if use_legacy_schedule_rule:
+        schedule_breakdown = {
+            "schedule_a": {"total": float((legacy_valuation_result.get("schedule_totals") or {}).get("A") or 0.0)},
+            "schedule_b": {"total": float((legacy_valuation_result.get("schedule_totals") or {}).get("B") or 0.0)},
+            "schedule_c": {"total": float((legacy_valuation_result.get("schedule_totals") or {}).get("C") or 0.0)},
+            "schedule_d": {"total": float((legacy_valuation_result.get("schedule_totals") or {}).get("D") or 0.0)},
+            "schedule_e": {
+                "total": float((legacy_valuation_result.get("schedule_totals") or {}).get("E") or 0.0),
+                "categories": {
+                    key: float(value or 0.0)
+                    for key, value in (legacy_valuation_result.get("subsection_totals") or {}).items()
+                },
+            },
+        }
+        structured_line_items = list(legacy_valuation_result.get("line_items") or [])
+        structured_recommended_value = legacy_valuation_result.get("final_recommended_value")
+    else:
+        schedule_breakdown = structured_result.get("schedule_breakdown") or {}
     schedule_e_breakdown = ((schedule_breakdown.get("schedule_e") or {}).get("categories") or {})
     normalized_schema = structured_result.get("normalized_schema") or {}
     structured_review_flags = list(structured_result.get("review_flags") or [])
     extraction_provider = structured_result.get("extraction_provider")
     document_confidence = structured_result.get("document_confidence")
     structured_debug = structured_result.get("debug") or {}
+    if use_legacy_schedule_rule:
+        structured_review_flags = sorted(set(structured_review_flags + ["legacy_ocr_schedule_rule_fallback_used"]))
+        structured_debug = {
+            **structured_debug,
+            "legacy_ocr_schedule_rule_fallback_used": True,
+        }
     result.update(
         {
             "source_pdf": str(pdf_path),
@@ -3090,12 +3120,16 @@ def run_rendition_pipeline(
             "merged_candidates": merged_candidates,
             "candidates": candidate_buckets,
             "rendition_valuation": legacy_valuation_result,
-            "recommended_value": structured_result.get("recommended_value"),
-            "recommended_value_source": "schedule_rule_engine" if structured_result.get("recommended_value") is not None else None,
+            "recommended_value": structured_recommended_value,
+            "recommended_value_source": "schedule_rule_engine" if structured_recommended_value is not None else None,
             "schedule_breakdown": schedule_breakdown,
             "schedule_e_breakdown": schedule_e_breakdown,
-            "valuation_flags": structured_result.get("valuation_flags", legacy_valuation_result.get("flags", [])),
-            "extracted_line_items": structured_result.get("line_items", legacy_valuation_result.get("line_items", [])),
+            "valuation_flags": (
+                legacy_valuation_result.get("flags", [])
+                if use_legacy_schedule_rule
+                else structured_result.get("valuation_flags", legacy_valuation_result.get("flags", []))
+            ),
+            "extracted_line_items": structured_line_items,
             "normalized_schema": normalized_schema,
             "extraction_provider": extraction_provider,
             "document_confidence": document_confidence,
@@ -3121,8 +3155,8 @@ def run_rendition_pipeline(
         result.setdefault("schedule_e_total", schedule_e.get("total"))
     if schedule_values.get("good_faith_total") is not None:
         result.setdefault("good_faith_value", schedule_values.get("good_faith_total"))
-    if structured_result.get("recommended_value") is not None:
-        result.setdefault("rendered_value", structured_result.get("recommended_value"))
+    if structured_recommended_value is not None:
+        result.setdefault("rendered_value", structured_recommended_value)
 
     result["assessment_summary"] = AssessmentSummaryBuilder().build_summary(
         rendition_result=result,

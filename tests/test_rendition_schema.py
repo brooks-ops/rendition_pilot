@@ -1,4 +1,5 @@
 from app.rendition_schema import (
+    _build_document_ai_auth,
     apply_rendition_valuation_rules,
     get_google_document_ai_processor_name,
     parse_text_to_rendition_schema,
@@ -173,3 +174,13 @@ def test_google_document_ai_processor_name_builds_from_parts(monkeypatch):
     monkeypatch.setenv("GOOGLE_DOCUMENT_AI_PROCESSOR_ID", "proc")
 
     assert get_google_document_ai_processor_name() == "projects/proj/locations/us/processors/proc"
+
+
+def test_build_document_ai_auth_prefers_api_key_over_access_token(monkeypatch):
+    monkeypatch.setenv("GOOGLE_DOCUMENT_AI_ACCESS_TOKEN", "stale-token")
+    monkeypatch.setenv("GOOGLE_DOCUMENT_AI_API_KEY", "good-key")
+
+    headers, params = _build_document_ai_auth()
+
+    assert "Authorization" not in headers
+    assert params == {"key": "good-key"}

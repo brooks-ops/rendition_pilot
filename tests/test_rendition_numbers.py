@@ -1,14 +1,17 @@
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.pipeline import (
     _azure_analyze_result_to_pages,
     _build_merged_google_ocr_pages,
     _extract_pdf_bundle,
+    _google_document_ai_request_headers_and_params,
     _google_document_ai_result_to_pages,
     _needs_ocr_fallback,
     _ocr_pdf_pages_with_google_document_ai,
     _parse_money,
     _should_retry_google_document_ai_as_images,
+    run_rendition_pipeline,
 )
 from app.assessment_summary import AssessmentSummaryBuilder
 from app.rendition_value_engine import calculate_rendition_value
@@ -200,6 +203,67 @@ def test_extract_pdf_bundle_prefers_merged_google_ocr_when_embedded_text_needs_f
     assert bundle["pages"][0]["text_source"] == "google_ocr_merged"
     assert bundle["pages"][0]["extraction_provider"] == "google_ocr_merged"
     assert bundle["ocr_reconciliation"]["chosen_provider"] == "google_ocr_merged"
+
+
+def test_google_document_ai_request_headers_prefers_api_key_over_access_token():
+    with patch(
+        "app.pipeline._get_config_value",
+        side_effect=lambda *names: "good-key" if "GOOGLE_DOCUMENT_AI_API_KEY" in names else "stale-token",
+    ):
+        headers, params = _google_document_ai_request_headers_and_params()
+
+    assert "Authorization" not in headers
+    assert params == {"key": "good-key"}
+
+
+def test_run_rendition_pipeline_uses_legacy_value_when_structured_fallback_is_empty():
+    fake_pages = [
+        {
+            "page_number": 1,
+            "text": "SCHEDULE E\n2025 161656",
+            "ocr_blocks": [],
+            "text_source": "google_ocr_merged",
+        }
+    ]
+    legacy_valuation = {
+        "schedule_totals": {"A": 0.0, "B": 0.0, "C": 0.0, "D": 0.0, "E": 195890.7},
+        "subsection_totals": {
+            "furniture_fixtures": 195890.7,
+            "machinery_equipment": 0.0,
+            "office_equipment": 0.0,
+            "computer_equipment": 0.0,
+            "pos_servers_mainframes": 0.0,
+            "other": 0.0,
+        },
+        "final_recommended_value": 195890.7,
+        "line_items": [{"schedule": "E", "subsection": "furniture_fixtures"}],
+        "flags": [],
+        "confidence": "high",
+    }
+
+    with patch("app.pipeline._extract_pdf_bundle", return_value={"pages": fake_pages, "ocr_reconciliation": {}}), \
+         patch("app.pipeline.process_uploaded_rendition", return_value={
+             "recommended_value": 0.0,
+             "extraction_provider": "fallback_text",
+             "document_confidence": 0.05,
+             "schedule_breakdown": {},
+             "normalized_schema": {},
+             "review_flags": ["document_ai_failed_fallback_used"],
+             "confidence": "low",
+             "line_items": [],
+             "debug": {},
+         }), \
+         patch("app.pipeline.Pipeline") as pipeline_cls, \
+         patch("app.pipeline.calculate_rendition_value", return_value=legacy_valuation), \
+         patch("app.pipeline.AssessmentSummaryBuilder.build_summary", return_value={"recommended_value": 195890.7}), \
+         patch("app.pipeline.review_parse_result", return_value={}):
+        pipeline_cls.return_value.run.return_value = SimpleNamespace(final_result={"resolved_values": {}, "merged_candidates": []})
+        result = run_rendition_pipeline("fake.pdf")
+
+    assert result["recommended_value"] == 195890.7
+    assert result["rendered_value"] == 195890.7
+    assert result["extracted_line_items"] == [{"schedule": "E", "subsection": "furniture_fixtures"}]
+    assert "legacy_ocr_schedule_rule_fallback_used" in result["schema_review_flags"]
 
 
 def test_schedule_e_row_parser_pairs_years_with_amounts_by_geometry():
