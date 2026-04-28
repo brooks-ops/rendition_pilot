@@ -1320,7 +1320,14 @@ def _reconcile_ocr_providers(
 def _extract_pdf_bundle(pdf_path: str) -> Dict[str, Any]:
     started_at = time.perf_counter()
     extractor = PDFExtractor()
-    embedded_pages = extractor.extract_pages(pdf_path)
+    embedded_pages: List[Dict[str, Any]] = []
+    embedded_extraction_error: Optional[str] = None
+    try:
+        embedded_pages = extractor.extract_pages(pdf_path)
+    except Exception as exc:
+        embedded_extraction_error = (
+            f"Embedded PDF text extraction failed: {type(exc).__name__}: {exc}"
+        )
 
     for page in embedded_pages:
         page_number = int(page.get("page_number", 1))
@@ -1367,6 +1374,8 @@ def _extract_pdf_bundle(pdf_path: str) -> Dict[str, Any]:
     reconciliation = _reconcile_ocr_providers(embedded_pages, provider_pages, chosen_provider)
 
     provider_errors = []
+    if embedded_extraction_error:
+        provider_errors.append(embedded_extraction_error)
     for provider_name in ["google_cloud_vision", "openai_vision_ocr", "azure_document_intelligence", "pymupdf_tesseract_ocr"]:
         provider_errors.extend(
             str(page.get("ocr_error"))
@@ -1374,7 +1383,19 @@ def _extract_pdf_bundle(pdf_path: str) -> Dict[str, Any]:
             if page.get("ocr_error")
         )
 
-    if chosen_provider == "embedded_pdf_text" and _needs_ocr_fallback(embedded_pages):
+    if not chosen_pages:
+        chosen_pages = [
+            {
+                "page_number": 1,
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "pdf_extraction_error" if embedded_extraction_error else "embedded_pdf_text",
+            }
+        ]
+
+    if chosen_provider == "embedded_pdf_text" and (
+        embedded_extraction_error or _needs_ocr_fallback(embedded_pages)
+    ):
         for page in chosen_pages:
             page["ocr_unavailable"] = True
             if provider_errors:
@@ -1571,7 +1592,7 @@ def _summarize_ocr_error(error: str) -> str:
         return "OpenAI vision OCR unavailable: rate limit reached."
     if "api key" in lowered or "authentication" in lowered or "unauthorized" in lowered:
         return "OpenAI vision OCR unavailable: API key/authentication failed."
-    return "OpenAI vision OCR unavailable."
+    return error
 
 
 def _is_terminal_google_ocr_error(error: str) -> bool:
