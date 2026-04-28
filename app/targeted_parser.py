@@ -55,6 +55,88 @@ class TargetedRenditionParser:
     def _word_x0(word: dict) -> float:
         return float(word.get("x0", 0) or 0)
 
+    def _schedule_e_header_anchors(self, words: list[dict]) -> list[dict]:
+        valid_words = [word for word in words if self._word_text(word)]
+        if not valid_words:
+            return []
+
+        clusters: list[dict] = []
+        for word in sorted(valid_words, key=lambda item: self._word_top(item)):
+            top = self._word_top(word)
+            for cluster in clusters:
+                if abs(top - cluster["top"]) <= 12.0:
+                    cluster["words"].append(word)
+                    cluster["top"] = (cluster["top"] * (len(cluster["words"]) - 1) + top) / len(cluster["words"])
+                    break
+            else:
+                clusters.append({"top": top, "words": [word]})
+
+        anchors: list[dict] = []
+        phrase_map = {
+            "furniture_fixtures": [["FURNITURE", "AND", "FIXTURES"], ["FURNITURE", "FIXTURES"]],
+            "machinery_equipment": [["MACHINERY", "AND", "EQUIPMENT"], ["MACHINERY", "EQUIPMENT"]],
+            "office_equipment": [["OFFICE", "EQUIPMENT"]],
+            "computer_equipment": [["COMPUTER", "EQUIPMENT"]],
+            "pos_servers_mainframes": [["POS"], ["SERVERS"], ["MAINFRAMES"]],
+            "other": [["OTHER"]],
+        }
+
+        for cluster in clusters:
+            ordered = sorted(cluster["words"], key=lambda item: self._word_x0(item))
+            tokens = [self._word_text(word).upper() for word in ordered]
+            for subsection, token_patterns in phrase_map.items():
+                for token_pattern in token_patterns:
+                    token_count = len(token_pattern)
+                    for idx in range(0, max(0, len(tokens) - token_count + 1)):
+                        candidate = tokens[idx: idx + token_count]
+                        if candidate == token_pattern:
+                            anchors.append(
+                                {
+                                    "subsection": subsection,
+                                    "x0": self._word_x0(ordered[idx]),
+                                    "top": float(cluster["top"]),
+                                }
+                            )
+                            break
+                    else:
+                        continue
+                    break
+
+        deduped: dict[str, dict] = {}
+        for anchor in anchors:
+            existing = deduped.get(anchor["subsection"])
+            if existing is None or anchor["top"] < existing["top"]:
+                deduped[anchor["subsection"]] = anchor
+        return list(deduped.values())
+
+    def _nearest_schedule_e_subsection(
+        self,
+        anchor_x: float,
+        row_top: float,
+        header_anchors: list[dict],
+    ) -> str | None:
+        if not header_anchors:
+            return None
+
+        candidate_anchors = list(header_anchors)
+        anchor_tops = sorted({float(anchor.get("top", 0.0)) for anchor in header_anchors})
+        if len(anchor_tops) >= 2:
+            lower_group_top = next((top for top in anchor_tops[1:] if top - anchor_tops[0] > 200.0), None)
+            if lower_group_top is not None:
+                lower_group_cutoff = lower_group_top - 120.0
+                if row_top < lower_group_cutoff:
+                    candidate_anchors = [anchor for anchor in header_anchors if float(anchor.get("top", 0.0)) < lower_group_cutoff]
+                else:
+                    candidate_anchors = [anchor for anchor in header_anchors if float(anchor.get("top", 0.0)) >= lower_group_cutoff]
+                if not candidate_anchors:
+                    candidate_anchors = list(header_anchors)
+
+        def _score(anchor: dict) -> float:
+            return abs(float(anchor.get("top", 0.0)) - row_top) * 2.5 + abs(float(anchor.get("x0", 0.0)) - anchor_x)
+
+        best = min(candidate_anchors, key=_score)
+        return str(best.get("subsection")) if best.get("subsection") else None
+
     def _schedule_e_y_split(self, words: list[dict]) -> float:
         valid_words = [word for word in words if self._word_text(word)]
         tops = sorted(self._word_top(word) for word in valid_words)
@@ -109,7 +191,7 @@ class TargetedRenditionParser:
         value = parse_money_text(text)
         if value is None:
             return None
-        if value < 5000:
+        if value < 1000:
             return None
         if 1900 <= int(value) <= 2100 and float(value).is_integer():
             return None
@@ -422,6 +504,7 @@ class TargetedRenditionParser:
         width = max(max_x - min_x, 1.0)
         x_band = width / 3.0
         y_split = self._schedule_e_y_split(valid_words)
+        header_anchors = self._schedule_e_header_anchors(valid_words)
 
         rows: list[dict] = []
         clusters: list[dict] = []
@@ -470,12 +553,17 @@ class TargetedRenditionParser:
 
                 if not year_words and not money_words:
                     continue
+                if not year_words and len(money_words) < 2:
+                    continue
 
                 anchor_word = year_words[0] if year_words else (money_words[0] if money_words else segment[0])
                 anchor_x = self._word_x0(anchor_word)
+                header_based_subsection = self._nearest_schedule_e_subsection(anchor_x, float(cluster["top"]), header_anchors)
+                subsection = header_based_subsection
                 x_index = min(2, max(0, int((anchor_x - min_x) / x_band)))
                 y_index = 0 if float(cluster["top"]) <= y_split else 1
-                subsection = self.SCHEDULE_E_SUBSECTIONS.get((x_index, y_index))
+                if subsection is None:
+                    subsection = self.SCHEDULE_E_SUBSECTIONS.get((x_index, y_index))
                 if subsection is None:
                     continue
 
@@ -511,6 +599,7 @@ class TargetedRenditionParser:
                             "year_tokens": [self._word_text(word) for word in year_words],
                             "region": {"x_index": x_index, "y_index": y_index},
                             "anchor_x": anchor_x,
+                            "header_subsection_match": bool(header_based_subsection),
                         },
                         "confidence": 0.86 if year_acquired is not None else 0.74,
                         "flags": [],
@@ -547,6 +636,7 @@ class TargetedRenditionParser:
         width = max(max_x - min_x, 1.0)
         x_band = width / 3.0
         y_split = self._schedule_e_y_split(valid_words)
+        header_anchors = self._schedule_e_header_anchors(valid_words)
 
         totals: dict[str, float] = {}
         for word in valid_words:
@@ -554,9 +644,12 @@ class TargetedRenditionParser:
                 continue
 
             row_top = self._word_top(word)
-            x_index = min(2, max(0, int((self._word_x0(word) - min_x) / x_band)))
+            x0 = self._word_x0(word)
+            subsection = self._nearest_schedule_e_subsection(x0, row_top, header_anchors)
+            x_index = min(2, max(0, int((x0 - min_x) / x_band)))
             y_index = 0 if row_top <= y_split else 1
-            subsection = self.SCHEDULE_E_SUBSECTIONS.get((x_index, y_index))
+            if subsection is None:
+                subsection = self.SCHEDULE_E_SUBSECTIONS.get((x_index, y_index))
             if subsection is None:
                 continue
 

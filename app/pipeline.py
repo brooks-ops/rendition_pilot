@@ -153,6 +153,7 @@ YEAR_RE = re.compile(r"\b(19[5-9]\d|20[0-4]\d)\b")
 _OPENAI_VISION_OCR_DISABLED_REASON: Optional[str] = None
 _AZURE_OCR_DISABLED_REASON: Optional[str] = None
 _GOOGLE_VISION_OCR_DISABLED_REASON: Optional[str] = None
+_GOOGLE_DOCUMENT_AI_DISABLED_REASON: Optional[str] = None
 
 
 def _normalize_text(text: str) -> str:
@@ -1262,6 +1263,7 @@ def _values_agree(left: Any, right: Any, tolerance: float = 1.0) -> bool:
 
 
 OCR_PROVIDER_PRIORITY = [
+    "google_document_ai",
     "google_cloud_vision",
     "openai_vision_ocr",
     "azure_document_intelligence",
@@ -1371,6 +1373,7 @@ def _extract_pdf_bundle(pdf_path: str) -> Dict[str, Any]:
         }
 
     provider_pages = {
+        "google_document_ai": _ocr_pdf_pages_with_google_document_ai(pdf_path),
         "google_cloud_vision": _ocr_pdf_pages_with_google_vision(pdf_path),
         "openai_vision_ocr": _ocr_pdf_pages_with_openai_vision(pdf_path),
         "azure_document_intelligence": _ocr_pdf_pages_with_azure_document_intelligence(pdf_path),
@@ -1387,7 +1390,7 @@ def _extract_pdf_bundle(pdf_path: str) -> Dict[str, Any]:
     provider_errors = []
     if embedded_extraction_error:
         provider_errors.append(embedded_extraction_error)
-    for provider_name in ["google_cloud_vision", "openai_vision_ocr", "azure_document_intelligence", "pymupdf_tesseract_ocr"]:
+    for provider_name in ["google_document_ai", "google_cloud_vision", "openai_vision_ocr", "azure_document_intelligence", "pymupdf_tesseract_ocr"]:
         provider_errors.extend(
             str(page.get("ocr_error"))
             for page in provider_pages.get(provider_name, [])
@@ -1575,6 +1578,18 @@ def _prepare_ocr_image(image: Any) -> Any:
 
 def _summarize_ocr_error(error: str) -> str:
     lowered = error.lower()
+    if "google document ai" in lowered:
+        if "processor not configured" in lowered:
+            return "Google Document AI OCR unavailable: processor settings not configured."
+        if "quota" in lowered or "billing" in lowered or "resource_exhausted" in lowered:
+            return "Google Document AI OCR unavailable: quota or billing limit reached."
+        if "permission denied" in lowered or "403" in lowered:
+            return "Google Document AI OCR unavailable: authentication or processor permissions failed."
+        if "unauthenticated" in lowered or "401" in lowered or "api key not valid" in lowered:
+            return "Google Document AI OCR unavailable: authentication failed."
+        if "timed out" in lowered or "timeout" in lowered:
+            return "Google Document AI OCR unavailable: timed out."
+        return "Google Document AI OCR unavailable."
     if "google cloud vision" in lowered or "google vision" in lowered:
         if "not configured" in lowered:
             return "Google Cloud Vision OCR unavailable: API key not configured."
@@ -1621,6 +1636,266 @@ def _is_terminal_google_ocr_error(error: str) -> bool:
             "project",
         ]
     )
+
+
+def _is_terminal_google_document_ai_error(error: str) -> bool:
+    lowered = error.lower()
+    return any(
+        marker in lowered
+        for marker in [
+            "api key not valid",
+            "permission denied",
+            "billing",
+            "quota",
+            "resource_exhausted",
+            "access not configured",
+            "service disabled",
+            "unauthenticated",
+            "401",
+            "403",
+        ]
+    )
+
+
+def _google_document_ai_processor_name() -> Optional[str]:
+    processor_name = _get_config_value(
+        "GOOGLE_DOCUMENT_AI_PROCESSOR_NAME",
+        "GOOGLE_DOCS_PROCESSOR_NAME",
+    )
+    if processor_name:
+        return processor_name.strip().lstrip("/")
+
+    project_id = _get_config_value("GOOGLE_DOCUMENT_AI_PROJECT_ID", "GOOGLE_CLOUD_PROJECT")
+    location = _get_config_value("GOOGLE_DOCUMENT_AI_LOCATION")
+    processor_id = _get_config_value("GOOGLE_DOCUMENT_AI_PROCESSOR_ID")
+    if project_id and location and processor_id:
+        return f"projects/{project_id}/locations/{location}/processors/{processor_id}"
+    return None
+
+
+def _ocr_pdf_pages_with_google_document_ai(pdf_path: str) -> List[Dict[str, Any]]:
+    global _GOOGLE_DOCUMENT_AI_DISABLED_REASON
+
+    if _GOOGLE_DOCUMENT_AI_DISABLED_REASON:
+        return [
+            {
+                "page_number": 1,
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "google_document_ai_error",
+                "ocr_error": _GOOGLE_DOCUMENT_AI_DISABLED_REASON,
+            }
+        ]
+
+    processor_name = _google_document_ai_processor_name()
+    api_key = _get_config_value("GOOGLE_DOCUMENT_AI_API_KEY", "GOOGLE_DOCS_API_KEY")
+    access_token = _get_config_value("GOOGLE_DOCUMENT_AI_ACCESS_TOKEN")
+    if not processor_name:
+        if api_key or access_token:
+            return [
+                {
+                    "page_number": 1,
+                    "text": "",
+                    "ocr_blocks": [],
+                    "text_source": "google_document_ai_error",
+                    "ocr_error": "Google Document AI processor not configured.",
+                }
+            ]
+        return []
+    if not api_key and not access_token:
+        return []
+
+    location_match = re.search(r"/locations/([^/]+)/processors/", processor_name)
+    location = location_match.group(1) if location_match else (_get_config_value("GOOGLE_DOCUMENT_AI_LOCATION") or "us")
+    endpoint = f"https://{location}-documentai.googleapis.com/v1/{processor_name}:process"
+
+    try:
+        request_timeout = float(_get_config_value("GOOGLE_DOCUMENT_AI_REQUEST_TIMEOUT_SECONDS") or "20")
+    except ValueError:
+        request_timeout = 20.0
+
+    try:
+        pdf_bytes = Path(pdf_path).read_bytes()
+    except Exception as exc:
+        return [
+            {
+                "page_number": 1,
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "google_document_ai_error",
+                "ocr_error": f"Google Document AI file read failed: {type(exc).__name__}: {exc}",
+            }
+        ]
+
+    payload = {
+        "skipHumanReview": True,
+        "rawDocument": {
+            "content": base64.b64encode(pdf_bytes).decode("ascii"),
+            "mimeType": "application/pdf",
+        },
+        "processOptions": {
+            "ocrConfig": {
+                "enableNativePdfParsing": True,
+                "enableImageQualityScores": True,
+                "enableSymbol": False,
+            }
+        },
+    }
+
+    headers = {"Content-Type": "application/json; charset=utf-8"}
+    params: Dict[str, str] = {}
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    elif api_key:
+        params["key"] = api_key
+
+    try:
+        response = requests.post(
+            endpoint,
+            headers=headers,
+            params=params,
+            json=payload,
+            timeout=request_timeout,
+        )
+    except requests.RequestException as exc:
+        error = f"Google Document AI request failed: {type(exc).__name__}: {exc}"
+        return [
+            {
+                "page_number": 1,
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "google_document_ai_error",
+                "ocr_error": error,
+            }
+        ]
+
+    if response.status_code >= 400:
+        error = f"Google Document AI HTTP {response.status_code}: {response.text[:500]}"
+        if _is_terminal_google_document_ai_error(error):
+            _GOOGLE_DOCUMENT_AI_DISABLED_REASON = error
+        return [
+            {
+                "page_number": 1,
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "google_document_ai_error",
+                "ocr_error": error,
+            }
+        ]
+
+    try:
+        response_payload = response.json()
+    except ValueError as exc:
+        return [
+            {
+                "page_number": 1,
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "google_document_ai_error",
+                "ocr_error": f"Google Document AI returned non-JSON response: {type(exc).__name__}: {exc}",
+            }
+        ]
+
+    return _google_document_ai_result_to_pages(response_payload)
+
+
+def _google_document_ai_result_to_pages(result_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    document = result_payload.get("document") or result_payload
+    document_text = str(document.get("text") or "")
+    raw_pages = document.get("pages") or []
+    pages: List[Dict[str, Any]] = []
+
+    if not raw_pages and document_text.strip():
+        return [
+            {
+                "page_number": 1,
+                "text": document_text.strip(),
+                "ocr_blocks": [],
+                "text_source": "google_document_ai",
+            }
+        ]
+
+    for raw_page in raw_pages:
+        page_number = int(raw_page.get("pageNumber") or len(pages) + 1)
+        dimension = raw_page.get("dimension") or {}
+        page_width = float(dimension.get("width") or 0)
+        page_height = float(dimension.get("height") or 0)
+
+        lines = raw_page.get("lines") or []
+        line_text_parts = [
+            _google_document_ai_anchor_text(document_text, (line.get("layout") or {}).get("textAnchor") or {})
+            for line in lines
+        ]
+        line_text = "\n".join(part.strip() for part in line_text_parts if part and part.strip())
+
+        tokens = raw_page.get("tokens") or []
+        word_blocks: List[Dict[str, Any]] = []
+        for token in tokens:
+            layout = token.get("layout") or {}
+            text = _google_document_ai_anchor_text(document_text, layout.get("textAnchor") or {}).strip()
+            if not text:
+                continue
+            xs, ys = _google_document_ai_poly_xy(layout.get("boundingPoly") or {}, page_width, page_height)
+            word_blocks.append(
+                {
+                    "text": text,
+                    "x0": min(xs) if xs else 0,
+                    "x1": max(xs) if xs else 0,
+                    "top": min(ys) if ys else 0,
+                    "y0": min(ys) if ys else 0,
+                    "y1": max(ys) if ys else 0,
+                    "confidence": layout.get("confidence"),
+                    "source": "google_document_ai",
+                }
+            )
+
+        if not line_text and word_blocks:
+            line_text = " ".join(str(block.get("text") or "") for block in word_blocks).strip()
+
+        pages.append(
+            {
+                "page_number": page_number,
+                "text": line_text,
+                "ocr_blocks": word_blocks,
+                "text_source": "google_document_ai",
+            }
+        )
+
+    return pages
+
+
+def _google_document_ai_anchor_text(document_text: str, text_anchor: Dict[str, Any]) -> str:
+    segments = text_anchor.get("textSegments") or []
+    if not segments:
+        return ""
+    parts: List[str] = []
+    for segment in segments:
+        start_idx = int(segment.get("startIndex") or 0)
+        end_idx = int(segment.get("endIndex") or 0)
+        if end_idx <= start_idx:
+            continue
+        parts.append(document_text[start_idx:end_idx])
+    return "".join(parts)
+
+
+def _google_document_ai_poly_xy(
+    bounding_poly: Dict[str, Any],
+    page_width: float,
+    page_height: float,
+) -> tuple[List[float], List[float]]:
+    vertices = bounding_poly.get("vertices") or []
+    if vertices:
+        xs = [float(vertex.get("x", 0) or 0) for vertex in vertices]
+        ys = [float(vertex.get("y", 0) or 0) for vertex in vertices]
+        return xs, ys
+
+    normalized_vertices = bounding_poly.get("normalizedVertices") or []
+    if normalized_vertices:
+        xs = [float(vertex.get("x", 0) or 0) * page_width for vertex in normalized_vertices]
+        ys = [float(vertex.get("y", 0) or 0) * page_height for vertex in normalized_vertices]
+        return xs, ys
+
+    return [], []
 
 
 def _ocr_pdf_pages_with_google_vision(pdf_path: str) -> List[Dict[str, Any]]:

@@ -1,4 +1,4 @@
-from app.pipeline import _azure_analyze_result_to_pages, _needs_ocr_fallback, _parse_money
+from app.pipeline import _azure_analyze_result_to_pages, _google_document_ai_result_to_pages, _needs_ocr_fallback, _parse_money
 from app.assessment_summary import AssessmentSummaryBuilder
 from app.rendition_value_engine import calculate_rendition_value
 from app.targeted_parser import TargetedRenditionParser
@@ -61,6 +61,49 @@ def test_azure_analyze_result_to_pages_preserves_lines_and_words():
     assert pages[0]["text_source"] == "azure_document_intelligence"
 
 
+def test_google_document_ai_result_to_pages_preserves_lines_and_tokens():
+    payload = {
+        "document": {
+            "text": "Total Fixed Assets $ 184,724.43\n",
+            "pages": [
+                {
+                    "pageNumber": 1,
+                    "dimension": {"width": 1000, "height": 2000},
+                        "lines": [
+                            {
+                                "layout": {
+                                    "textAnchor": {"textSegments": [{"startIndex": "0", "endIndex": "31"}]},
+                                }
+                            }
+                        ],
+                        "tokens": [
+                            {
+                                "layout": {
+                                    "textAnchor": {"textSegments": [{"startIndex": "20", "endIndex": "31"}]},
+                                    "boundingPoly": {
+                                        "vertices": [
+                                        {"x": 10, "y": 20},
+                                        {"x": 70, "y": 20},
+                                        {"x": 70, "y": 30},
+                                        {"x": 10, "y": 30},
+                                    ]
+                                },
+                                "confidence": 0.91,
+                            }
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+
+    pages = _google_document_ai_result_to_pages(payload)
+
+    assert pages[0]["text"] == "Total Fixed Assets $ 184,724.43"
+    assert pages[0]["ocr_blocks"][0]["text"] == "184,724.43"
+    assert pages[0]["text_source"] == "google_document_ai"
+
+
 def test_schedule_e_row_parser_pairs_years_with_amounts_by_geometry():
     words = [
         {"text": "2025", "x0": 1219, "top": 385},
@@ -110,6 +153,29 @@ def test_schedule_e_subsection_parser_uses_visual_regions():
     assert ("computer_equipment", 2021, 51573.0) in pairs
     assert ("pos_servers_mainframes", 2020, 4055.0) in pairs
     assert ("other", 2019, 45442.0) in pairs
+
+
+def test_schedule_e_subsection_parser_keeps_lower_top_section_rows_in_same_header_group():
+    words = [
+        {"text": "Furniture", "x0": 262, "top": 272},
+        {"text": "and", "x0": 345, "top": 272},
+        {"text": "Fixtures", "x0": 381, "top": 272},
+        {"text": "Machinery", "x0": 794, "top": 272},
+        {"text": "and", "x0": 888, "top": 272},
+        {"text": "Equipment", "x0": 924, "top": 272},
+        {"text": "Office", "x0": 1382, "top": 271},
+        {"text": "Equipment", "x0": 1436, "top": 272},
+        {"text": "Computer", "x0": 226, "top": 1122},
+        {"text": "Equipment", "x0": 315, "top": 1122},
+        {"text": "Other", "x0": 1158, "top": 1119},
+        {"text": "2016", "x0": 108, "top": 823},
+        {"text": "45,442", "x0": 209, "top": 820},
+    ]
+
+    rows = TargetedRenditionParser().parse_schedule_e_subsection_rows(words)
+
+    assert rows[0]["subsection"] == "furniture_fixtures"
+    assert rows[0]["historical_cost"] == 45442.0
 
 
 def test_schedule_e_subsection_totals_only_come_from_total_rows():

@@ -183,7 +183,10 @@ def calculate_schedule_e(
         for item in year_based_items
         if _normalize_subsection_name(item.subsection)
     }
-    if len(year_based_items) >= 3 and len(populated_subsections) <= 1:
+    header_based_matches = sum(
+        1 for item in year_based_items if bool((item.raw_values or {}).get("header_subsection_match"))
+    )
+    if len(year_based_items) >= 3 and len(populated_subsections) <= 1 and header_based_matches < len(year_based_items):
         flags.append("ambiguous_schedule_e_subsection_mapping")
 
     total = round(sum(subsection_totals.values()), 2)
@@ -634,7 +637,7 @@ def _parse_money_tokens(text: str) -> list[dict[str, Any]]:
         value = parse_money_text(raw)
         if value is None:
             continue
-        if value < 1:
+        if value < 100:
             continue
         if float(value).is_integer() and 1900 <= int(value) <= 2100:
             continue
