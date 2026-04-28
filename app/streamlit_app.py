@@ -163,6 +163,42 @@ st.markdown(
             margin-bottom: 16px;
         }
 
+        .ap-card-tight {
+            padding: 14px 16px;
+        }
+
+        .ap-toolbar-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+
+        .ap-toolbar-meta {
+            color: #C7D2E3;
+            font-size: 0.9rem;
+        }
+
+        .ap-section-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .ap-section-head h3 {
+            margin: 0;
+        }
+
+        .ap-panel-note {
+            color: #D7DFEA;
+            font-size: 0.92rem;
+            margin-bottom: 10px;
+        }
+
         .ap-muted {
             color: #C7D2E3 !important;
             font-size: 0.95rem;
@@ -243,6 +279,18 @@ st.markdown(
             color: #FFFFFF;
             margin-top: 10px;
             margin-bottom: 14px;
+        }
+
+        .ap-analysis-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .ap-analysis-grid .ap-mini-card {
+            min-height: 88px;
+            padding: 14px;
         }
         div[data-testid="stMetricValue"],
         div[data-testid="stMetricValue"] div,
@@ -1112,7 +1160,10 @@ def show_pdf_preview(file_bytes: bytes) -> None:
         st.warning("No PDF pages could be rendered.")
         return
 
-    st.caption(f"{len(page_images)} page(s) rendered")
+    st.markdown(
+        f'<div class="ap-toolbar-row"><div class="ap-toolbar-meta">{len(page_images)} page(s) rendered</div></div>',
+        unsafe_allow_html=True,
+    )
 
     file_signature = _preview_file_signature(file_bytes)
     signature_key = "single_pdf_preview_signature"
@@ -1128,15 +1179,15 @@ def show_pdf_preview(file_bytes: bytes) -> None:
         current_rotation = int(st.session_state.get(rotation_key, 0) or 0)
         rotate_cols = st.columns([1, 1, 4])
         with rotate_cols[0]:
-            if st.button("Rotate Left", key="single_pdf_rotate_left_single", use_container_width=True):
+            if st.button("Left", key="single_pdf_rotate_left_single", use_container_width=True):
                 st.session_state[rotation_key] = (current_rotation - 90) % 360
                 st.rerun()
         with rotate_cols[1]:
-            if st.button("Rotate Right", key="single_pdf_rotate_right_single", use_container_width=True):
+            if st.button("Right", key="single_pdf_rotate_right_single", use_container_width=True):
                 st.session_state[rotation_key] = (current_rotation + 90) % 360
                 st.rerun()
         with rotate_cols[2]:
-            st.caption(f"Rotation: {int(st.session_state.get(rotation_key, 0) or 0)}°")
+            st.caption(f"Rotation: {int(st.session_state.get(rotation_key, 0) or 0)} degrees")
         st.image(_rotate_png_bytes(page_images[0], int(st.session_state.get(rotation_key, 0) or 0)), use_container_width=True)
         return
 
@@ -1145,7 +1196,7 @@ def show_pdf_preview(file_bytes: bytes) -> None:
 
     nav_cols = st.columns([1, 1, 1.25, 1, 1, 2.5])
     with nav_cols[0]:
-        if st.button("Previous", key="single_pdf_prev_page", use_container_width=True, disabled=current_page <= 1):
+        if st.button("Prev", key="single_pdf_prev_page", use_container_width=True, disabled=current_page <= 1):
             st.session_state[page_key] = max(1, current_page - 1)
             st.rerun()
     with nav_cols[1]:
@@ -1161,15 +1212,15 @@ def show_pdf_preview(file_bytes: bytes) -> None:
             label_visibility="collapsed",
         )
     with nav_cols[3]:
-        if st.button("Rotate Left", key="single_pdf_rotate_left", use_container_width=True):
+        if st.button("Left", key="single_pdf_rotate_left", use_container_width=True):
             st.session_state[rotation_key] = (current_rotation - 90) % 360
             st.rerun()
     with nav_cols[4]:
-        if st.button("Rotate Right", key="single_pdf_rotate_right", use_container_width=True):
+        if st.button("Right", key="single_pdf_rotate_right", use_container_width=True):
             st.session_state[rotation_key] = (current_rotation + 90) % 360
             st.rerun()
     with nav_cols[5]:
-        st.caption(f"Page {int(selected_page)} of {len(page_images)} | Rotation: {int(st.session_state.get(rotation_key, 0) or 0)}°")
+        st.caption(f"{len(page_images)} pages | Page {int(selected_page)} of {len(page_images)} | Rotation {int(st.session_state.get(rotation_key, 0) or 0)} degrees")
 
     st.image(
         _rotate_png_bytes(page_images[int(selected_page) - 1], int(st.session_state.get(rotation_key, 0) or 0)),
@@ -1442,14 +1493,21 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
     if tax_year_key not in st.session_state:
         st.session_state[tax_year_key] = editor["tax_year"]
 
-    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
-    st.subheader("Rendition Calculator")
-    st.caption("Worksheet-style depreciation entry with saved sections and a running combined total.")
+    st.markdown('<div class="ap-card ap-card-tight">', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="ap-section-head">
+            <h3>Rendition Calculator</h3>
+        </div>
+        <div class="ap-panel-note">Build and save section totals without leaving the PDF review pane.</div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    left_col, right_col = st.columns([1.45, 1])
+    left_col, right_col = st.columns([1.2, 0.95])
 
     with left_col:
-        c1, c2 = st.columns(2)
+        c1, c2 = st.columns([1.2, 0.8])
         with c1:
             selected_section_key = st.selectbox(
                 "Section",
@@ -1517,10 +1575,10 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
             tables=tables,
         )
 
-        header_cols = st.columns([1.1, 1.35, 1.0, 1.15])
+        header_cols = st.columns([0.9, 1.35, 0.95, 1.0])
         header_cols[0].markdown("**Year**")
         header_cols[1].markdown("**Cost**")
-        header_cols[2].markdown("**Depreciation Factor**")
+        header_cols[2].markdown("**Factor**")
         header_cols[3].markdown("**Value**")
 
         for row in rows:
@@ -1528,7 +1586,7 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
             if cost_input_key not in st.session_state:
                 st.session_state[cost_input_key] = float(editor["costs"].get(row["bucket"], 0.0) or 0.0)
 
-            row_cols = st.columns([1.1, 1.35, 1.0, 1.15])
+            row_cols = st.columns([0.9, 1.35, 0.95, 1.0])
             row_cols[0].markdown(f"**{row['display_year']}**")
             cost_value = row_cols[1].number_input(
                 f"Cost {row['display_year']}",
@@ -1545,13 +1603,13 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
             row_cols[3].markdown(f"**{format_money(row['value'])}**")
 
         section_total = calculate_section_total(rows)
-        total_cols = st.columns([2.1, 1.35, 1.0, 1.15])
+        total_cols = st.columns([1.8, 1.35, 0.95, 1.0])
         total_cols[0].markdown("### Total")
         total_cols[3].markdown(f"### {format_money(section_total)}")
 
         save_calculator_editor(file_name, editor)
 
-        action_cols = st.columns([1, 1, 1.2])
+        action_cols = st.columns([1, 1, 1])
         with action_cols[0]:
             if st.button("Save Calculator", type="primary", key=f"save_calculator_{file_name}", use_container_width=True):
                 if selected_section_key == "custom" and not (custom_name or calculator_name):
@@ -1597,12 +1655,12 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
             if editor.get("editing_id"):
                 st.info("Editing an existing saved section.")
             else:
-                st.caption("Save this section, then continue to the next category.")
+                st.caption("Save this section, then move to the next category.")
 
     with right_col:
         saved_calculators = get_saved_calculators(file_name)
         combined_total = calculate_combined_total(saved_calculators)
-        st.markdown("### Saved Calculators / Work Summary")
+        st.markdown("### Saved Work")
         st.metric("Calculated Total Value", format_money(combined_total))
         if st.button(
             "Use Calculated Total as Final Value",
@@ -1947,7 +2005,7 @@ def render_single_review() -> None:
     st.subheader("Single Review Controls")
     upload_key = f"single_upload_{st.session_state.get('single_upload_reset_counter', 0)}"
 
-    c1, c2 = st.columns([1.2, 1])
+    c1, c2, c3 = st.columns([1.7, 1.1, 0.55])
 
     with c1:
         uploaded_file = st.file_uploader(
@@ -1968,6 +2026,10 @@ def render_single_review() -> None:
             ],
             key="single_mode",
         )
+
+    with c3:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        run_review = st.button("Run Review", type="primary", use_container_width=True, key="single_run_review")
 
     attachment_total = None
     good_faith_value = None
@@ -2025,8 +2087,6 @@ def render_single_review() -> None:
                 key="single_life_years",
             )
 
-    notes = st.text_area("Notes", value="", key="single_notes", height=90)
-    run_review = st.button("Run Review", type="primary", use_container_width=False, key="single_run_review")
     st.markdown("</div>", unsafe_allow_html=True)
 
     if not uploaded_file:
@@ -2035,88 +2095,110 @@ def render_single_review() -> None:
 
     file_bytes = uploaded_file.getvalue()
 
-    left_col, right_col = st.columns([1.02, 1])
+    if run_review:
+        manual_override = build_manual_override(
+            mode=mode,
+            attachment_total=attachment_total,
+            good_faith_value=good_faith_value,
+            historical_cost=historical_cost,
+            acquisition_year=acquisition_year,
+            life_years=life_years,
+            notes="",
+        )
+
+        result = run_pipeline_from_upload(
+            file_name=uploaded_file.name,
+            file_bytes=file_bytes,
+            manual_override=manual_override,
+        )
+        st.session_state["single_result"] = result
+        st.session_state["single_file_name"] = uploaded_file.name
+        st.session_state["single_file_bytes"] = file_bytes
+
+        st.success("Review completed.")
+
+    result = st.session_state.get("single_result")
+    result_file_name = st.session_state.get("single_file_name", uploaded_file.name)
+    result_file_bytes = st.session_state.get("single_file_bytes", file_bytes)
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Analysis")
+    st.markdown(
+        '<div class="ap-muted">Focus on Recommended Value, Valuation Path, Confidence, extraction source, and reason first.</div>',
+        unsafe_allow_html=True,
+    )
+    if result:
+        show_top_metrics(result)
+    else:
+        st.info("Run Review to populate the analysis summary.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    left_col, right_col = st.columns([1.02, 0.98])
 
     with left_col:
-        st.markdown('<div class="ap-card">', unsafe_allow_html=True)
-        st.subheader("Rendition PDF")
-        st.download_button(
-            "Download PDF",
-            data=file_bytes,
-            file_name=uploaded_file.name,
-            mime="application/pdf",
-            use_container_width=True,
-            key="single_download_pdf",
+        st.markdown('<div class="ap-card ap-card-tight">', unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div class="ap-section-head">
+                <h3>Rendition PDF</h3>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
+        button_cols = st.columns([1, 1.25])
+        with button_cols[0]:
+            st.download_button(
+                "Download PDF",
+                data=file_bytes,
+                file_name=uploaded_file.name,
+                mime="application/pdf",
+                use_container_width=True,
+                key="single_download_pdf",
+            )
+        with button_cols[1]:
+            st.caption(f"File: {uploaded_file.name}")
         show_pdf_preview(file_bytes)
         st.markdown("</div>", unsafe_allow_html=True)
 
     with right_col:
-        st.markdown('<div class="ap-card">', unsafe_allow_html=True)
-        st.subheader("Analysis")
-        st.markdown(
-            '<div class="ap-muted">Focus on Recommended Value, Valuation Path, Confidence, and Reason first.</div>',
-            unsafe_allow_html=True,
-        )
-
-        if run_review:
-            manual_override = build_manual_override(
-                mode=mode,
-                attachment_total=attachment_total,
-                good_faith_value=good_faith_value,
-                historical_cost=historical_cost,
-                acquisition_year=acquisition_year,
-                life_years=life_years,
-                notes=notes,
-            )
-
-            result = run_pipeline_from_upload(
-                file_name=uploaded_file.name,
-                file_bytes=file_bytes,
-                manual_override=manual_override,
-            )
-            st.session_state["single_result"] = result
-            st.session_state["single_file_name"] = uploaded_file.name
-            st.session_state["single_file_bytes"] = file_bytes
-
-            st.success("Review completed.")
-
-        result = st.session_state.get("single_result")
-        result_file_name = st.session_state.get("single_file_name", uploaded_file.name)
-        result_file_bytes = st.session_state.get("single_file_bytes", file_bytes)
-
         if result:
-            show_top_metrics(result)
-            render_manual_assist_panel(result_file_name, result, result_file_bytes)
             render_rendition_calculator(result_file_name, result)
+        else:
+            st.markdown('<div class="ap-card ap-card-tight">', unsafe_allow_html=True)
+            st.subheader("Rendition Calculator")
+            st.info("Run Review first, then use the calculator beside the PDF.")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    if result:
+        assist_col, finalize_col = st.columns([0.9, 1.1])
+        with assist_col:
+            render_manual_assist_panel(result_file_name, result, result_file_bytes)
+        with finalize_col:
             finalize_review_panel(result_file_name, result, result_file_bytes)
 
-            with st.expander("Document / Form / Schedule Details", expanded=False):
-                show_flags_and_findings(result)
+        with st.expander("Document / Form / Schedule Details", expanded=False):
+            show_flags_and_findings(result)
 
-            with st.expander("AI Review / Reasoning", expanded=False):
-                show_agent_review(result)
+        with st.expander("AI Review / Reasoning", expanded=False):
+            show_agent_review(result)
 
-            with st.expander("Extracted Value Evidence", expanded=False):
-                show_candidate_debug(result)
+        with st.expander("Extracted Value Evidence", expanded=False):
+            show_candidate_debug(result)
 
-            with st.expander("One-Page Summary", expanded=False):
-                st.code(build_cli_summary(result=result, source_path=result_file_name), language="text")
+        with st.expander("One-Page Summary", expanded=False):
+            st.code(build_cli_summary(result=result, source_path=result_file_name), language="text")
 
-            with st.expander("Technical JSON", expanded=False):
-                st.json(result)
+        with st.expander("Technical JSON", expanded=False):
+            st.json(result)
 
-            st.download_button(
-                "Download JSON Result",
-                data=json.dumps(result, indent=2, default=str),
-                file_name=f"{result_file_name.rsplit('.', 1)[0]}_review.json",
-                mime="application/json",
-                use_container_width=True,
-                key="single_download_json",
-            )
-        else:
-            st.info("Set inputs above, then click Run Review.")
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.download_button(
+            "Download JSON Result",
+            data=json.dumps(result, indent=2, default=str),
+            file_name=f"{result_file_name.rsplit('.', 1)[0]}_review.json",
+            mime="application/json",
+            use_container_width=True,
+            key="single_download_json",
+        )
 
 
 def render_batch_review() -> None:
