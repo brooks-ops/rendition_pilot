@@ -245,11 +245,23 @@ def _normalize_money_text(raw: str) -> str:
 
     # OCR sometimes splits a leading digit off a comma-grouped amount:
     # "$ 1 84,724.43" should be "184,724.43".
-    text = re.sub(r"\b(\d)\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"\1\2", text)
+    # Some OCR also renders thousands with dots: "1 50.606.17".
+    text = re.sub(r"\b(\d)\s+(\d{2,3}(?:[,.]\d{3})+(?:[,.]\d{2})?)\b", r"\1\2", text)
     text = text.replace(" ", "")
 
+    last_dot = text.rfind(".")
+    last_comma = text.rfind(",")
+    last_sep_idx = max(last_dot, last_comma)
+
+    if last_sep_idx >= 0 and len(text) - last_sep_idx - 1 == 2:
+        decimal_sep = text[last_sep_idx]
+        thousands_sep = "," if decimal_sep == "." else "."
+        integer_part = text[:last_sep_idx].replace(thousands_sep, "").replace(decimal_sep, "")
+        decimal_part = text[last_sep_idx + 1:]
+        return f"{integer_part}.{decimal_part}"
+
     if "," in text and "." in text:
-        return text.replace(",", "")
+        return text.replace(",", "").replace(".", "")
 
     if "," in text:
         if re.fullmatch(r"\d{1,3}(?:,\d{3})+", text):

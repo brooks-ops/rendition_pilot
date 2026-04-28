@@ -6,6 +6,8 @@ def test_parse_money_keeps_cents_and_repairs_split_leading_digit():
     assert _parse_money("$ 1 84,724.43") == 184724.43
     assert _parse_money("$ 9,000.00") == 9000.0
     assert _parse_money("34,798.73") == 34798.73
+    assert _parse_money("1 50.606.17") == 150606.17
+    assert _parse_money("154.927.82") == 154927.82
 
 
 def test_attachment_summary_uses_labeled_total_not_largest_bad_parse():
@@ -47,6 +49,25 @@ def test_attachment_summary_prefers_rendered_value_total_from_summary_page():
 
     assert result["attachment_summary_present"] is True
     assert result["best_attachment_total"] == 126562.0
+
+
+def test_attachment_summary_does_not_inflate_dotted_ocr_totals() -> None:
+    page_text = """
+    Tax Obligation of Taxpayer - Personal Property
+    Machinery and Equipment
+    Summary by State Class and Age
+    Reported Cost
+    Current Value
+    Rendered Value
+    1 50.606.17 46.051.61 46,052.00
+    154.927.82 126.561.92 126,562.00
+    """
+
+    result = TargetedRenditionParser().parse_attachment_summary([page_text])
+
+    assert result["best_attachment_total"] == 126562.0
+    assert 15060617.0 not in result["attachment_total_candidates"]
+    assert 15492782.0 not in result["attachment_total_candidates"]
 
 
 def test_azure_analyze_result_to_pages_preserves_lines_and_words():

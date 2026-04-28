@@ -1,7 +1,7 @@
 import re
 
 
-def parse_money_text(raw: str) -> float | None:
+def _normalize_ocr_money_text(raw: str) -> str:
     text = (
         str(raw or "")
         .replace("$", "")
@@ -10,20 +10,42 @@ def parse_money_text(raw: str) -> float | None:
         .strip("() ")
     )
     text = re.sub(r"\s+", " ", text)
-    text = re.sub(r"\b(\d)\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"\1\2", text)
+    text = re.sub(r"\b(\d)\s+(\d{2,3}(?:[,.]\d{3})+(?:[,.]\d{2})?)\b", r"\1\2", text)
     text = text.replace(" ", "")
 
+    separators = [char for char in text if char in {",", "."}]
+    if not separators:
+        return text
+
+    last_dot = text.rfind(".")
+    last_comma = text.rfind(",")
+    last_sep_idx = max(last_dot, last_comma)
+
+    if last_sep_idx >= 0 and len(text) - last_sep_idx - 1 == 2:
+        decimal_sep = text[last_sep_idx]
+        thousands_sep = "," if decimal_sep == "." else "."
+        integer_part = text[:last_sep_idx].replace(thousands_sep, "").replace(decimal_sep, "")
+        decimal_part = text[last_sep_idx + 1:]
+        return f"{integer_part}.{decimal_part}"
+
     if "," in text and "." in text:
-        text = text.replace(",", "")
-    elif "," in text:
+        return text.replace(",", "").replace(".", "")
+
+    if "," in text:
         if re.fullmatch(r"\d{1,3}(?:,\d{3})+", text):
-            text = text.replace(",", "")
-        else:
-            text = text.replace(",", ".")
-    elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+", text):
-        text = text.replace(".", "")
-    elif text.count(".") > 1:
-        text = text.replace(".", "")
+            return text.replace(",", "")
+        return text.replace(",", ".")
+
+    if re.fullmatch(r"\d{1,3}(?:\.\d{3})+", text):
+        return text.replace(".", "")
+    if text.count(".") > 1:
+        return text.replace(".", "")
+
+    return text
+
+
+def parse_money_text(raw: str) -> float | None:
+    text = _normalize_ocr_money_text(raw)
 
     try:
         return float(text)
