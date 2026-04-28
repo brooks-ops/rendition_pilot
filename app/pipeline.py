@@ -1673,6 +1673,184 @@ def _google_document_ai_processor_name() -> Optional[str]:
     return None
 
 
+def _should_retry_google_document_ai_as_images(error: str) -> bool:
+    lowered = error.lower()
+    return any(
+        marker in lowered
+        for marker in [
+            "unsupported input file format",
+            "rawdocument",
+            "invalid argument",
+        ]
+    )
+
+
+def _google_document_ai_request_headers_and_params() -> tuple[Dict[str, str], Dict[str, str]]:
+    api_key = _get_config_value("GOOGLE_DOCUMENT_AI_API_KEY", "GOOGLE_DOCS_API_KEY")
+    access_token = _get_config_value("GOOGLE_DOCUMENT_AI_ACCESS_TOKEN")
+    headers = {"Content-Type": "application/json; charset=utf-8"}
+    params: Dict[str, str] = {}
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    elif api_key:
+        params["key"] = api_key
+    return headers, params
+
+
+def _google_document_ai_process_payload(
+    endpoint: str,
+    payload: Dict[str, Any],
+    headers: Dict[str, str],
+    params: Dict[str, str],
+    timeout_seconds: float,
+) -> requests.Response:
+    return requests.post(
+        endpoint,
+        headers=headers,
+        params=params,
+        json=payload,
+        timeout=timeout_seconds,
+    )
+
+
+def _ocr_pdf_pages_with_google_document_ai_images(
+    pdf_path: str,
+    endpoint: str,
+    headers: Dict[str, str],
+    params: Dict[str, str],
+    request_timeout: float,
+) -> List[Dict[str, Any]]:
+    try:
+        import fitz
+    except Exception as exc:
+        return [
+            {
+                "page_number": 1,
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "google_document_ai_error",
+                "ocr_error": f"Google Document AI image fallback unavailable: {type(exc).__name__}: {exc}",
+            }
+        ]
+
+    try:
+        dpi_scale = float(_get_config_value("GOOGLE_DOCUMENT_AI_IMAGE_DPI_SCALE") or "3")
+    except ValueError:
+        dpi_scale = 3.0
+
+    pages: List[Dict[str, Any]] = []
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception as exc:
+        return [
+            {
+                "page_number": 1,
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "google_document_ai_error",
+                "ocr_error": f"Google Document AI image fallback open failed: {type(exc).__name__}: {exc}",
+            }
+        ]
+
+    try:
+        for page_number, page in enumerate(doc, start=1):
+            try:
+                pix = page.get_pixmap(matrix=fitz.Matrix(dpi_scale, dpi_scale), alpha=False)
+                image_b64 = base64.b64encode(pix.tobytes("jpeg", jpg_quality=90)).decode("ascii")
+            except Exception as exc:
+                pages.append(
+                    {
+                        "page_number": page_number,
+                        "text": "",
+                        "ocr_blocks": [],
+                        "text_source": "google_document_ai_error",
+                        "ocr_error": f"Google Document AI image fallback render failed: {type(exc).__name__}: {exc}",
+                    }
+                )
+                continue
+
+            payload = {
+                "skipHumanReview": True,
+                "rawDocument": {
+                    "content": image_b64,
+                    "mimeType": "image/jpeg",
+                },
+                "processOptions": {
+                    "ocrConfig": {
+                        "enableImageQualityScores": True,
+                        "enableSymbol": False,
+                    }
+                },
+            }
+
+            try:
+                response = _google_document_ai_process_payload(
+                    endpoint=endpoint,
+                    payload=payload,
+                    headers=headers,
+                    params=params,
+                    timeout_seconds=request_timeout,
+                )
+            except requests.RequestException as exc:
+                pages.append(
+                    {
+                        "page_number": page_number,
+                        "text": "",
+                        "ocr_blocks": [],
+                        "text_source": "google_document_ai_error",
+                        "ocr_error": f"Google Document AI image fallback request failed: {type(exc).__name__}: {exc}",
+                    }
+                )
+                continue
+
+            if response.status_code >= 400:
+                pages.append(
+                    {
+                        "page_number": page_number,
+                        "text": "",
+                        "ocr_blocks": [],
+                        "text_source": "google_document_ai_error",
+                        "ocr_error": f"Google Document AI image fallback HTTP {response.status_code}: {response.text[:500]}",
+                    }
+                )
+                continue
+
+            try:
+                response_payload = response.json()
+            except ValueError as exc:
+                pages.append(
+                    {
+                        "page_number": page_number,
+                        "text": "",
+                        "ocr_blocks": [],
+                        "text_source": "google_document_ai_error",
+                        "ocr_error": f"Google Document AI image fallback returned non-JSON response: {type(exc).__name__}: {exc}",
+                    }
+                )
+                continue
+
+            converted_pages = _google_document_ai_result_to_pages(response_payload)
+            if not converted_pages:
+                pages.append(
+                    {
+                        "page_number": page_number,
+                        "text": "",
+                        "ocr_blocks": [],
+                        "text_source": "google_document_ai_error",
+                        "ocr_error": "Google Document AI image fallback returned no pages.",
+                    }
+                )
+                continue
+
+            first_page = converted_pages[0]
+            first_page["page_number"] = page_number
+            pages.append(first_page)
+    finally:
+        doc.close()
+
+    return pages
+
+
 def _ocr_pdf_pages_with_google_document_ai(pdf_path: str) -> List[Dict[str, Any]]:
     global _GOOGLE_DOCUMENT_AI_DISABLED_REASON
 
@@ -1742,20 +1920,15 @@ def _ocr_pdf_pages_with_google_document_ai(pdf_path: str) -> List[Dict[str, Any]
         },
     }
 
-    headers = {"Content-Type": "application/json; charset=utf-8"}
-    params: Dict[str, str] = {}
-    if access_token:
-        headers["Authorization"] = f"Bearer {access_token}"
-    elif api_key:
-        params["key"] = api_key
+    headers, params = _google_document_ai_request_headers_and_params()
 
     try:
-        response = requests.post(
-            endpoint,
+        response = _google_document_ai_process_payload(
+            endpoint=endpoint,
+            payload=payload,
             headers=headers,
             params=params,
-            json=payload,
-            timeout=request_timeout,
+            timeout_seconds=request_timeout,
         )
     except requests.RequestException as exc:
         error = f"Google Document AI request failed: {type(exc).__name__}: {exc}"
@@ -1771,6 +1944,14 @@ def _ocr_pdf_pages_with_google_document_ai(pdf_path: str) -> List[Dict[str, Any]
 
     if response.status_code >= 400:
         error = f"Google Document AI HTTP {response.status_code}: {response.text[:500]}"
+        if response.status_code == 400 and _should_retry_google_document_ai_as_images(error):
+            return _ocr_pdf_pages_with_google_document_ai_images(
+                pdf_path=pdf_path,
+                endpoint=endpoint,
+                headers=headers,
+                params=params,
+                request_timeout=request_timeout,
+            )
         if _is_terminal_google_document_ai_error(error):
             _GOOGLE_DOCUMENT_AI_DISABLED_REASON = error
         return [

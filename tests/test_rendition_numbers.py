@@ -1,4 +1,13 @@
-from app.pipeline import _azure_analyze_result_to_pages, _google_document_ai_result_to_pages, _needs_ocr_fallback, _parse_money
+from unittest.mock import patch
+
+from app.pipeline import (
+    _azure_analyze_result_to_pages,
+    _google_document_ai_result_to_pages,
+    _needs_ocr_fallback,
+    _ocr_pdf_pages_with_google_document_ai,
+    _parse_money,
+    _should_retry_google_document_ai_as_images,
+)
 from app.assessment_summary import AssessmentSummaryBuilder
 from app.rendition_value_engine import calculate_rendition_value
 from app.targeted_parser import TargetedRenditionParser
@@ -102,6 +111,31 @@ def test_google_document_ai_result_to_pages_preserves_lines_and_tokens():
     assert pages[0]["text"] == "Total Fixed Assets $ 184,724.43"
     assert pages[0]["ocr_blocks"][0]["text"] == "184,724.43"
     assert pages[0]["text_source"] == "google_document_ai"
+
+
+def test_google_document_ai_unsupported_pdf_retries_as_images():
+    class FakeResponse:
+        status_code = 400
+        text = '{"error":{"code":400,"message":"Unsupported input file format.","status":"INVALID_ARGUMENT"}}'
+
+        def json(self):
+            return {}
+
+    with patch("app.pipeline._google_document_ai_processor_name", return_value="projects/test/locations/us/processors/abc"), \
+         patch("app.pipeline._get_config_value", side_effect=lambda *names: "token" if "GOOGLE_DOCUMENT_AI_ACCESS_TOKEN" in names else None), \
+         patch("pathlib.Path.read_bytes", return_value=b"%PDF-1.4 fake"), \
+         patch("app.pipeline._google_document_ai_process_payload", return_value=FakeResponse()), \
+         patch("app.pipeline._ocr_pdf_pages_with_google_document_ai_images", return_value=[{"page_number": 1, "text": "ok", "ocr_blocks": [], "text_source": "google_document_ai"}]) as image_fallback:
+        pages = _ocr_pdf_pages_with_google_document_ai("fake.pdf")
+
+    assert image_fallback.called is True
+    assert pages[0]["text"] == "ok"
+
+
+def test_google_document_ai_unsupported_pdf_detection_is_retryable():
+    assert _should_retry_google_document_ai_as_images(
+        'Google Document AI HTTP 400: {"error":{"message":"Unsupported input file format.","status":"INVALID_ARGUMENT"}}'
+    ) is True
 
 
 def test_schedule_e_row_parser_pairs_years_with_amounts_by_geometry():
