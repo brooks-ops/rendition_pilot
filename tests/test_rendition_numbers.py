@@ -7,6 +7,7 @@ from app.pipeline import (
     _extract_pdf_bundle,
     _google_document_ai_request_headers_and_params,
     _google_document_ai_result_to_pages,
+    _should_replace_google_vision_money_token,
     _needs_ocr_fallback,
     _ocr_pdf_pages_with_google_document_ai,
     _parse_money,
@@ -214,6 +215,13 @@ def test_google_document_ai_request_headers_prefers_api_key_over_access_token():
 
     assert "Authorization" not in headers
     assert params == {"key": "good-key"}
+
+
+def test_google_vision_money_token_replacement_only_accepts_punctuation_fixups():
+    assert _should_replace_google_vision_money_token("161656", "16,656") is True
+    assert _should_replace_google_vision_money_token("51533", "51,533") is True
+    assert _should_replace_google_vision_money_token("45,442", "95,442") is False
+    assert _should_replace_google_vision_money_token("19,586", "19,586") is False
 
 
 def test_run_rendition_pipeline_uses_legacy_value_when_structured_fallback_is_empty():

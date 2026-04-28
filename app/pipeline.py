@@ -2270,11 +2270,13 @@ def _ocr_pdf_pages_with_google_vision(pdf_path: str) -> List[Dict[str, Any]]:
                 return [{"page_number": page_number, "text": "", "ocr_blocks": [], "text_source": "google_cloud_vision_error", "ocr_error": error}]
 
             text = str((result.get("fullTextAnnotation") or {}).get("text") or "").strip()
+            word_blocks = _google_vision_response_to_word_blocks(result)
+            word_blocks = _refine_google_vision_schedule_e_money_words(page, text, word_blocks)
             pages.append(
                 {
                     "page_number": page_number,
                     "text": text,
-                    "ocr_blocks": _google_vision_response_to_word_blocks(result),
+                    "ocr_blocks": word_blocks,
                     "text_source": "google_cloud_vision",
                 }
             )
@@ -2316,6 +2318,130 @@ def _google_vision_response_to_word_blocks(result: Dict[str, Any]) -> List[Dict[
 
     word_blocks.sort(key=lambda item: (round(float(item.get("top", 0)), 1), round(float(item.get("x0", 0)), 1)))
     return word_blocks
+
+
+def _extract_money_like_token(text: str) -> Optional[str]:
+    candidates = re.findall(r"\d[\d,.]{2,}", str(text or ""))
+    return candidates[0] if candidates else None
+
+
+def _should_replace_google_vision_money_token(original_text: str, refined_text: str) -> bool:
+    original_token = _extract_money_like_token(original_text)
+    refined_token = _extract_money_like_token(refined_text)
+    if not original_token or not refined_token:
+        return False
+
+    if original_token == refined_token:
+        return False
+
+    original_value = _parse_money(original_token)
+    refined_value = _parse_money(refined_token)
+    if original_value is None or refined_value is None:
+        return False
+
+    # Only auto-correct the common handwritten case where the page OCR returns
+    # an unpunctuated digit run and the cell-only reread resolves it into a
+    # plausible comma-formatted amount.
+    if "," in original_token or "." in original_token:
+        return False
+    if "," not in refined_token:
+        return False
+
+    original_digits = re.sub(r"\D", "", original_token)
+    refined_digits = re.sub(r"\D", "", refined_token)
+    if not original_digits or not refined_digits:
+        return False
+
+    if original_digits == refined_digits:
+        return True
+
+    if len(original_digits) == len(refined_digits) + 1:
+        for idx in range(len(original_digits)):
+            if original_digits[:idx] + original_digits[idx + 1:] == refined_digits:
+                return True
+
+    return False
+
+
+def _refine_google_vision_schedule_e_money_words(
+    page: Any,
+    page_text: str,
+    word_blocks: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    if "SCHEDULE E" not in str(page_text or "").upper():
+        return word_blocks
+
+    candidates: List[Dict[str, Any]] = []
+    for idx, block in enumerate(word_blocks):
+        text = str(block.get("text", "") or "").strip()
+        token = _extract_money_like_token(text)
+        if not token:
+            continue
+        value = _parse_money(token)
+        if value is None or value < 1000:
+            continue
+        if float(value).is_integer() and 1900 <= int(value) <= 2100:
+            continue
+        candidates.append({"index": idx, "block": block})
+
+    if not candidates:
+        return word_blocks
+
+    try:
+        import fitz
+        from PIL import Image
+        from io import BytesIO
+
+        pix = page.get_pixmap(matrix=fitz.Matrix(6, 6), alpha=False)
+        highres = Image.open(BytesIO(pix.tobytes("png")))
+    except Exception:
+        return word_blocks
+
+    requests_payload = []
+    for candidate in candidates:
+        block = candidate["block"]
+        x0 = int(max(0, float(block.get("x0", 0) or 0) * 2.0 - 30))
+        y0 = int(max(0, float(block.get("y0", 0) or 0) * 2.0 - 20))
+        x1 = int(float(block.get("x1", 0) or 0) * 2.0 + 30)
+        y1 = int(float(block.get("y1", 0) or 0) * 2.0 + 20)
+        crop = highres.crop((x0, y0, x1, y1))
+        buffer = BytesIO()
+        crop.save(buffer, format="PNG")
+        requests_payload.append(
+            {
+                "image": {"content": base64.b64encode(buffer.getvalue()).decode("ascii")},
+                "features": [{"type": "DOCUMENT_TEXT_DETECTION"}],
+            }
+        )
+
+    try:
+        response = requests.post(
+            "https://vision.googleapis.com/v1/images:annotate",
+            params={"key": _get_config_value("GOOGLE_VISION_API_KEY", "GOOGLE_CLOUD_VISION_API_KEY")},
+            json={"requests": requests_payload},
+            timeout=20,
+        )
+        if response.status_code >= 400:
+            return word_blocks
+        payload = response.json()
+    except Exception:
+        return word_blocks
+
+    responses = payload.get("responses") or []
+    updated_blocks = list(word_blocks)
+    for candidate, reread in zip(candidates, responses):
+        refined_text = str((reread.get("fullTextAnnotation") or {}).get("text") or "").strip()
+        original_text = str(candidate["block"].get("text", "") or "").strip()
+        if _should_replace_google_vision_money_token(original_text, refined_text):
+            replacement = _extract_money_like_token(refined_text)
+            if replacement:
+                updated_blocks[candidate["index"]] = {
+                    **candidate["block"],
+                    "text": replacement,
+                    "source": "google_cloud_vision_refined",
+                }
+
+    return updated_blocks
 
 
 def _is_terminal_azure_ocr_error(error: str) -> bool:
