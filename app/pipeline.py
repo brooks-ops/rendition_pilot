@@ -18,6 +18,7 @@ import requests
 from app.assessment_summary import AssessmentSummaryBuilder
 from app.candidate_extractor import CandidateExtractor
 from app.extractor import PDFExtractor
+from app.rendition_schema import process_uploaded_rendition
 from app.rendition_value_engine import calculate_rendition_value
 from app.targeted_parser import TargetedRenditionParser
 
@@ -2910,6 +2911,7 @@ def run_rendition_pipeline(
     manual_override: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     extraction_bundle = _extract_pdf_bundle(pdf_path)
+    structured_result = process_uploaded_rendition(pdf_path)
     pages = extraction_bundle.get("pages", [])
     ocr_reconciliation = extraction_bundle.get("ocr_reconciliation", {}) or {}
     targeted_parser = TargetedRenditionParser()
@@ -2952,7 +2954,7 @@ def run_rendition_pipeline(
     depreciated_override_result = _depreciate_manual_override(manual_override)
 
     result = dict(pipeline_result.final_result)
-    valuation_result = calculate_rendition_value(
+    legacy_valuation_result = calculate_rendition_value(
         {
             **result,
             "pages": pages,
@@ -2962,21 +2964,13 @@ def run_rendition_pipeline(
             "review_flags": review_flags,
         }
     )
-    schedule_breakdown = {
-        "schedule_a_total": (valuation_result.get("schedule_totals", {}) or {}).get("A", 0.0),
-        "schedule_b_total": (valuation_result.get("schedule_totals", {}) or {}).get("B", 0.0),
-        "schedule_c_total": (valuation_result.get("schedule_totals", {}) or {}).get("C", 0.0),
-        "schedule_d_total": (valuation_result.get("schedule_totals", {}) or {}).get("D", 0.0),
-        "schedule_e_total": (valuation_result.get("schedule_totals", {}) or {}).get("E", 0.0),
-    }
-    schedule_e_breakdown = {
-        "furniture_fixtures": (valuation_result.get("subsection_totals", {}) or {}).get("furniture_fixtures", 0.0),
-        "machinery_equipment": (valuation_result.get("subsection_totals", {}) or {}).get("machinery_equipment", 0.0),
-        "office_equipment": (valuation_result.get("subsection_totals", {}) or {}).get("office_equipment", 0.0),
-        "computer_equipment": (valuation_result.get("subsection_totals", {}) or {}).get("computer_equipment", 0.0),
-        "pos_servers_mainframes": (valuation_result.get("subsection_totals", {}) or {}).get("pos_servers_mainframes", 0.0),
-        "other": (valuation_result.get("subsection_totals", {}) or {}).get("other", 0.0),
-    }
+    schedule_breakdown = structured_result.get("schedule_breakdown") or {}
+    schedule_e_breakdown = ((schedule_breakdown.get("schedule_e") or {}).get("categories") or {})
+    normalized_schema = structured_result.get("normalized_schema") or {}
+    structured_review_flags = list(structured_result.get("review_flags") or [])
+    extraction_provider = structured_result.get("extraction_provider")
+    document_confidence = structured_result.get("document_confidence")
+    structured_debug = structured_result.get("debug") or {}
     result.update(
         {
             "source_pdf": str(pdf_path),
@@ -2996,13 +2990,26 @@ def run_rendition_pipeline(
             "selected_candidate": selected_candidate,
             "merged_candidates": merged_candidates,
             "candidates": candidate_buckets,
-            "rendition_valuation": valuation_result,
-            "recommended_value": valuation_result.get("final_recommended_value"),
-            "recommended_value_source": "schedule_rule_engine" if valuation_result.get("final_recommended_value") is not None else None,
+            "rendition_valuation": legacy_valuation_result,
+            "recommended_value": structured_result.get("recommended_value"),
+            "recommended_value_source": "schedule_rule_engine" if structured_result.get("recommended_value") is not None else None,
             "schedule_breakdown": schedule_breakdown,
             "schedule_e_breakdown": schedule_e_breakdown,
-            "valuation_flags": valuation_result.get("flags", []),
-            "extracted_line_items": valuation_result.get("line_items", []),
+            "valuation_flags": structured_result.get("valuation_flags", legacy_valuation_result.get("flags", [])),
+            "extracted_line_items": structured_result.get("line_items", legacy_valuation_result.get("line_items", [])),
+            "normalized_schema": normalized_schema,
+            "extraction_provider": extraction_provider,
+            "document_confidence": document_confidence,
+            "schema_review_flags": structured_review_flags,
+            "structured_extraction": structured_result,
+            "debug": structured_debug,
+            "legacy_schedule_totals": {
+                "schedule_a_total": (legacy_valuation_result.get("schedule_totals", {}) or {}).get("A", 0.0),
+                "schedule_b_total": (legacy_valuation_result.get("schedule_totals", {}) or {}).get("B", 0.0),
+                "schedule_c_total": (legacy_valuation_result.get("schedule_totals", {}) or {}).get("C", 0.0),
+                "schedule_d_total": (legacy_valuation_result.get("schedule_totals", {}) or {}).get("D", 0.0),
+                "schedule_e_total": (legacy_valuation_result.get("schedule_totals", {}) or {}).get("E", 0.0),
+            },
         }
     )
 
@@ -3015,8 +3022,8 @@ def run_rendition_pipeline(
         result.setdefault("schedule_e_total", schedule_e.get("total"))
     if schedule_values.get("good_faith_total") is not None:
         result.setdefault("good_faith_value", schedule_values.get("good_faith_total"))
-    if valuation_result.get("final_recommended_value") is not None:
-        result.setdefault("rendered_value", valuation_result.get("final_recommended_value"))
+    if structured_result.get("recommended_value") is not None:
+        result.setdefault("rendered_value", structured_result.get("recommended_value"))
 
     result["assessment_summary"] = AssessmentSummaryBuilder().build_summary(
         rendition_result=result,

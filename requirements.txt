@@ -8,3 +8,4 @@ pytesseract
 requests
 python-dotenv
 pytest
+google-auth
