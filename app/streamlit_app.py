@@ -292,6 +292,126 @@ st.markdown(
             min-height: 88px;
             padding: 14px;
         }
+
+        .ap-workbench-pane {
+            max-height: calc(100vh - 150px);
+        }
+
+        .ap-workbench-pane h4 {
+            margin: 0;
+            color: #FFD700;
+            font-size: 1.05rem;
+            font-weight: 700;
+        }
+
+        .ap-calc-label {
+            color: #D7DFEA;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .ap-calc-subtle {
+            color: #B9C6D9;
+            font-size: 0.82rem;
+            line-height: 1.35;
+        }
+
+        .ap-calc-table-head {
+            display: grid;
+            grid-template-columns: 0.7fr 1.35fr 0.75fr 1fr;
+            gap: 10px;
+            align-items: center;
+            padding: 0 4px 6px 4px;
+            margin-top: 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .ap-calc-table-head div {
+            color: #D7DFEA;
+            font-size: 0.76rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .ap-calc-year {
+            color: #FFFFFF;
+            font-size: 0.9rem;
+            font-weight: 700;
+            padding-top: 6px;
+        }
+
+        .ap-calc-factor {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: rgba(255, 215, 0, 0.12);
+            border: 1px solid rgba(255, 215, 0, 0.25);
+            color: #FFD700;
+            font-size: 0.8rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .ap-calc-value {
+            color: #FFFFFF;
+            font-size: 0.9rem;
+            font-weight: 700;
+            text-align: right;
+            padding-top: 6px;
+            white-space: nowrap;
+        }
+
+        .ap-calc-footer {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .ap-calc-total {
+            color: #FFFFFF;
+            font-size: 1.25rem;
+            font-weight: 800;
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        .ap-calc-total-label {
+            color: #D7DFEA;
+            font-size: 0.82rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .ap-saved-work-card {
+            background: #0f2a44;
+            border: 1px solid rgba(255, 215, 0, 0.14);
+            border-radius: 12px;
+            padding: 12px;
+            margin-top: 10px;
+        }
+
+        .ap-saved-work-title {
+            color: #FFD700;
+            font-size: 0.95rem;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        div[data-testid="stNumberInput"] input,
+        div[data-testid="stTextInput"] input,
+        div[data-testid="stSelectbox"] div[data-baseweb="select"] {
+            min-height: 34px !important;
+        }
+
+        div[data-testid="stNumberInput"] button {
+            min-height: 28px !important;
+            min-width: 28px !important;
+        }
         div[data-testid="stMetricValue"],
         div[data-testid="stMetricValue"] div,
         div[data-testid="stMetricLabel"],
@@ -1493,101 +1613,116 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
     if tax_year_key not in st.session_state:
         st.session_state[tax_year_key] = editor["tax_year"]
 
-    st.markdown('<div class="ap-card ap-card-tight">', unsafe_allow_html=True)
+    st.markdown('<div class="ap-card ap-card-tight ap-workbench-pane">', unsafe_allow_html=True)
     st.markdown(
         """
         <div class="ap-section-head">
-            <h3>Rendition Calculator</h3>
+            <h4>Rendition Calculator</h4>
         </div>
-        <div class="ap-panel-note">Build and save section totals without leaving the PDF review pane.</div>
+        <div class="ap-calc-subtle">Compact appraisal worksheet. Enter costs while keeping the PDF visible.</div>
         """,
         unsafe_allow_html=True,
     )
 
-    left_col, right_col = st.columns([1.2, 0.95])
+    header_top_left, header_top_right = st.columns([1.25, 0.75], gap="small")
+    with header_top_left:
+        st.markdown('<div class="ap-calc-label">Section</div>', unsafe_allow_html=True)
+        selected_section_key = st.selectbox(
+            "Section",
+            list(SECTION_PRESETS.keys()),
+            format_func=lambda key: str(SECTION_PRESETS[key]["label"]),
+            key=section_key,
+            label_visibility="collapsed",
+        )
+    with header_top_right:
+        st.markdown('<div class="ap-calc-label">Tax Year</div>', unsafe_allow_html=True)
+        selected_tax_year = st.number_input(
+            "Tax Year",
+            min_value=2000,
+            max_value=2100,
+            step=1,
+            key=tax_year_key,
+            label_visibility="collapsed",
+        )
 
-    with left_col:
-        c1, c2 = st.columns([1.2, 0.8])
-        with c1:
-            selected_section_key = st.selectbox(
-                "Section",
-                list(SECTION_PRESETS.keys()),
-                format_func=lambda key: str(SECTION_PRESETS[key]["label"]),
-                key=section_key,
-            )
-        with c2:
-            selected_tax_year = st.number_input(
-                "Tax Year",
-                min_value=2000,
-                max_value=2100,
-                step=1,
-                key=tax_year_key,
-            )
-
-        selected_preset = SECTION_PRESETS[selected_section_key]
-        custom_name = ""
-        if selected_section_key == "custom":
-            custom_name = st.text_input(
-                "Custom Section Name",
-                key=custom_name_key,
-                placeholder="Example: Schedule A - Leasehold Improvements",
-            ).strip()
-        else:
-            st.session_state[custom_name_key] = ""
-
-        schedule = str(selected_preset["schedule"])
-        category_value = str(selected_preset["category"])
-        if selected_section_key == "custom":
-            category_value = custom_name or "Custom"
-
-        generated_name = custom_name if selected_section_key == "custom" and custom_name else generate_calculator_name(schedule, category_value)
-        if not st.session_state.get(name_key):
-            st.session_state[name_key] = generated_name
-
-        calculator_name = st.text_input(
-            "Calculator Name",
-            key=name_key,
-            placeholder=generated_name,
+    selected_preset = SECTION_PRESETS[selected_section_key]
+    custom_name = ""
+    if selected_section_key == "custom":
+        st.markdown('<div class="ap-calc-label">Custom Section Name</div>', unsafe_allow_html=True)
+        custom_name = st.text_input(
+            "Custom Section Name",
+            key=custom_name_key,
+            placeholder="Schedule A - Leasehold Improvements",
+            label_visibility="collapsed",
         ).strip()
+    else:
+        st.session_state[custom_name_key] = ""
 
-        if table_key not in st.session_state or editor.get("section_key") != selected_section_key:
-            st.session_state[table_key] = str(selected_preset["default_table"])
+    schedule = str(selected_preset["schedule"])
+    category_value = str(selected_preset["category"])
+    if selected_section_key == "custom":
+        category_value = custom_name or "Custom"
 
-        depreciation_table = st.selectbox(
-            "Depreciation Table",
-            list(TABLE_METADATA.keys()),
-            format_func=lambda key: TABLE_METADATA[key]["label"],
-            key=table_key,
-        )
+    generated_name = custom_name if selected_section_key == "custom" and custom_name else generate_calculator_name(schedule, category_value)
+    if not st.session_state.get(name_key):
+        st.session_state[name_key] = generated_name
 
-        editor["section_key"] = selected_section_key
-        editor["schedule"] = schedule
-        editor["category"] = category_value
-        editor["custom_name"] = custom_name
-        editor["name"] = calculator_name
-        editor["depreciation_table"] = depreciation_table
-        editor["tax_year"] = int(selected_tax_year)
+    st.markdown('<div class="ap-calc-label">Calculator Name</div>', unsafe_allow_html=True)
+    calculator_name = st.text_input(
+        "Calculator Name",
+        key=name_key,
+        placeholder=generated_name,
+        label_visibility="collapsed",
+    ).strip()
 
-        rows = build_calculator_rows(
-            depreciation_table,
-            int(selected_tax_year),
-            costs=editor["costs"],
-            tables=tables,
-        )
+    if table_key not in st.session_state or editor.get("section_key") != selected_section_key:
+        st.session_state[table_key] = str(selected_preset["default_table"])
 
-        header_cols = st.columns([0.9, 1.35, 0.95, 1.0])
-        header_cols[0].markdown("**Year**")
-        header_cols[1].markdown("**Cost**")
-        header_cols[2].markdown("**Factor**")
-        header_cols[3].markdown("**Value**")
+    st.markdown('<div class="ap-calc-label">Depreciation Table</div>', unsafe_allow_html=True)
+    depreciation_table = st.selectbox(
+        "Depreciation Table",
+        list(TABLE_METADATA.keys()),
+        format_func=lambda key: TABLE_METADATA[key]["label"],
+        key=table_key,
+        label_visibility="collapsed",
+    )
 
+    editor["section_key"] = selected_section_key
+    editor["schedule"] = schedule
+    editor["category"] = category_value
+    editor["custom_name"] = custom_name
+    editor["name"] = calculator_name
+    editor["depreciation_table"] = depreciation_table
+    editor["tax_year"] = int(selected_tax_year)
+
+    rows = build_calculator_rows(
+        depreciation_table,
+        int(selected_tax_year),
+        costs=editor["costs"],
+        tables=tables,
+    )
+
+    st.markdown(
+        """
+        <div class="ap-calc-table-head">
+            <div>Year</div>
+            <div>Cost</div>
+            <div>Factor</div>
+            <div style="text-align:right;">Value</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    rows_container = st.container(height=360, border=False)
+    with rows_container:
         for row in rows:
             cost_input_key = get_calculator_cost_key(file_name, int(editor["nonce"]), row["bucket"])
             if cost_input_key not in st.session_state:
                 st.session_state[cost_input_key] = float(editor["costs"].get(row["bucket"], 0.0) or 0.0)
 
-            row_cols = st.columns([0.9, 1.35, 0.95, 1.0])
-            row_cols[0].markdown(f"**{row['display_year']}**")
+            row_cols = st.columns([0.65, 1.3, 0.8, 0.95], gap="small")
+            row_cols[0].markdown(f'<div class="ap-calc-year">{row["display_year"]}</div>', unsafe_allow_html=True)
             cost_value = row_cols[1].number_input(
                 f"Cost {row['display_year']}",
                 min_value=0.0,
@@ -1599,91 +1734,88 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
             editor["costs"][row["bucket"]] = round(float(cost_value), 2)
             row["cost"] = editor["costs"][row["bucket"]]
             row["value"] = round(row["cost"] * row["factor"], 2)
-            row_cols[2].markdown(f"`{row['factor']:.2f}`")
-            row_cols[3].markdown(f"**{format_money(row['value'])}**")
+            row_cols[2].markdown(f'<span class="ap-calc-factor">{row["factor"]:.2f}</span>', unsafe_allow_html=True)
+            row_cols[3].markdown(f'<div class="ap-calc-value">{format_money(row["value"])}</div>', unsafe_allow_html=True)
 
-        section_total = calculate_section_total(rows)
-        total_cols = st.columns([1.8, 1.35, 0.95, 1.0])
-        total_cols[0].markdown("### Total")
-        total_cols[3].markdown(f"### {format_money(section_total)}")
+    section_total = calculate_section_total(rows)
+    save_calculator_editor(file_name, editor)
 
-        save_calculator_editor(file_name, editor)
+    st.markdown('<div class="ap-calc-footer">', unsafe_allow_html=True)
+    footer_cols = st.columns([0.8, 1.15, 1.0], gap="small")
+    with footer_cols[0]:
+        st.markdown('<div class="ap-calc-total-label">Total</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="ap-calc-total">{format_money(section_total)}</div>', unsafe_allow_html=True)
+    with footer_cols[1]:
+        if st.button("Save Section", type="primary", key=f"save_calculator_{file_name}", use_container_width=True):
+            if selected_section_key == "custom" and not (custom_name or calculator_name):
+                st.error("Enter a custom section name before saving this calculator.")
+            else:
+                saved_calculators = get_saved_calculators(file_name)
+                saved_name = calculator_name or generated_name
+                saved_calculator = build_saved_calculator(
+                    name=saved_name,
+                    schedule=schedule,
+                    category=category_value,
+                    depreciation_table=depreciation_table,
+                    tax_year=int(selected_tax_year),
+                    rows=rows,
+                    calculator_id=editor.get("editing_id"),
+                    created_at=editor.get("created_at"),
+                )
 
-        action_cols = st.columns([1, 1, 1])
-        with action_cols[0]:
-            if st.button("Save Calculator", type="primary", key=f"save_calculator_{file_name}", use_container_width=True):
-                if selected_section_key == "custom" and not (custom_name or calculator_name):
-                    st.error("Enter a custom section name before saving this calculator.")
-                else:
-                    saved_calculators = get_saved_calculators(file_name)
-                    saved_name = calculator_name or generated_name
-                    saved_calculator = build_saved_calculator(
-                        name=saved_name,
-                        schedule=schedule,
-                        category=category_value,
-                        depreciation_table=depreciation_table,
-                        tax_year=int(selected_tax_year),
-                        rows=rows,
-                        calculator_id=editor.get("editing_id"),
-                        created_at=editor.get("created_at"),
-                    )
+                updated = False
+                for index, existing in enumerate(saved_calculators):
+                    if existing.get("id") == saved_calculator["id"]:
+                        saved_calculators[index] = saved_calculator
+                        updated = True
+                        break
+                if not updated:
+                    saved_calculators.append(saved_calculator)
 
-                    updated = False
-                    for index, existing in enumerate(saved_calculators):
-                        if existing.get("id") == saved_calculator["id"]:
-                            saved_calculators[index] = saved_calculator
-                            updated = True
-                            break
-                    if not updated:
-                        saved_calculators.append(saved_calculator)
-
-                    set_saved_calculators(file_name, saved_calculators)
-                    reset_calculator_editor(file_name, int(selected_tax_year))
-                    for widget_key in [section_key, custom_name_key, name_key, table_key, tax_year_key]:
-                        st.session_state.pop(widget_key, None)
-                    st.success(f"Saved {saved_name}.")
-                    st.rerun()
-
-        with action_cols[1]:
-            if st.button("New Calculator", key=f"new_calculator_{file_name}", use_container_width=True):
+                set_saved_calculators(file_name, saved_calculators)
                 reset_calculator_editor(file_name, int(selected_tax_year))
                 for widget_key in [section_key, custom_name_key, name_key, table_key, tax_year_key]:
                     st.session_state.pop(widget_key, None)
+                st.success(f"Saved {saved_name}.")
                 st.rerun()
-
-        with action_cols[2]:
-            if editor.get("editing_id"):
-                st.info("Editing an existing saved section.")
-            else:
-                st.caption("Save this section, then move to the next category.")
-
-    with right_col:
-        saved_calculators = get_saved_calculators(file_name)
-        combined_total = calculate_combined_total(saved_calculators)
-        st.markdown("### Saved Work")
-        st.metric("Calculated Total Value", format_money(combined_total))
-        if st.button(
-            "Use Calculated Total as Final Value",
-            key=f"use_calculated_total_{file_name}",
-            use_container_width=True,
-        ):
-            apply_calculated_total_to_final_value(file_name, combined_total)
-            st.success("Final value populated from saved calculator totals.")
+    with footer_cols[2]:
+        if st.button("New Section", key=f"new_calculator_{file_name}", use_container_width=True):
+            reset_calculator_editor(file_name, int(selected_tax_year))
+            for widget_key in [section_key, custom_name_key, name_key, table_key, tax_year_key]:
+                st.session_state.pop(widget_key, None)
             st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
-        if not saved_calculators:
-            st.info("No saved calculator sections yet.")
-        else:
+    if editor.get("editing_id"):
+        st.caption("Editing an existing saved section.")
+
+    saved_calculators = get_saved_calculators(file_name)
+    combined_total = calculate_combined_total(saved_calculators)
+    st.markdown('<div class="ap-saved-work-card">', unsafe_allow_html=True)
+    st.markdown('<div class="ap-saved-work-title">Saved Work</div>', unsafe_allow_html=True)
+    st.metric("Calculated Total Value", format_money(combined_total))
+    if st.button(
+        "Use Calculated Total as Final Value",
+        key=f"use_calculated_total_{file_name}",
+        use_container_width=True,
+    ):
+        apply_calculated_total_to_final_value(file_name, combined_total)
+        st.success("Final value populated from saved calculator totals.")
+        st.rerun()
+
+    if not saved_calculators:
+        st.caption("No saved calculator sections yet.")
+    else:
+        with st.expander(f"Saved sections ({len(saved_calculators)})", expanded=False):
             for calculator in saved_calculators:
                 label = (
                     f"{calculator.get('name')} | "
-                    f"{TABLE_METADATA.get(calculator.get('depreciation_table'), {}).get('label', calculator.get('depreciation_table'))} | "
                     f"{format_money(calculator.get('section_total'))}"
                 )
                 with st.expander(label, expanded=False):
                     st.caption(
                         f"Schedule {calculator.get('schedule')} | Tax Year {calculator.get('tax_year')} | "
-                        f"Section Total {format_money(calculator.get('section_total'))}"
+                        f"{TABLE_METADATA.get(calculator.get('depreciation_table'), {}).get('label', calculator.get('depreciation_table'))}"
                     )
                     review_rows = [
                         {
@@ -1695,7 +1827,7 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
                         for row in calculator.get("rows", []) or []
                     ]
                     st.dataframe(pd.DataFrame(review_rows), use_container_width=True, hide_index=True)
-                    summary_cols = st.columns(2)
+                    summary_cols = st.columns(2, gap="small")
                     with summary_cols[0]:
                         if st.button(
                             "Edit",
@@ -1720,7 +1852,7 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
                             if editor.get("editing_id") == calculator.get("id"):
                                 reset_calculator_editor(file_name, tax_year)
                             st.rerun()
-
+    st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -2133,7 +2265,7 @@ def render_single_review() -> None:
         st.info("Run Review to populate the analysis summary.")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    left_col, right_col = st.columns([1.02, 0.98])
+    left_col, right_col = st.columns([1.08, 0.92], gap="medium")
 
     with left_col:
         st.markdown('<div class="ap-card ap-card-tight">', unsafe_allow_html=True)
