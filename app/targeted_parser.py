@@ -1,7 +1,7 @@
 import re
 
 
-def _normalize_ocr_money_text(raw: str) -> str:
+def parse_money_text(raw: str) -> float | None:
     text = (
         str(raw or "")
         .replace("$", "")
@@ -10,42 +10,18 @@ def _normalize_ocr_money_text(raw: str) -> str:
         .strip("() ")
     )
     text = re.sub(r"\s+", " ", text)
-    text = re.sub(r"\b(\d)\s+(\d{2,3}(?:[,.]\d{3})+(?:[,.]\d{2})?)\b", r"\1\2", text)
+    text = re.sub(r"\b(\d)\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"\1\2", text)
     text = text.replace(" ", "")
 
-    separators = [char for char in text if char in {",", "."}]
-    if not separators:
-        return text
-
-    last_dot = text.rfind(".")
-    last_comma = text.rfind(",")
-    last_sep_idx = max(last_dot, last_comma)
-
-    if last_sep_idx >= 0 and len(text) - last_sep_idx - 1 == 2:
-        decimal_sep = text[last_sep_idx]
-        thousands_sep = "," if decimal_sep == "." else "."
-        integer_part = text[:last_sep_idx].replace(thousands_sep, "").replace(decimal_sep, "")
-        decimal_part = text[last_sep_idx + 1:]
-        return f"{integer_part}.{decimal_part}"
-
     if "," in text and "." in text:
-        return text.replace(",", "").replace(".", "")
-
-    if "," in text:
+        text = text.replace(",", "")
+    elif "," in text:
         if re.fullmatch(r"\d{1,3}(?:,\d{3})+", text):
-            return text.replace(",", "")
-        return text.replace(",", ".")
-
-    if re.fullmatch(r"\d{1,3}(?:\.\d{3})+", text):
-        return text.replace(".", "")
-    if text.count(".") > 1:
-        return text.replace(".", "")
-
-    return text
-
-
-def parse_money_text(raw: str) -> float | None:
-    text = _normalize_ocr_money_text(raw)
+            text = text.replace(",", "")
+        else:
+            text = text.replace(",", ".")
+    elif text.count(".") > 1:
+        text = text.replace(".", "")
 
     try:
         return float(text)
@@ -611,8 +587,7 @@ class TargetedRenditionParser:
         Looks across attachment/support pages for summary-style value signals.
         Version 1: totals and class detection only.
         """
-        normalized_pages = [self.normalize_text(t) for t in texts if t]
-        combined = "\n".join(normalized_pages)
+        combined = "\n".join([self.normalize_text(t) for t in texts if t])
 
         result = {
             "attachment_summary_present": False,
@@ -633,8 +608,6 @@ class TargetedRenditionParser:
             "REPORTED COST",
             "CURRENT VALUE",
             "RENDERED VALUE",
-            "GOOD FAITH ESTIMATE",
-            "TOTAL FIXED ASSETS",
         ]
         if sum(1 for clue in summary_clues if clue in combined) >= 2:
             result["attachment_summary_present"] = True
@@ -651,69 +624,44 @@ class TargetedRenditionParser:
         if "RENDERED VALUE" in combined:
             result["rendered_value_detected"] = True
 
-        money_pattern = r"\$?\s*(?:\d\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?\b"
-        threshold_values = {20000.0, 50000.0, 125000.0, 150000.0}
-        page_totals: list[float] = []
-        rendered_total_candidates: list[float] = []
+        money_matches = re.findall(
+            r"\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?\b",
+            combined,
+        )
 
-        for page_text in normalized_pages:
-            page_summary_clues = [
-                "SUMMARY",
-                "STATE CLASS",
-                "REPORTED COST",
-                "CURRENT VALUE",
-                "RENDERED VALUE",
-            ]
-            page_is_summary = sum(1 for clue in page_summary_clues if clue in page_text) >= 2
-            lines = [line.strip() for line in page_text.splitlines() if line.strip()]
+        candidates = []
+        for m in money_matches:
+            value = parse_money_text(m)
+            if value is None:
+                continue
+            if value in {20000.0, 50000.0, 125000.0, 150000.0}:
+                continue
+            candidates.append(value)
 
-            if page_is_summary:
-                triples: list[tuple[float, float, float]] = []
-                sequential_values: list[float] = []
-                for line in lines:
-                    values = []
-                    for match_text in re.findall(money_pattern, line):
-                        value = parse_money_text(match_text)
-                        if value is None or value in threshold_values:
-                            continue
-                        values.append(value)
-                    if len(values) >= 3:
-                        triples.append((values[-3], values[-2], values[-1]))
-                    elif len(values) == 1 and re.fullmatch(rf"{money_pattern}", line):
-                        sequential_values.append(values[0])
+        total_patterns = [
+            r"TOTAL\s+FIXED\s+ASSETS\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
+            r"GRAND\s+TOTAL\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
+            r"TOTAL\s+ASSETS\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
+            r"TOTAL\s+MARKET\s+VALUE\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
+        ]
+        labeled_totals = []
+        for pattern in total_patterns:
+            for match in re.finditer(pattern, combined):
+                value = parse_money_text(match.group(1))
+                if value is not None:
+                    labeled_totals.append(value)
 
-                if len(sequential_values) >= 3:
-                    usable_count = len(sequential_values) - (len(sequential_values) % 3)
-                    for idx in range(0, usable_count, 3):
-                        triple = sequential_values[idx: idx + 3]
-                        if len(triple) == 3:
-                            triples.append((triple[0], triple[1], triple[2]))
+        if candidates:
+            result["attachment_total_candidates"] = sorted(set(candidates), reverse=True)
 
-                if triples:
-                    best_triple = max(triples, key=lambda item: (item[2], item[1], item[0]))
-                    page_totals.extend(best_triple)
-                    rendered_total_candidates.append(best_triple[2])
-
-            total_patterns = [
-                r"TOTAL\s+FIXED\s+ASSETS\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?)",
-                r"GRAND\s+TOTALS?\s*:?\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?)",
-                r"TOTALS?\s*:?\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?)",
-                r"TOTAL\s+ASSETS\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?)",
-                r"TOTAL\s+MARKET\s+VALUE\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?)",
-            ]
-            for pattern in total_patterns:
-                for match in re.finditer(pattern, page_text):
-                    value = parse_money_text(match.group(1))
-                    if value is not None and value not in threshold_values:
-                        page_totals.append(value)
-
-        if page_totals:
-            result["attachment_total_candidates"] = sorted(set(page_totals), reverse=True)
-
-        if rendered_total_candidates:
+        if labeled_totals:
             result["attachment_summary_present"] = True
-            result["best_attachment_total"] = max(rendered_total_candidates)
-        elif result["attachment_summary_present"] and page_totals:
-            result["best_attachment_total"] = max(page_totals)
+            result["attachment_total_candidates"] = sorted(
+                set(result["attachment_total_candidates"] + labeled_totals),
+                reverse=True,
+            )
+            result["best_attachment_total"] = max(labeled_totals)
+        elif result["attachment_summary_present"] and candidates:
+            result["best_attachment_total"] = max(candidates)
 
         return result
