@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import tempfile
+from io import BytesIO
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ import fitz  # PyMuPDF
 import pandas as pd
 import requests
 import streamlit as st
+from PIL import Image
 
 APP_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = APP_DIR.parent
@@ -767,9 +769,15 @@ def show_flags_and_findings(result: dict) -> None:
         render_kv_section(
             "Form Flags",
             [
+                ("Section 3 Present", "Yes" if form_flags.get("section_3_present") else "No"),
+                ("Section 3 Prior-Year Box Checked", "Yes" if form_flags.get("section_3_prior_year_checked") else "No"),
                 ("Section 5 Present", "Yes" if form_flags.get("section_5_present") else "No"),
                 ("Over $20k Language", "Yes" if form_flags.get("section_5_over_20k_detected") else "No"),
                 ("$125k Language", "Yes" if form_flags.get("section_5_125k_language_detected") else "No"),
+                ("Section 5 Under $20k Checked", "Yes" if form_flags.get("section_5_under_20k_checked") else "No"),
+                ("Section 5 $20k+ Checked", "Yes" if form_flags.get("section_5_20k_or_more_checked") else "No"),
+                ("Section 5 $125k or Less Checked", "Yes" if form_flags.get("section_5_125k_or_less_checked") else "No"),
+                ("Section 5 More Than $125k Checked", "Yes" if form_flags.get("section_5_more_than_125k_checked") else "No"),
                 ("Signature Detected", "Yes" if form_flags.get("signature_block_detected") else "No"),
                 ("SEE ATTACHED", "Yes" if form_flags.get("see_attached") else "No"),
             ],
@@ -929,6 +937,22 @@ def render_pdf_pages(file_bytes: bytes) -> list[bytes]:
     return pages
 
 
+def _preview_file_signature(file_bytes: bytes) -> str:
+    return f"{len(file_bytes)}:{hash(file_bytes[:2048])}"
+
+
+def _rotate_png_bytes(image_bytes: bytes, rotation_degrees: int) -> bytes:
+    rotation = int(rotation_degrees) % 360
+    if rotation == 0:
+        return image_bytes
+
+    with Image.open(BytesIO(image_bytes)) as image:
+        rotated = image.rotate(-rotation, expand=True)
+        output = BytesIO()
+        rotated.save(output, format="PNG")
+        return output.getvalue()
+
+
 def show_pdf_preview(file_bytes: bytes) -> None:
     page_images = render_pdf_pages(file_bytes)
 
@@ -938,17 +962,67 @@ def show_pdf_preview(file_bytes: bytes) -> None:
 
     st.caption(f"{len(page_images)} page(s) rendered")
 
+    file_signature = _preview_file_signature(file_bytes)
+    signature_key = "single_pdf_preview_signature"
+    page_key = "single_pdf_page_selector"
+    rotation_key = "single_pdf_rotation_degrees"
+
+    if st.session_state.get(signature_key) != file_signature:
+        st.session_state[signature_key] = file_signature
+        st.session_state[page_key] = 1
+        st.session_state[rotation_key] = 0
+
     if len(page_images) == 1:
-        st.image(page_images[0], use_container_width=True)
+        current_rotation = int(st.session_state.get(rotation_key, 0) or 0)
+        rotate_cols = st.columns([1, 1, 4])
+        with rotate_cols[0]:
+            if st.button("Rotate Left", key="single_pdf_rotate_left_single", use_container_width=True):
+                st.session_state[rotation_key] = (current_rotation - 90) % 360
+                st.rerun()
+        with rotate_cols[1]:
+            if st.button("Rotate Right", key="single_pdf_rotate_right_single", use_container_width=True):
+                st.session_state[rotation_key] = (current_rotation + 90) % 360
+                st.rerun()
+        with rotate_cols[2]:
+            st.caption(f"Rotation: {int(st.session_state.get(rotation_key, 0) or 0)}°")
+        st.image(_rotate_png_bytes(page_images[0], int(st.session_state.get(rotation_key, 0) or 0)), use_container_width=True)
         return
 
-    selected_page = st.selectbox(
-        "Page",
-        options=list(range(1, len(page_images) + 1)),
-        format_func=lambda page_number: f"Page {page_number}",
-        key="single_pdf_page_selector",
+    current_page = int(st.session_state.get(page_key, 1) or 1)
+    current_rotation = int(st.session_state.get(rotation_key, 0) or 0)
+
+    nav_cols = st.columns([1, 1, 1.25, 1, 1, 2.5])
+    with nav_cols[0]:
+        if st.button("Previous", key="single_pdf_prev_page", use_container_width=True, disabled=current_page <= 1):
+            st.session_state[page_key] = max(1, current_page - 1)
+            st.rerun()
+    with nav_cols[1]:
+        if st.button("Next", key="single_pdf_next_page", use_container_width=True, disabled=current_page >= len(page_images)):
+            st.session_state[page_key] = min(len(page_images), current_page + 1)
+            st.rerun()
+    with nav_cols[2]:
+        selected_page = st.selectbox(
+            "Page",
+            options=list(range(1, len(page_images) + 1)),
+            format_func=lambda page_number: f"Page {page_number}",
+            key=page_key,
+            label_visibility="collapsed",
+        )
+    with nav_cols[3]:
+        if st.button("Rotate Left", key="single_pdf_rotate_left", use_container_width=True):
+            st.session_state[rotation_key] = (current_rotation - 90) % 360
+            st.rerun()
+    with nav_cols[4]:
+        if st.button("Rotate Right", key="single_pdf_rotate_right", use_container_width=True):
+            st.session_state[rotation_key] = (current_rotation + 90) % 360
+            st.rerun()
+    with nav_cols[5]:
+        st.caption(f"Page {int(selected_page)} of {len(page_images)} | Rotation: {int(st.session_state.get(rotation_key, 0) or 0)}°")
+
+    st.image(
+        _rotate_png_bytes(page_images[int(selected_page) - 1], int(st.session_state.get(rotation_key, 0) or 0)),
+        use_container_width=True,
     )
-    st.image(page_images[int(selected_page) - 1], use_container_width=True)
 
 
 def run_pipeline_from_upload(file_name: str, file_bytes: bytes, manual_override: dict | None = None) -> dict:

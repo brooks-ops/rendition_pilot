@@ -96,17 +96,27 @@ class TargetedRenditionParser:
 
     def parse_page_1_flags(self, text: str) -> dict:
         normalized = self.normalize_text(text)
+        flat_text = re.sub(r"\s+", " ", normalized)
 
         result = {
             "see_attached": False,
+            "section_3_present": False,
+            "section_3_prior_year_checked": False,
             "section_5_present": False,
             "section_5_over_20k_detected": False,
             "section_5_125k_language_detected": False,
+            "section_5_under_20k_checked": False,
+            "section_5_20k_or_more_checked": False,
+            "section_5_125k_or_less_checked": False,
+            "section_5_more_than_125k_checked": False,
             "signature_block_detected": False,
         }
 
         if "SEE ATTACHED" in normalized or "SEE ATTAC" in normalized:
             result["see_attached"] = True
+
+        if "SECTION 3" in normalized:
+            result["section_3_present"] = True
 
         if "SECTION 5" in normalized:
             result["section_5_present"] = True
@@ -130,6 +140,30 @@ class TargetedRenditionParser:
         ):
             result["section_5_125k_language_detected"] = True
 
+        section_3_block = self._extract_section_block(flat_text, "SECTION 3", "SECTION 4")
+        section_5_block = self._extract_section_block(flat_text, "SECTION 5", "SECTION 6")
+
+        result["section_3_prior_year_checked"] = self._matches_checked_pattern(
+            section_3_block,
+            [r"[☑✓✔☒🗹X\?]\s*BY CHECKING THIS BOX"],
+        )
+        result["section_5_under_20k_checked"] = self._matches_checked_pattern(
+            section_5_block,
+            [r"[☑✓✔☒🗹X\?]\s*UNDER\s*\$?\s*20,000"],
+        )
+        result["section_5_20k_or_more_checked"] = self._matches_checked_pattern(
+            section_5_block,
+            [r"[☑✓✔☒🗹X\?]\s*\$?\s*20,000\s+OR\s+MORE"],
+        )
+        result["section_5_125k_or_less_checked"] = self._matches_checked_pattern(
+            section_5_block,
+            [r"[☑✓✔☒🗹X\?]\s*\$?\s*125,000\s+OR\s+LESS"],
+        )
+        result["section_5_more_than_125k_checked"] = self._matches_checked_pattern(
+            section_5_block,
+            [r"[☑✓✔☒🗹X\?]\s*MORE\s+THAN\s+\$?\s*125,000"],
+        )
+
         signature_clues = [
             "SECTION 6",
             "AUTHORIZED INDIVIDUAL",
@@ -144,6 +178,20 @@ class TargetedRenditionParser:
             result["signature_block_detected"] = True
 
         return result
+
+    def _extract_section_block(self, text: str, section_start: str, next_section: str) -> str:
+        start = text.find(section_start)
+        if start < 0:
+            return ""
+        end = text.find(next_section, start)
+        if end < 0:
+            end = len(text)
+        return text[start:end]
+
+    def _matches_checked_pattern(self, section_text: str, patterns: list[str]) -> bool:
+        if not section_text:
+            return False
+        return any(re.search(pattern, section_text) for pattern in patterns)
 
     def parse_schedule_e_total(self, text: str) -> dict:
         normalized = self.normalize_text(text)
