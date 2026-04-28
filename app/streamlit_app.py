@@ -25,6 +25,16 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.cli import build_cli_summary
 from app.depreciation import DepreciationEngine
 from app.pipeline import run_rendition_pipeline
+from app.rendition_calculator import (
+    TABLE_METADATA,
+    build_calculator_rows,
+    build_saved_calculator,
+    calculate_combined_total,
+    calculate_section_total,
+    generate_calculator_name,
+    load_depreciation_tables,
+    resolve_tax_year,
+)
 from app.review_workflow import (
     APPRAISER_UPLOAD_DIR,
     COMPLETED_DIR,
@@ -49,6 +59,14 @@ AUTHORIZED_USERS = {
 
 DEFAULT_SUPABASE_URL = "https://pzawjgckzcgnfsfuylqy.supabase.co"
 DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_q6lNn59Y-kz8lG0cYfJkYw_lL7xElsA"
+
+CALCULATOR_CATEGORY_OPTIONS = [
+    "Furniture & Fixtures",
+    "Machinery & Equipment",
+    "Vehicles",
+    "Computers",
+    "Custom",
+]
 
 
 st.set_page_config(
@@ -279,6 +297,13 @@ def hydrate_analysis_env_from_secrets() -> None:
         "AZURE_DOCUMENT_INTELLIGENCE_REQUEST_TIMEOUT_SECONDS",
         "AZURE_FORM_RECOGNIZER_ENDPOINT",
         "AZURE_FORM_RECOGNIZER_KEY",
+        "GOOGLE_DOCUMENT_AI_PROJECT_ID",
+        "GOOGLE_DOCUMENT_AI_LOCATION",
+        "GOOGLE_DOCUMENT_AI_PROCESSOR_ID",
+        "GOOGLE_DOCUMENT_AI_PROCESSOR_NAME",
+        "GOOGLE_DOCUMENT_AI_API_KEY",
+        "GOOGLE_DOCUMENT_AI_ACCESS_TOKEN",
+        "GOOGLE_APPLICATION_CREDENTIALS",
     ]
 
     for name in secret_names:
@@ -573,6 +598,89 @@ def parse_money_input(value: Any) -> float | None:
         return None
 
 
+def get_calculator_store_key(file_name: str) -> str:
+    return f"saved_calculators_{file_name}"
+
+
+def get_calculator_editor_key(file_name: str) -> str:
+    return f"calculator_editor_{file_name}"
+
+
+def get_calculator_cost_key(file_name: str, nonce: int, bucket: str) -> str:
+    return f"calculator_cost_{file_name}_{nonce}_{bucket}"
+
+
+def get_saved_calculators(file_name: str) -> list[dict[str, Any]]:
+    # Session state is the current persistence layer. This shape is ready for a future
+    # Supabase-backed implementation without changing the rendering or payload contract.
+    return list(st.session_state.get(get_calculator_store_key(file_name), []))
+
+
+def set_saved_calculators(file_name: str, calculators: list[dict[str, Any]]) -> None:
+    st.session_state[get_calculator_store_key(file_name)] = calculators
+
+
+def build_default_calculator_editor(tax_year: int) -> dict[str, Any]:
+    return {
+        "name": "",
+        "schedule": "A",
+        "category_option": "Furniture & Fixtures",
+        "custom_category": "",
+        "depreciation_table": "8_year",
+        "tax_year": int(tax_year),
+        "costs": {},
+        "editing_id": None,
+        "created_at": None,
+        "nonce": 0,
+    }
+
+
+def get_calculator_editor(file_name: str, tax_year: int) -> dict[str, Any]:
+    key = get_calculator_editor_key(file_name)
+    editor = st.session_state.get(key)
+    if editor is None:
+        editor = build_default_calculator_editor(tax_year)
+        st.session_state[key] = editor
+    return editor
+
+
+def save_calculator_editor(file_name: str, editor: dict[str, Any]) -> None:
+    st.session_state[get_calculator_editor_key(file_name)] = editor
+
+
+def reset_calculator_editor(file_name: str, tax_year: int) -> None:
+    editor = build_default_calculator_editor(tax_year)
+    previous = st.session_state.get(get_calculator_editor_key(file_name), {})
+    editor["nonce"] = int(previous.get("nonce", 0)) + 1
+    save_calculator_editor(file_name, editor)
+
+
+def load_saved_calculator_into_editor(file_name: str, calculator: dict[str, Any]) -> None:
+    category = str(calculator.get("category") or "").strip()
+    category_option = category if category in CALCULATOR_CATEGORY_OPTIONS[:-1] else "Custom"
+    editor = {
+        "name": str(calculator.get("name") or ""),
+        "schedule": str(calculator.get("schedule") or "A"),
+        "category_option": category_option,
+        "custom_category": "" if category_option != "Custom" else category,
+        "depreciation_table": str(calculator.get("depreciation_table") or "8_year"),
+        "tax_year": int(resolve_tax_year(calculator.get("tax_year"))),
+        "costs": {
+            str(row.get("bucket")): float(row.get("cost", 0.0) or 0.0)
+            for row in calculator.get("rows", []) or []
+        },
+        "editing_id": calculator.get("id"),
+        "created_at": calculator.get("created_at"),
+        "nonce": int(st.session_state.get(get_calculator_editor_key(file_name), {}).get("nonce", 0)) + 1,
+    }
+    save_calculator_editor(file_name, editor)
+
+
+def apply_calculated_total_to_final_value(file_name: str, combined_total: float) -> None:
+    st.session_state[f"final_value_{file_name}"] = f"{combined_total:.2f}"
+    st.session_state[f"final_source_{file_name}"] = "calculator_combined_total"
+
+
 def prettify_path(path: str | None) -> str:
     mapping = {
         "use_manual_attachment_total": "Manual Attachment Total",
@@ -581,6 +689,7 @@ def prettify_path(path: str | None) -> str:
         "use_attachment_total_pending_review": "Attachment Total",
         "use_schedule_total_pending_review": "Schedule E Total",
         "use_good_faith_value_pending_review": "Good Faith Estimate",
+        "calculator_combined_total": "Calculator Combined Total",
         "manual_review": "Manual Review",
     }
     if not path:
@@ -681,6 +790,7 @@ def show_top_metrics(result: dict) -> None:
     confidence_border = confidence_color(assessment.get("confidence"))
     reason = assessment.get("reason", "-")
     percent_good = (result.get("depreciated_override_result", {}) or {}).get("percent_good")
+    extraction_provider = result.get("extraction_provider") or ((result.get("structured_extraction") or {}).get("extraction_provider"))
 
     st.markdown(
         f"""
@@ -691,6 +801,9 @@ def show_top_metrics(result: dict) -> None:
         """,
         unsafe_allow_html=True,
     )
+
+    if extraction_provider:
+        st.caption(f"Extraction provider: {extraction_provider}")
 
     c1, c2, c3 = st.columns(3)
 
@@ -748,9 +861,14 @@ def show_flags_and_findings(result: dict) -> None:
     schedule_values = result.get("schedule_values", {}) or {}
     attachments = result.get("attachments", {}) or {}
     review_flags = result.get("review_flags", {}) or {}
+    schema_review_flags = result.get("schema_review_flags", []) or []
     manual_override = result.get("manual_override", {}) or {}
     assessment = result.get("assessment_summary", {}) or {}
     depreciation = result.get("depreciated_override_result", {}) or {}
+    structured = result.get("structured_extraction", {}) or {}
+    schedule_breakdown = structured.get("schedule_breakdown", {}) or {}
+    debug = structured.get("debug", {}) or {}
+    normalized_schema = result.get("normalized_schema", {}) or {}
 
     left, right = st.columns(2)
 
@@ -786,6 +904,8 @@ def show_flags_and_findings(result: dict) -> None:
         render_kv_section(
             "Schedule / Attachments",
             [
+                ("Extraction Provider", format_text(result.get("extraction_provider"))),
+                ("Document Confidence", format_text(result.get("document_confidence"))),
                 ("Schedule E Present", "Yes" if schedule_e.get("schedule_e_present") else "No"),
                 ("Schedule E Total", format_money(schedule_e.get("total"))),
                 ("Schedule A GFE Total", format_money(schedule_values.get("good_faith_total"))),
@@ -824,10 +944,42 @@ def show_flags_and_findings(result: dict) -> None:
                 ("Confidence", prettify_confidence(assessment.get("confidence"))),
                 ("Needs Manual Row Review", "Yes" if review_flags.get("needs_manual_row_review") else "No"),
                 ("Needs Attachment Review", "Yes" if review_flags.get("needs_attachment_review") else "No"),
+                ("Schema Review Flags", format_text(schema_review_flags)),
                 ("Issues", format_text(assessment.get("issues"))),
             ],
         )
         st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Structured Extraction")
+    breakdown_rows = []
+    for schedule_key, section in schedule_breakdown.items():
+        if not isinstance(section, dict):
+            continue
+        breakdown_rows.append(
+            {
+                "Schedule": schedule_key.replace("_", " ").title(),
+                "Total": format_money(section.get("total")),
+                "Confidence": section.get("confidence", "-"),
+                "Rows": len(section.get("raw_rows") or []),
+            }
+        )
+    if breakdown_rows:
+        st.dataframe(pd.DataFrame(breakdown_rows), use_container_width=True, hide_index=True)
+    render_kv_section(
+        "Structured Debug",
+        [
+            ("Text Quality Score", format_text(debug.get("text_quality_score"))),
+            ("Document AI Used", "Yes" if debug.get("document_ai_used") else "No"),
+            ("Document AI Error", format_text(debug.get("document_ai_error"))),
+            ("Missing Schedules", format_text(debug.get("missing_schedules"))),
+            ("Low Confidence Sections", format_text(debug.get("low_confidence_sections"))),
+            ("Document AI Env", format_text(debug.get("document_ai_env"))),
+        ],
+    )
+    with st.expander("Normalized Extracted Data", expanded=False):
+        st.json(normalized_schema)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def normalize_candidates_for_table(candidates: list[dict] | None) -> pd.DataFrame:
@@ -1254,7 +1406,267 @@ def render_manual_assist_panel(file_name: str, result: dict, file_bytes: bytes) 
                             "notes": notes or "Manual assist historical cost less depreciation.",
                         },
                     )
+
+
+def render_rendition_calculator(file_name: str, result: dict) -> None:
+    metadata = result.get("metadata", {}) or {}
+    tax_year = resolve_tax_year(metadata.get("tax_year"))
+    tables = load_depreciation_tables()
+    editor = get_calculator_editor(file_name, tax_year)
+
+    editor["tax_year"] = resolve_tax_year(editor.get("tax_year") or tax_year)
+    editor["schedule"] = str(editor.get("schedule") or "A")
+    editor["depreciation_table"] = str(editor.get("depreciation_table") or "8_year")
+    editor["category_option"] = str(editor.get("category_option") or "Furniture & Fixtures")
+    editor["custom_category"] = str(editor.get("custom_category") or "")
+    editor["name"] = str(editor.get("name") or "")
+    editor["costs"] = dict(editor.get("costs") or {})
+    save_calculator_editor(file_name, editor)
+
+    schedule_key = f"calculator_schedule_{file_name}"
+    category_key = f"calculator_category_{file_name}"
+    custom_category_key = f"calculator_custom_category_{file_name}"
+    name_key = f"calculator_name_{file_name}"
+    table_key = f"calculator_table_{file_name}"
+    tax_year_key = f"calculator_tax_year_{file_name}"
+
+    if schedule_key not in st.session_state:
+        st.session_state[schedule_key] = editor["schedule"]
+    if category_key not in st.session_state:
+        st.session_state[category_key] = editor["category_option"]
+    if custom_category_key not in st.session_state:
+        st.session_state[custom_category_key] = editor["custom_category"]
+    if name_key not in st.session_state:
+        st.session_state[name_key] = editor["name"]
+    if table_key not in st.session_state:
+        st.session_state[table_key] = editor["depreciation_table"]
+    if tax_year_key not in st.session_state:
+        st.session_state[tax_year_key] = editor["tax_year"]
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Rendition Calculator")
+    st.caption("Worksheet-style depreciation entry with saved sections and a running combined total.")
+
+    left_col, right_col = st.columns([1.45, 1])
+
+    with left_col:
+        c1, c2 = st.columns(2)
+        with c1:
+            schedule = st.selectbox(
+                "Schedule",
+                ["A", "D", "E", "Custom"],
+                key=schedule_key,
+            )
+        with c2:
+            category_option = st.selectbox(
+                "Category",
+                CALCULATOR_CATEGORY_OPTIONS,
+                key=category_key,
+            )
+
+        custom_category = ""
+        if category_option == "Custom":
+            custom_category = st.text_input(
+                "Custom Category",
+                key=custom_category_key,
+                placeholder="Enter a custom category",
+            )
+        else:
+            st.session_state[custom_category_key] = ""
+
+        category_value = custom_category.strip() if category_option == "Custom" else category_option
+        generated_name = generate_calculator_name(schedule, category_value)
+        if not st.session_state.get(name_key):
+            st.session_state[name_key] = generated_name
+
+        calculator_name = st.text_input(
+            "Calculator Name",
+            key=name_key,
+            placeholder=generated_name,
+        ).strip()
+
+        c3, c4 = st.columns(2)
+        with c3:
+            depreciation_table = st.selectbox(
+                "Depreciation Table",
+                list(TABLE_METADATA.keys()),
+                format_func=lambda key: TABLE_METADATA[key]["label"],
+                key=table_key,
+            )
+        with c4:
+            selected_tax_year = st.number_input(
+                "Tax Year",
+                min_value=2000,
+                max_value=2100,
+                step=1,
+                key=tax_year_key,
+            )
+
+        editor["schedule"] = schedule
+        editor["category_option"] = category_option
+        editor["custom_category"] = custom_category.strip()
+        editor["name"] = calculator_name
+        editor["depreciation_table"] = depreciation_table
+        editor["tax_year"] = int(selected_tax_year)
+
+        rows = build_calculator_rows(
+            depreciation_table,
+            int(selected_tax_year),
+            costs=editor["costs"],
+            tables=tables,
+        )
+
+        header_cols = st.columns([1.1, 1.35, 1.0, 1.15])
+        header_cols[0].markdown("**Year**")
+        header_cols[1].markdown("**Cost**")
+        header_cols[2].markdown("**Depreciation Factor**")
+        header_cols[3].markdown("**Value**")
+
+        for row in rows:
+            cost_input_key = get_calculator_cost_key(file_name, int(editor["nonce"]), row["bucket"])
+            if cost_input_key not in st.session_state:
+                st.session_state[cost_input_key] = float(editor["costs"].get(row["bucket"], 0.0) or 0.0)
+
+            row_cols = st.columns([1.1, 1.35, 1.0, 1.15])
+            row_cols[0].markdown(f"**{row['display_year']}**")
+            cost_value = row_cols[1].number_input(
+                f"Cost {row['display_year']}",
+                min_value=0.0,
+                step=100.0,
+                format="%.2f",
+                key=cost_input_key,
+                label_visibility="collapsed",
+            )
+            editor["costs"][row["bucket"]] = round(float(cost_value), 2)
+            row["cost"] = editor["costs"][row["bucket"]]
+            row["value"] = round(row["cost"] * row["factor"], 2)
+            row_cols[2].markdown(f"`{row['factor']:.2f}`")
+            row_cols[3].markdown(f"**{format_money(row['value'])}**")
+
+        section_total = calculate_section_total(rows)
+        total_cols = st.columns([2.1, 1.35, 1.0, 1.15])
+        total_cols[0].markdown("### Total")
+        total_cols[3].markdown(f"### {format_money(section_total)}")
+
+        save_calculator_editor(file_name, editor)
+
+        action_cols = st.columns([1, 1, 1.2])
+        with action_cols[0]:
+            if st.button("Save Calculator", type="primary", key=f"save_calculator_{file_name}", use_container_width=True):
+                if not category_value:
+                    st.error("Enter a category before saving this calculator.")
+                else:
+                    saved_calculators = get_saved_calculators(file_name)
+                    saved_name = calculator_name or generated_name
+                    saved_calculator = build_saved_calculator(
+                        name=saved_name,
+                        schedule=schedule,
+                        category=category_value,
+                        depreciation_table=depreciation_table,
+                        tax_year=int(selected_tax_year),
+                        rows=rows,
+                        calculator_id=editor.get("editing_id"),
+                        created_at=editor.get("created_at"),
+                    )
+
+                    updated = False
+                    for index, existing in enumerate(saved_calculators):
+                        if existing.get("id") == saved_calculator["id"]:
+                            saved_calculators[index] = saved_calculator
+                            updated = True
+                            break
+                    if not updated:
+                        saved_calculators.append(saved_calculator)
+
+                    set_saved_calculators(file_name, saved_calculators)
+                    reset_calculator_editor(file_name, int(selected_tax_year))
+                    for widget_key in [schedule_key, category_key, custom_category_key, name_key, table_key, tax_year_key]:
+                        st.session_state.pop(widget_key, None)
+                    st.success(f"Saved {saved_name}.")
+                    st.rerun()
+
+        with action_cols[1]:
+            if st.button("New Calculator", key=f"new_calculator_{file_name}", use_container_width=True):
+                reset_calculator_editor(file_name, int(selected_tax_year))
+                for widget_key in [schedule_key, category_key, custom_category_key, name_key, table_key, tax_year_key]:
+                    st.session_state.pop(widget_key, None)
+                st.rerun()
+
+        with action_cols[2]:
+            if editor.get("editing_id"):
+                st.info("Editing an existing saved section.")
+            else:
+                st.caption("Save this section, then continue to the next category.")
+
+    with right_col:
+        saved_calculators = get_saved_calculators(file_name)
+        combined_total = calculate_combined_total(saved_calculators)
+        st.markdown("### Saved Calculators / Work Summary")
+        st.metric("Calculated Total Value", format_money(combined_total))
+        if st.button(
+            "Use Calculated Total as Final Value",
+            key=f"use_calculated_total_{file_name}",
+            use_container_width=True,
+        ):
+            apply_calculated_total_to_final_value(file_name, combined_total)
+            st.success("Final value populated from saved calculator totals.")
+            st.rerun()
+
+        if not saved_calculators:
+            st.info("No saved calculator sections yet.")
+        else:
+            for calculator in saved_calculators:
+                label = (
+                    f"{calculator.get('name')} | "
+                    f"{TABLE_METADATA.get(calculator.get('depreciation_table'), {}).get('label', calculator.get('depreciation_table'))} | "
+                    f"{format_money(calculator.get('section_total'))}"
+                )
+                with st.expander(label, expanded=False):
+                    st.caption(
+                        f"Schedule {calculator.get('schedule')} | Tax Year {calculator.get('tax_year')} | "
+                        f"Section Total {format_money(calculator.get('section_total'))}"
+                    )
+                    review_rows = [
+                        {
+                            "Year": row.get("display_year"),
+                            "Cost": format_money(row.get("cost")),
+                            "Factor": f"{float(row.get('factor', 0.0)):.2f}",
+                            "Value": format_money(row.get("value")),
+                        }
+                        for row in calculator.get("rows", []) or []
+                    ]
+                    st.dataframe(pd.DataFrame(review_rows), use_container_width=True, hide_index=True)
+                    summary_cols = st.columns(2)
+                    with summary_cols[0]:
+                        if st.button(
+                            "Edit",
+                            key=f"edit_saved_calculator_{file_name}_{calculator.get('id')}",
+                            use_container_width=True,
+                        ):
+                            load_saved_calculator_into_editor(file_name, calculator)
+                            for widget_key in [schedule_key, category_key, custom_category_key, name_key, table_key, tax_year_key]:
+                                st.session_state.pop(widget_key, None)
+                            st.rerun()
+                    with summary_cols[1]:
+                        if st.button(
+                            "Delete",
+                            key=f"delete_saved_calculator_{file_name}_{calculator.get('id')}",
+                            use_container_width=True,
+                        ):
+                            remaining = [
+                                item for item in saved_calculators
+                                if item.get("id") != calculator.get("id")
+                            ]
+                            set_saved_calculators(file_name, remaining)
+                            if editor.get("editing_id") == calculator.get("id"):
+                                reset_calculator_editor(file_name, tax_year)
+                            st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 def reset_single_review_state() -> None:
+    file_name = st.session_state.get("single_file_name")
     st.session_state["single_upload_reset_counter"] = (
         int(st.session_state.get("single_upload_reset_counter", 0)) + 1
     )
@@ -1273,28 +1685,63 @@ def reset_single_review_state() -> None:
     ]:
         st.session_state.pop(key, None)
 
+    if file_name:
+        for prefix in [
+            "saved_calculators_",
+            "calculator_editor_",
+            "calculator_schedule_",
+            "calculator_category_",
+            "calculator_custom_category_",
+            "calculator_name_",
+            "calculator_table_",
+            "calculator_tax_year_",
+            "final_value_",
+            "final_source_",
+        ]:
+            st.session_state.pop(f"{prefix}{file_name}", None)
+
 
 def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> None:
     recommended_value = get_recommended_value(result)
     default_source = (result.get("assessment_summary", {}) or {}).get("value_source") or "pipeline_recommendation"
     metadata = result.get("metadata", {}) or {}
+    combined_total = calculate_combined_total(get_saved_calculators(file_name))
+
+    final_value_key = f"final_value_{file_name}"
+    final_source_key = f"final_source_{file_name}"
+    if final_value_key not in st.session_state:
+        st.session_state[final_value_key] = "" if recommended_value is None else str(recommended_value)
+    if final_source_key not in st.session_state:
+        st.session_state[final_source_key] = default_source
 
     st.markdown('<div class="ap-card">', unsafe_allow_html=True)
     st.subheader("Finalize Review")
     st.caption("Confirm the final value, enter initials/account, then lock and save the reviewed rendition.")
 
+    if combined_total:
+        current_final_value = parse_money_input(st.session_state.get(final_value_key))
+        st.markdown(
+            f"""
+            <div class="ap-reason-box">
+                <strong>Calculated Total:</strong> {format_money(combined_total)}<br>
+                <strong>Final Appraiser Value:</strong> {format_money(current_final_value)}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
     c1, c2 = st.columns([1, 1])
     with c1:
         final_value_text = st.text_input(
             "Final Value",
-            value="" if recommended_value is None else str(recommended_value),
-            key=f"final_value_{file_name}",
+            key=final_value_key,
         )
     with c2:
         final_source = st.selectbox(
             "Final Source",
             list(dict.fromkeys([
                 default_source,
+                "calculator_combined_total",
                 "manual_override",
                 "attachment_total",
                 "good_faith_value",
@@ -1303,7 +1750,7 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
                 "agent_review",
                 "manual_review",
             ])),
-            key=f"final_source_{file_name}",
+            key=final_source_key,
         )
 
     c3, c4 = st.columns([1, 1])
@@ -1473,6 +1920,7 @@ def build_batch_row(file_name: str, result: dict) -> dict:
         "Owner Name": metadata.get("owner_name") or "-",
         "Account Number": metadata.get("account_number") or "-",
         "Recommended Value": format_money(value),
+        "Extraction Provider": result.get("extraction_provider") or "-",
         "Valuation Path": prettify_path(assessment.get("recommended_path")),
         "Confidence": prettify_confidence(assessment.get("confidence")),
         "Status": get_status_label(result),
@@ -1638,6 +2086,7 @@ def render_single_review() -> None:
         if result:
             show_top_metrics(result)
             render_manual_assist_panel(result_file_name, result, result_file_bytes)
+            render_rendition_calculator(result_file_name, result)
             finalize_review_panel(result_file_name, result, result_file_bytes)
 
             with st.expander("Document / Form / Schedule Details", expanded=False):
