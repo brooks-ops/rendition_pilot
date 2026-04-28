@@ -304,7 +304,10 @@ def extract_line_items(parsed_result: dict[str, Any]) -> list[RenditionLineItem]
                 )
             )
 
-        if "E" in sections:
+        # Schedule E is the most layout-sensitive page in the form. When we have
+        # OCR word geometry, do not fall back to line-based text parsing because
+        # collapsed OCR lines can merge adjacent cells and create invented amounts.
+        if "E" in sections and not schedule_e_rows and not words:
             items.extend(_parse_schedule_e_text_rows(sections["E"], page_number))
 
     return _dedupe_line_items(items)

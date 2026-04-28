@@ -417,45 +417,45 @@ class TargetedRenditionParser:
 
         min_x = min(self._word_x0(word) for word in valid_words)
         max_x = max(self._word_x0(word) for word in valid_words)
-        min_top = min(self._word_top(word) for word in valid_words)
-        max_top = max(self._word_top(word) for word in valid_words)
         width = max(max_x - min_x, 1.0)
         x_band = width / 3.0
         y_split = self._schedule_e_y_split(valid_words)
 
-        region_words: dict[tuple[int, int], list[dict]] = {}
-        for word in valid_words:
-            x_index = min(2, max(0, int((self._word_x0(word) - min_x) / x_band)))
-            y_index = 0 if self._word_top(word) <= y_split else 1
-            region_words.setdefault((x_index, y_index), []).append(word)
-
         rows: list[dict] = []
-        for region, subsection_words in region_words.items():
-            subsection = self.SCHEDULE_E_SUBSECTIONS.get(region)
-            if subsection is None:
-                continue
-
-            clusters: list[dict] = []
-            for word in sorted(subsection_words, key=lambda item: self._word_top(item)):
-                top = self._word_top(word)
-                for cluster in clusters:
-                    if abs(top - cluster["top"]) <= 8.0:
-                        cluster["words"].append(word)
-                        cluster["top"] = (cluster["top"] * (len(cluster["words"]) - 1) + top) / len(cluster["words"])
-                        break
-                else:
-                    clusters.append({"top": top, "words": [word]})
-
+        clusters: list[dict] = []
+        for word in sorted(valid_words, key=lambda item: self._word_top(item)):
+            top = self._word_top(word)
             for cluster in clusters:
-                ordered = sorted(cluster["words"], key=lambda item: self._word_x0(item))
-                row_text = " ".join(self._word_text(word) for word in ordered).strip()
+                if abs(top - cluster["top"]) <= 8.0:
+                    cluster["words"].append(word)
+                    cluster["top"] = (cluster["top"] * (len(cluster["words"]) - 1) + top) / len(cluster["words"])
+                    break
+            else:
+                clusters.append({"top": top, "words": [word]})
+
+        for cluster in clusters:
+            ordered = sorted(cluster["words"], key=lambda item: self._word_x0(item))
+            segments: list[list[dict]] = []
+            segment_gap_threshold = max(160.0, x_band * 0.6)
+            for word in ordered:
+                if not segments:
+                    segments.append([word])
+                    continue
+                prev_word = segments[-1][-1]
+                if self._word_x0(word) - self._word_x0(prev_word) > segment_gap_threshold:
+                    segments.append([word])
+                else:
+                    segments[-1].append(word)
+
+            for segment in segments:
+                row_text = " ".join(self._word_text(word) for word in segment).strip()
                 upper_row = row_text.upper()
                 if not row_text or "TOTAL" in upper_row:
                     continue
 
-                year_words = [word for word in ordered if re.fullmatch(r"20\d{2}", self._word_text(word))]
+                year_words = [word for word in segment if re.fullmatch(r"20\d{2}", self._word_text(word))]
                 money_words: list[dict] = []
-                for word in ordered:
+                for word in segment:
                     value = self._money_word_value(word)
                     if value is None:
                         text_value = parse_money_text(self._word_text(word))
@@ -467,6 +467,14 @@ class TargetedRenditionParser:
                     money_words.append({**word, "_money_value": value})
 
                 if not year_words and not money_words:
+                    continue
+
+                anchor_word = year_words[0] if year_words else (money_words[0] if money_words else segment[0])
+                anchor_x = self._word_x0(anchor_word)
+                x_index = min(2, max(0, int((anchor_x - min_x) / x_band)))
+                y_index = 0 if float(cluster["top"]) <= y_split else 1
+                subsection = self.SCHEDULE_E_SUBSECTIONS.get((x_index, y_index))
+                if subsection is None:
                     continue
 
                 year_acquired = None
@@ -499,7 +507,8 @@ class TargetedRenditionParser:
                         "raw_values": {
                             "money_tokens": [self._word_text(word) for word in money_words],
                             "year_tokens": [self._word_text(word) for word in year_words],
-                            "region": {"x_index": region[0], "y_index": region[1]},
+                            "region": {"x_index": x_index, "y_index": y_index},
+                            "anchor_x": anchor_x,
                         },
                         "confidence": 0.86 if year_acquired is not None else 0.74,
                         "flags": [],

@@ -14,6 +14,7 @@ import fitz  # PyMuPDF
 import pandas as pd
 import requests
 import streamlit as st
+from fastapi import HTTPException
 from PIL import Image
 
 APP_DIR = Path(__file__).resolve().parent
@@ -24,6 +25,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from app.cli import build_cli_summary
 from app.depreciation import DepreciationEngine
+from app.district_repository import SupabaseDistrictRepository, SupabaseRestClient
+from app.district_service import DistrictService, DistrictSignupPayload
 from app.pipeline import run_rendition_pipeline
 from app.review_workflow import (
     APPRAISER_UPLOAD_DIR,
@@ -37,15 +40,7 @@ from app.review_workflow import (
     save_review_outputs,
     stamp_reviewed_pdf,
 )
-
-
-AUTHORIZED_USERS = {
-    "bbarrett@lubbockcad.org",
-    "bgarnica@lubbockcad.org",
-    "emontoya@lubbockcad.org",
-    "ctrimble@lubbockcad.org",
-    "lflores@lubbockcad.org",
-}
+from app.streamlit_district import StreamlitDistrictSession, build_session, cache_session, clear_cached_session, invite_user, persist_processed_upload, update_settings, update_user
 
 DEFAULT_SUPABASE_URL = "https://pzawjgckzcgnfsfuylqy.supabase.co"
 DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_q6lNn59Y-kz8lG0cYfJkYw_lL7xElsA"
@@ -385,11 +380,8 @@ def restore_login_from_query_params() -> None:
         return
 
     email = str(user.get("email", "")).lower()
-    if email in AUTHORIZED_USERS:
-        st.session_state["authenticated_user"] = email
-        st.session_state["supabase_access_token"] = access_token
-    else:
-        st.query_params.clear()
+    st.session_state["authenticated_user"] = email
+    st.session_state["supabase_access_token"] = access_token
 
 
 def persist_login(email: str, access_token: str) -> None:
@@ -401,15 +393,90 @@ def persist_login(email: str, access_token: str) -> None:
 def clear_login() -> None:
     st.session_state.pop("authenticated_user", None)
     st.session_state.pop("supabase_access_token", None)
+    clear_cached_session()
     st.query_params.clear()
+
+
+def get_active_district_session() -> StreamlitDistrictSession:
+    access_token = st.session_state.get("supabase_access_token")
+    supabase_url, anon_key = get_supabase_config()
+    session = build_session(supabase_url, anon_key, access_token)
+    cache_session(session)
+    return session
+
+
+def render_unassigned_district_signup(email: str, access_token: str, detail: str) -> None:
+    st.error(detail)
+    st.markdown(
+        '<div class="ap-subtitle">Create the first district account for this authenticated user.</div>',
+        unsafe_allow_html=True,
+    )
+
+    with st.form("district_signup_form"):
+        district_name = st.text_input("District Name", placeholder="Lubbock Central Appraisal District").strip()
+        county = st.text_input("County", placeholder="Lubbock").strip()
+        state = st.text_input("State", value="TX").strip().upper() or "TX"
+        admin_full_name = st.text_input("Admin Full Name", value="").strip() or None
+        submitted = st.form_submit_button("Create District Account")
+
+    if not submitted:
+        return
+
+    try:
+        user = get_supabase_user(access_token)
+        supabase_url, anon_key = get_supabase_config()
+        repo = SupabaseDistrictRepository(
+            SupabaseRestClient(base_url=supabase_url, anon_key=anon_key),
+            access_token,
+        )
+        service = DistrictService(repo)
+        service.signup_district(
+            DistrictSignupPayload(
+                district_name=district_name,
+                county=county or None,
+                state=state,
+                admin_email=email,
+                admin_full_name=admin_full_name,
+            ),
+            authenticated_user_id=str(user["id"]),
+        )
+    except Exception as exc:
+        st.error(f"District signup failed: {exc}")
+        return
+
+    st.success("District account created. Reloading your session.")
+    st.rerun()
 
 
 def require_login() -> bool:
     restore_login_from_query_params()
 
-    if st.session_state.get("authenticated_user") in AUTHORIZED_USERS and st.session_state.get("supabase_access_token"):
+    if st.session_state.get("authenticated_user") and st.session_state.get("supabase_access_token"):
+        try:
+            session = get_active_district_session()
+        except HTTPException as exc:
+            if exc.status_code == 403:
+                render_unassigned_district_signup(
+                    st.session_state.get("authenticated_user", ""),
+                    st.session_state.get("supabase_access_token", ""),
+                    str(exc.detail),
+                )
+                return False
+            if exc.status_code == 401:
+                clear_login()
+                st.error("Your session expired. Please sign in again.")
+                return False
+            st.error(str(exc.detail))
+            return False
+        except Exception as exc:
+            st.error(f"Could not load district context: {exc}")
+            return False
+
         with st.sidebar:
-            st.caption(f"Signed in as {st.session_state['authenticated_user']}")
+            st.caption(f"{session.context.district_name}")
+            st.caption(f"{session.context.email} | {session.context.role}")
+            if session.context.role == "district_admin":
+                st.caption("Admin access enabled")
             if st.button("Sign Out", key="sign_out"):
                 clear_login()
                 st.rerun()
@@ -436,10 +503,6 @@ def require_login() -> bool:
             submitted = st.form_submit_button("Login")
 
         if submitted:
-            if email not in AUTHORIZED_USERS:
-                st.error("This email is not authorized for AppraisalPilot.")
-                return False
-
             try:
                 auth_result = sign_in_with_supabase(email, password)
             except Exception as exc:
@@ -462,9 +525,6 @@ def require_login() -> bool:
             create_submitted = st.form_submit_button("Create Login")
 
         if create_submitted:
-            if new_email not in AUTHORIZED_USERS:
-                st.error("This email is not authorized to create an AppraisalPilot login.")
-                return False
             if len(new_password) < 8:
                 st.error("Password must be at least 8 characters.")
                 return False
@@ -1083,7 +1143,13 @@ def show_pdf_preview(file_bytes: bytes) -> None:
     )
 
 
-def run_pipeline_from_upload(file_name: str, file_bytes: bytes, manual_override: dict | None = None) -> dict:
+def run_pipeline_from_upload(
+    file_name: str,
+    file_bytes: bytes,
+    manual_override: dict | None = None,
+    *,
+    selected_tax_year: int | None = None,
+) -> dict:
     hydrate_analysis_env_from_secrets()
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
@@ -1091,10 +1157,15 @@ def run_pipeline_from_upload(file_name: str, file_bytes: bytes, manual_override:
         temp_pdf_path = Path(tmp.name)
 
     try:
-        return run_rendition_pipeline(
+        result = run_rendition_pipeline(
             pdf_path=str(temp_pdf_path),
             manual_override=manual_override,
         )
+        metadata = result.setdefault("metadata", {}) or {}
+        if selected_tax_year is not None:
+            metadata["tax_year"] = selected_tax_year
+            result["metadata"] = metadata
+        return result
     finally:
         try:
             temp_pdf_path.unlink(missing_ok=True)
@@ -1146,11 +1217,18 @@ def calculate_depreciated_value(historical_cost: float, acquisition_year: int, l
     )
 
 
-def apply_manual_assist_override(file_name: str, file_bytes: bytes, manual_override: dict) -> None:
+def apply_manual_assist_override(
+    file_name: str,
+    file_bytes: bytes,
+    manual_override: dict,
+    *,
+    selected_tax_year: int | None = None,
+) -> None:
     result = run_pipeline_from_upload(
         file_name=file_name,
         file_bytes=file_bytes,
         manual_override=manual_override,
+        selected_tax_year=selected_tax_year,
     )
     st.session_state["single_result"] = result
     st.session_state["single_file_name"] = file_name
@@ -1162,7 +1240,13 @@ def apply_manual_assist_override(file_name: str, file_bytes: bytes, manual_overr
     st.rerun()
 
 
-def render_manual_assist_panel(file_name: str, result: dict, file_bytes: bytes) -> None:
+def render_manual_assist_panel(
+    file_name: str,
+    result: dict,
+    file_bytes: bytes,
+    *,
+    selected_tax_year: int | None = None,
+) -> None:
     assessment = result.get("assessment_summary", {}) or {}
     expand_panel = needs_manual_assist(result)
 
@@ -1207,6 +1291,7 @@ def render_manual_assist_panel(file_name: str, result: dict, file_bytes: bytes) 
                             "life_years": None,
                             "notes": notes or "Manual assist attachment total.",
                         },
+                        selected_tax_year=selected_tax_year,
                     )
 
         with tab_good_faith:
@@ -1245,6 +1330,7 @@ def render_manual_assist_panel(file_name: str, result: dict, file_bytes: bytes) 
                             "life_years": None,
                             "notes": notes or f"Manual assist good faith sum from {len(values)} line item(s).",
                         },
+                        selected_tax_year=selected_tax_year,
                     )
 
         with tab_historical:
@@ -1311,6 +1397,7 @@ def render_manual_assist_panel(file_name: str, result: dict, file_bytes: bytes) 
                             "life_years": int(life_years),
                             "notes": notes or "Manual assist historical cost less depreciation.",
                         },
+                        selected_tax_year=selected_tax_year,
                     )
 def reset_single_review_state() -> None:
     st.session_state["single_upload_reset_counter"] = (
@@ -1332,7 +1419,13 @@ def reset_single_review_state() -> None:
         st.session_state.pop(key, None)
 
 
-def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> None:
+def finalize_review_panel(
+    file_name: str,
+    result: dict,
+    file_bytes: bytes,
+    *,
+    district_slug: str | None = None,
+) -> None:
     recommended_value = get_recommended_value(result)
     default_source = (result.get("assessment_summary", {}) or {}).get("value_source") or "pipeline_recommendation"
     metadata = result.get("metadata", {}) or {}
@@ -1407,6 +1500,7 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
                     file_name=file_name,
                     file_bytes=file_bytes,
                     final_record=locked_record,
+                    district_slug=district_slug,
                 )
                 st.session_state["single_download_stamped_name"] = preview_pdf.name
                 st.session_state["single_download_stamped_bytes"] = preview_pdf.read_bytes()
@@ -1483,13 +1577,20 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
                         file_name=file_name,
                         file_bytes=file_bytes,
                         final_record=locked_record,
+                        district_slug=district_slug,
                     )
                     locked_record["stamped_pdf"] = str(stamped_pdf)
-                    paths = save_review_outputs(file_name=file_name, result=result, final_record=locked_record)
+                    paths = save_review_outputs(
+                        file_name=file_name,
+                        result=result,
+                        final_record=locked_record,
+                        district_slug=district_slug,
+                    )
                     append_queue_row(
                         file_name=file_name,
                         result={**result, "final_review": locked_record},
                         status="Locked",
+                        district_slug=district_slug,
                     )
                 except Exception as exc:
                     st.error(f"Could not save stamped rendition: {exc}")
@@ -1550,12 +1651,187 @@ def build_batch_row(file_name: str, result: dict) -> dict:
     }
 
 
-def render_single_review() -> None:
+def render_app_header(session: StreamlitDistrictSession) -> None:
+    context = session.context
+    st.markdown(
+        f"""
+        <div class="ap-card" style="padding:22px 24px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:18px;flex-wrap:wrap;">
+                <div>
+                    <div class="ap-title" style="margin-bottom:0.15rem;">{context.district_name}</div>
+                    <div class="ap-subtitle" style="margin-bottom:0;">Account workspace for rendition uploads, reviews, exports, and settings.</div>
+                </div>
+                <div style="text-align:right;">
+                    <div class="ap-muted">{context.email}</div>
+                    <div style="margin-top:8px;display:inline-block;border:1px solid rgba(255,215,0,0.35);border-radius:999px;padding:6px 12px;font-weight:700;">{context.role}</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_dashboard(session: StreamlitDistrictSession) -> None:
+    summary = session.service.dashboard_summary(session.context)
+    counts = summary.get("counts", {}) or {}
+    settings = summary.get("settings", {}) or {}
+    empties = summary.get("empty_states", {}) or {}
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Uploads", counts.get("uploads", 0))
+    m2.metric("Jobs", counts.get("jobs", 0))
+    m3.metric("Parsed Results", counts.get("results", 0))
+    m4.metric("Active Users", counts.get("active_users", 0))
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("District Workspace")
+    st.caption("All data shown below is filtered to the authenticated appraisal district.")
+    st.write(f"District: `{session.context.district_name}`")
+    st.write(f"Role: `{session.context.role}`")
+    st.write(f"Tax year: `{settings.get('tax_year') or '-'}`")
+    st.write(f"Confidence threshold: `{settings.get('confidence_threshold') or '-'}`")
+    st.write(f"Export template: `{settings.get('export_template') or '-'}`")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Empty States")
+    for key in ["jobs", "users", "schedules"]:
+        if empties.get(key):
+            st.info(str(empties[key]))
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_admin_users(session: StreamlitDistrictSession) -> None:
+    users = session.service.list_users(session.context)
+    invitations = session.service.list_invitations(session.context)
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Users")
+    if not users:
+        st.info("Invite your first appraiser.")
+    else:
+        st.dataframe(pd.DataFrame(users), use_container_width=True, hide_index=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Invite User")
+    with st.form("invite_user_form"):
+        email = st.text_input("Email", placeholder="appraiser@district.org").strip().lower()
+        full_name = st.text_input("Full Name", value="").strip() or None
+        role = st.selectbox("Role", ["appraiser", "reviewer", "readonly", "district_admin"])
+        submitted = st.form_submit_button("Create Invite")
+    if submitted:
+        try:
+            response = invite_user(session, email=email, full_name=full_name, role=role)
+            st.success("Invite prepared.")
+            st.code(response.get("invite_url") or response.get("next_step") or "", language="text")
+        except Exception as exc:
+            st.error(f"Could not invite user: {exc}")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Pending Invitations")
+    if invitations:
+        st.dataframe(pd.DataFrame(invitations), use_container_width=True, hide_index=True)
+    else:
+        st.info("No pending or historical invitations for this district.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if users:
+        st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+        st.subheader("Manage User")
+        user_options = {f"{row.get('email')} | {row.get('role')}": row for row in users}
+        selected_label = st.selectbox("District User", list(user_options.keys()))
+        selected_user = user_options[selected_label]
+        with st.form("manage_user_form"):
+            next_role = st.selectbox(
+                "Role",
+                ["district_admin", "appraiser", "reviewer", "readonly"],
+                index=["district_admin", "appraiser", "reviewer", "readonly"].index(selected_user.get("role", "appraiser")),
+            )
+            active = st.checkbox("Active", value=bool(selected_user.get("active", True)))
+            save = st.form_submit_button("Save User")
+        if save:
+            try:
+                update_user(session, district_user_id=str(selected_user["id"]), role=next_role, active=active)
+                st.success("User updated.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Could not update user: {exc}")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_district_settings(session: StreamlitDistrictSession) -> None:
+    settings = session.service.get_settings(session.context)
+    schedules = session.service.list_depreciation_schedules(session.context)
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("District Settings")
+    with st.form("district_settings_form"):
+        district_name = st.text_input("District Name", value=str(settings.get("district_name") or session.context.district_name)).strip()
+        logo_url = st.text_input("Logo URL", value=str(settings.get("logo_url") or "")).strip() or None
+        tax_year = st.number_input("Tax Year", min_value=2000, max_value=2100, value=int(settings.get("tax_year") or datetime.now().year), step=1)
+        depreciation_schedule_name = st.text_input(
+            "Depreciation Schedule",
+            value=str(settings.get("depreciation_schedule_name") or ""),
+            placeholder="LCAD 2026",
+        ).strip() or None
+        confidence_threshold = st.number_input(
+            "Confidence Threshold",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(settings.get("confidence_threshold") or 0.80),
+            step=0.01,
+            format="%.2f",
+        )
+        require_reviewer_approval = st.checkbox(
+            "Require Reviewer Approval",
+            value=bool(settings.get("require_reviewer_approval", True)),
+        )
+        export_template = st.text_input("Export Template", value=str(settings.get("export_template") or "")).strip() or None
+        submitted = st.form_submit_button("Save Settings")
+
+    if submitted:
+        try:
+            update_settings(
+                session,
+                district_name=district_name,
+                logo_url=logo_url,
+                tax_year=int(tax_year),
+                depreciation_schedule_name=depreciation_schedule_name,
+                confidence_threshold=float(confidence_threshold),
+                require_reviewer_approval=require_reviewer_approval,
+                export_template=export_template,
+            )
+            st.success("District settings updated.")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Could not save settings: {exc}")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+    st.subheader("Depreciation Schedules")
+    if schedules:
+        st.dataframe(pd.DataFrame(schedules), use_container_width=True, hide_index=True)
+    else:
+        st.info("No depreciation schedule configured.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_single_review(session: StreamlitDistrictSession) -> None:
+    if not session.context.has_permission("uploads:create"):
+        st.warning("Your role can view district data, but it cannot upload or create rendition jobs.")
+        return
+
+    settings = session.service.get_settings(session.context)
+    default_tax_year = int(settings.get("tax_year") or datetime.now().year)
+
     st.markdown('<div class="ap-card">', unsafe_allow_html=True)
     st.subheader("Single Review Controls")
     upload_key = f"single_upload_{st.session_state.get('single_upload_reset_counter', 0)}"
 
-    c1, c2 = st.columns([1.2, 1])
+    c1, c2, c3 = st.columns([1.2, 1, 0.8])
 
     with c1:
         uploaded_file = st.file_uploader(
@@ -1575,6 +1851,18 @@ def render_single_review() -> None:
                 "Force Historical Cost Less Depreciation",
             ],
             key="single_mode",
+        )
+
+    with c3:
+        selected_tax_year = int(
+            st.number_input(
+                "Tax Year",
+                min_value=2000,
+                max_value=2100,
+                value=default_tax_year,
+                step=1,
+                key="single_tax_year",
+            )
         )
 
     attachment_total = None
@@ -1682,10 +1970,19 @@ def render_single_review() -> None:
                 file_name=uploaded_file.name,
                 file_bytes=file_bytes,
                 manual_override=manual_override,
+                selected_tax_year=selected_tax_year,
+            )
+            persistence = persist_processed_upload(
+                session,
+                file_name=uploaded_file.name,
+                result=result,
+                selected_tax_year=selected_tax_year,
+                manual_override=manual_override,
             )
             st.session_state["single_result"] = result
             st.session_state["single_file_name"] = uploaded_file.name
             st.session_state["single_file_bytes"] = file_bytes
+            st.session_state["single_persistence"] = persistence
 
             st.success("Review completed.")
 
@@ -1700,8 +1997,18 @@ def render_single_review() -> None:
                     st.error(f"OCR provider error: {ocr_error}")
 
             show_top_metrics(result)
-            render_manual_assist_panel(result_file_name, result, result_file_bytes)
-            finalize_review_panel(result_file_name, result, result_file_bytes)
+            render_manual_assist_panel(
+                result_file_name,
+                result,
+                result_file_bytes,
+                selected_tax_year=selected_tax_year,
+            )
+            finalize_review_panel(
+                result_file_name,
+                result,
+                result_file_bytes,
+                district_slug=session.context.district_slug,
+            )
 
             with st.expander("Document / Form / Schedule Details", expanded=False):
                 show_flags_and_findings(result)
@@ -1734,15 +2041,35 @@ def render_single_review() -> None:
         st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_batch_review() -> None:
+def render_batch_review(session: StreamlitDistrictSession) -> None:
+    if not session.context.has_permission("uploads:create"):
+        st.warning("Your role can view district results, but it cannot upload batch jobs.")
+        return
+
+    settings = session.service.get_settings(session.context)
+    default_tax_year = int(settings.get("tax_year") or datetime.now().year)
+
     st.markdown('<div class="ap-card">', unsafe_allow_html=True)
     st.subheader("Batch Review Controls")
-    uploaded_files = st.file_uploader(
-        "Upload multiple rendition PDFs",
-        type=["pdf"],
-        accept_multiple_files=True,
-        key="batch_upload",
-    )
+    left, right = st.columns([1.4, 0.8])
+    with left:
+        uploaded_files = st.file_uploader(
+            "Upload multiple rendition PDFs",
+            type=["pdf"],
+            accept_multiple_files=True,
+            key="batch_upload",
+        )
+    with right:
+        selected_tax_year = int(
+            st.number_input(
+                "Tax Year",
+                min_value=2000,
+                max_value=2100,
+                value=default_tax_year,
+                step=1,
+                key="batch_tax_year",
+            )
+        )
     run_batch = st.button("Run Batch Review", type="primary", use_container_width=False, key="batch_run")
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1777,12 +2104,25 @@ def render_batch_review() -> None:
                 file_name=uploaded_file.name,
                 file_bytes=file_bytes,
                 manual_override=None,
+                selected_tax_year=selected_tax_year,
             )
 
             rows.append(build_batch_row(uploaded_file.name, result))
             results_payload[uploaded_file.name] = result
-            save_review_outputs(file_name=uploaded_file.name, result=result)
-            append_queue_row(file_name=uploaded_file.name, result=result, status=get_status_label(result))
+            persist_processed_upload(
+                session,
+                file_name=uploaded_file.name,
+                result=result,
+                selected_tax_year=selected_tax_year,
+                manual_override=None,
+            )
+            save_review_outputs(file_name=uploaded_file.name, result=result, district_slug=session.context.district_slug)
+            append_queue_row(
+                file_name=uploaded_file.name,
+                result=result,
+                status=get_status_label(result),
+                district_slug=session.context.district_slug,
+            )
             progress_bar.progress(idx / total)
 
         status_text.success("Batch review completed.")
@@ -1817,19 +2157,23 @@ def render_batch_review() -> None:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_review_queue() -> None:
-    ensure_output_dirs()
+def render_review_queue(session: StreamlitDistrictSession) -> None:
+    district_slug = session.context.district_slug
+    queue_csv = get_queue_csv(district_slug)
+    completed_dir = get_completed_dir(district_slug)
+    output_dir = OUTPUT_DIR if not district_slug else OUTPUT_DIR / "districts" / district_slug
+    ensure_output_dirs(district_slug)
     st.markdown('<div class="ap-card">', unsafe_allow_html=True)
     st.subheader("Review Queue")
-    st.caption(f"Saved outputs are written to {OUTPUT_DIR}")
+    st.caption(f"Saved outputs are written to {output_dir}")
 
-    if QUEUE_CSV.exists():
+    if queue_csv.exists():
         try:
-            df = pd.read_csv(QUEUE_CSV)
+            df = pd.read_csv(queue_csv)
             st.dataframe(df.sort_values(by="processed_at", ascending=False), use_container_width=True, hide_index=True)
             st.download_button(
                 "Download Queue CSV",
-                data=QUEUE_CSV.read_bytes(),
+                data=queue_csv.read_bytes(),
                 file_name="review_queue.csv",
                 mime="text/csv",
                 use_container_width=True,
@@ -1844,7 +2188,7 @@ def render_review_queue() -> None:
 
     st.markdown('<div class="ap-card">', unsafe_allow_html=True)
     st.subheader("Completed Reviews")
-    completed_files = sorted(COMPLETED_DIR.glob("*_final.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    completed_files = sorted(completed_dir.glob("*_final.json"), key=lambda path: path.stat().st_mtime, reverse=True)
     if not completed_files:
         st.info("No locked final reviews yet.")
     else:
@@ -1871,22 +2215,36 @@ def main() -> None:
     if not require_login():
         return
 
-    st.markdown('<div class="ap-title">AppraisalPilot</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="ap-subtitle">Intelligent BPP rendition review with side-by-side document verification and batch triage.</div>',
-        unsafe_allow_html=True,
-    )
+    try:
+        session = get_active_district_session()
+    except Exception as exc:
+        st.error(f"Could not restore district session: {exc}")
+        return
 
-    single_tab, batch_tab, queue_tab = st.tabs(["Single Review", "Batch Review", "Review Queue"])
+    render_app_header(session)
 
-    with single_tab:
-        render_single_review()
+    labels = ["Dashboard", "Single Review", "Batch Review", "Review Queue"]
+    if session.context.role == "district_admin":
+        labels.extend(["Users", "District Settings"])
+    tabs = st.tabs(labels)
 
-    with batch_tab:
-        render_batch_review()
+    with tabs[0]:
+        render_dashboard(session)
 
-    with queue_tab:
-        render_review_queue()
+    with tabs[1]:
+        render_single_review(session)
+
+    with tabs[2]:
+        render_batch_review(session)
+
+    with tabs[3]:
+        render_review_queue(session)
+
+    if session.context.role == "district_admin":
+        with tabs[4]:
+            render_admin_users(session)
+        with tabs[5]:
+            render_district_settings(session)
 
 
 if __name__ == "__main__":

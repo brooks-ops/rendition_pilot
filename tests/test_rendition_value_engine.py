@@ -145,3 +145,31 @@ def test_schedule_f_is_ignored():
     assert result["schedule_totals"]["B"] == 2500.0
     assert result["schedule_totals"]["E"] == 0.0
     assert "schedule_f_ignored" in result["flags"]
+
+
+def test_schedule_e_does_not_use_text_fallback_when_word_geometry_exists():
+    result = calculate_rendition_value(
+        {
+            "pages": [
+                {
+                    "page_number": 1,
+                    "text": (
+                        "SCHEDULE E\n"
+                        "Furniture and Fixtures\n"
+                        "2025 132,500 119,250\n"
+                        "TOTAL: 132,500 119,250\n"
+                    ),
+                    "ocr_blocks": [
+                        {"text": "2025", "x0": 100, "top": 200},
+                        {"text": "132,500", "x0": 150, "top": 200},
+                        {"text": "119,250", "x0": 220, "top": 200},
+                    ],
+                }
+            ],
+            "metadata": {"tax_year": 2026},
+        }
+    )
+
+    assert result["final_recommended_value"] == 119250.0
+    assert len(result["line_items"]) == 1
+    assert result["line_items"][0]["good_faith_value"] == 119250.0
