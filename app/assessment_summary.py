@@ -26,6 +26,10 @@ class AssessmentSummaryBuilder:
 
         schedule_e_total = schedule_e.get("total")
         attachment_total = attachments.get("best_attachment_total")
+        rendered_value = (
+            rendition_result.get("rendered_value")
+            or (rendition_result.get("resolved_values", {}) or {}).get("rendered_value")
+        )
         good_faith_value = (
             rendition_result.get("good_faith_value")
             or (rendition_result.get("resolved_values", {}) or {}).get("good_faith_value")
@@ -43,9 +47,11 @@ class AssessmentSummaryBuilder:
         # 1) Manual attachment total override
         # 2) Manual good faith override
         # 3) Manual historical cost less depreciation
-        # 4) Extracted attachment total
-        # 5) Extracted Schedule E total
-        # 6) Manual review
+        # 4) Extracted rendered value
+        # 5) Extracted attachment total
+        # 6) Extracted Schedule E total
+        # 7) Extracted good faith value
+        # 8) Manual review
         # ------------------------------------------------------------
 
         if attachment_total_override is not None:
@@ -62,6 +68,11 @@ class AssessmentSummaryBuilder:
             extracted_value = depreciated_value
             value_source = "manual_override_historical_cost_depreciated"
             recommended_path = "use_manual_historical_cost_depreciated"
+
+        elif rendered_value is not None:
+            extracted_value = rendered_value
+            value_source = "rendered_value"
+            recommended_path = "use_rendered_value_pending_review"
 
         elif attachment_total is not None:
             extracted_value = attachment_total
@@ -129,6 +140,11 @@ class AssessmentSummaryBuilder:
             if review_flags.get("provider_agreement"):
                 reason = "Attachment total selected and cross-checked across OCR providers."
 
+        elif recommended_path == "use_rendered_value_pending_review":
+            reason = "Rendered value selected as the best available extracted value."
+            if review_flags.get("provider_agreement"):
+                reason = "Rendered value selected and cross-checked across OCR providers."
+
         elif recommended_path == "use_schedule_total_pending_review":
             reason = "Schedule E total selected as the best available extracted value."
             if review_flags.get("provider_agreement"):
@@ -148,6 +164,7 @@ class AssessmentSummaryBuilder:
         }:
             confidence = "high"
         elif recommended_path in {
+            "use_rendered_value_pending_review",
             "use_attachment_total_pending_review",
             "use_schedule_total_pending_review",
             "use_good_faith_value_pending_review",
