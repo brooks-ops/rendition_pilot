@@ -479,6 +479,8 @@ def hydrate_analysis_env_from_secrets() -> None:
         "GOOGLE_DOCUMENT_AI_API_KEY",
         "GOOGLE_DOCUMENT_AI_ACCESS_TOKEN",
         "GOOGLE_APPLICATION_CREDENTIALS",
+        "APP_BASE_URL",
+        "SUPABASE_EMAIL_REDIRECT_TO",
     ]
 
     for name in secret_names:
@@ -498,6 +500,14 @@ def get_supabase_config() -> tuple[str, str]:
 
 def get_supabase_service_role_key() -> str:
     return get_secret("SUPABASE_SERVICE_ROLE_KEY", "")
+
+
+def get_supabase_email_redirect_url() -> str | None:
+    redirect_url = (
+        get_secret("SUPABASE_EMAIL_REDIRECT_TO", "")
+        or get_secret("APP_BASE_URL", "")
+    ).strip()
+    return redirect_url or None
 
 
 def clear_non_auth_session_state() -> None:
@@ -595,17 +605,18 @@ def sign_in_with_supabase(email: str, password: str) -> dict[str, Any]:
 
 
 def create_supabase_account(email: str, password: str) -> dict[str, Any]:
-    return supabase_auth_request(
-        "signup",
-        {
-            "email": email,
-            "password": password,
-            "data": {
-                "role": "appraiser",
-                "allowed_app": "rendition_pilot",
-            },
+    payload: dict[str, Any] = {
+        "email": email,
+        "password": password,
+        "data": {
+            "role": "appraiser",
+            "allowed_app": "rendition_pilot",
         },
-    )
+    }
+    redirect_url = get_supabase_email_redirect_url()
+    if redirect_url:
+        payload["email_redirect_to"] = redirect_url
+    return supabase_auth_request("signup", payload)
 
 
 def get_supabase_user(access_token: str) -> dict[str, Any]:

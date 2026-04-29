@@ -19,14 +19,26 @@ def test_build_calculator_rows_uses_selected_tax_year_and_prior_bucket():
     assert rows[-1]["value"] == 25.0
 
 
-def test_five_year_table_uses_excel_style_prompt_factors():
+def test_five_year_table_uses_distinct_five_year_factors():
     rows = build_calculator_rows("5_year", 2026, costs={"2024": 1000, "2018": 1000, "prior": 1000})
 
     factor_by_year = {row["display_year"]: row["factor"] for row in rows}
 
-    assert factor_by_year["2024"] == 0.60
-    assert factor_by_year["2018"] == 0.05
-    assert factor_by_year["2010 & Prior"] == 0.05
+    assert factor_by_year["2024"] == 0.45
+    assert factor_by_year["2021"] == 0.10
+    assert factor_by_year["2018"] == 0.10
+    assert factor_by_year["2010 & Prior"] == 0.10
+
+
+def test_five_year_table_does_not_match_eight_year_factors():
+    five_year_rows = build_calculator_rows("5_year", 2026, costs={"2024": 1000})
+    eight_year_rows = build_calculator_rows("8_year", 2026, costs={"2024": 1000})
+
+    five_year_factor_by_year = {row["display_year"]: row["factor"] for row in five_year_rows}
+    eight_year_factor_by_year = {row["display_year"]: row["factor"] for row in eight_year_rows}
+
+    assert five_year_factor_by_year["2024"] == 0.45
+    assert eight_year_factor_by_year["2024"] == 0.60
 
 
 def test_nine_and_twelve_year_tables_load_from_existing_schedule():

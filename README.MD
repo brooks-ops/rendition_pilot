@@ -51,6 +51,7 @@ Set these app secrets in Streamlit:
 SUPABASE_URL="https://your-project.supabase.co"
 SUPABASE_ANON_KEY="<supabase-anon-key>"
 SUPABASE_SERVICE_ROLE_KEY="<supabase-service-role-key>"
+APP_BASE_URL="https://your-streamlit-app-url"
 GOOGLE_VISION_API_KEY="<google-cloud-vision-api-key>"
 OPENAI_API_KEY="<openai-api-key>"
 OPENAI_REVIEW_ENABLED="true"
@@ -59,5 +60,7 @@ OPENAI_REVIEW_ENABLED="true"
 Important:
 
 - Run [supabase/migrations/20260429_multi_district_renditions.sql](/C:/Users/Brooks/Desktop/BPP/BPP%20Project/supabase/migrations/20260429_multi_district_renditions.sql:1) in the Supabase SQL editor before using `New CAD Setup`.
+- Set `APP_BASE_URL` to the public app URL so Supabase confirmation emails send users back to a live page.
+- In Supabase Auth settings, make sure both the project `Site URL` and redirect allow list include that same public app URL.
 - The current OpenAI OCR/review path only works if the OpenAI project has active quota/billing.
 - If OpenAI quota is exhausted, Google Vision still carries the OCR path and the app will continue to run.

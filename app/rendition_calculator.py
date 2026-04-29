@@ -70,9 +70,10 @@ TABLE_METADATA = {
     "12_year": {"label": "12 year", "life_years": 12},
 }
 
-# Match the worksheet-style factors the appraisers already use for 5- and 8-year tables.
+# Match the worksheet-style factors the appraisers already use when they differ
+# from the CSV-backed schedule. The 5-year table must stay distinct from 8-year.
 PROMPT_FACTOR_SEQUENCES = {
-    "5_year": [0.75, 0.60, 0.45, 0.35, 0.25, 0.20, 0.10, 0.05],
+    "5_year": [0.75, 0.45, 0.20, 0.15, 0.10],
     "8_year": [0.75, 0.60, 0.45, 0.35, 0.25, 0.20, 0.10, 0.05],
 }
 
