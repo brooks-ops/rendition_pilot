@@ -3,58 +3,159 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rendition Pilot Frontend</title>
+  <title>Rendition Pilot Calculator</title>
 </head>
 <body>
-  <h1>Rendition Pilot</h1>
+  <h1>Rendition Pilot Calculator</h1>
+
+  <div>
+    <label for="cost">Cost</label><br>
+    <input id="cost" type="number" step="0.01" min="0" value="10000">
+  </div>
+
+  <br>
+
+  <div>
+    <label for="year-acquired">Year Acquired</label><br>
+    <input id="year-acquired" type="number" step="1" value="2025">
+  </div>
+
+  <br>
+
+  <div>
+    <label for="schedule-type">Schedule Type</label><br>
+    <select id="schedule-type">
+      <option value="A">A</option>
+      <option value="B" selected>B</option>
+      <option value="C">C</option>
+      <option value="D">D</option>
+      <option value="E">E</option>
+    </select>
+  </div>
+
+  <br>
+
+  <div>
+    <label for="depreciation-schedule">Depreciation Schedule</label><br>
+    <select id="depreciation-schedule">
+      <option value="5">5</option>
+      <option value="8">8</option>
+      <option value="9" selected>9</option>
+      <option value="12">12</option>
+    </select>
+  </div>
+
+  <br>
 
   <button id="check-api">Check API</button>
-  <button id="run-test-calculation">Run Test Calculation</button>
+  <button id="calculate">Calculate</button>
 
-  <h2>Results</h2>
+  <h2>API Info</h2>
+  <pre id="api-info">No API check yet.</pre>
+
+  <h2>Total Value</h2>
+  <div id="total-value">No calculation yet.</div>
+
+  <h2>Request Sent</h2>
+  <pre id="request-sent">No request sent yet.</pre>
+
+  <h2>Raw JSON</h2>
   <pre id="results">No results yet.</pre>
 
   <script>
+    const API_BASE = "http://127.0.0.1:8000";
+
+    const costInput = document.getElementById("cost");
+    const yearAcquiredInput = document.getElementById("year-acquired");
+    const scheduleTypeInput = document.getElementById("schedule-type");
+    const depreciationScheduleInput = document.getElementById("depreciation-schedule");
+    const apiInfoEl = document.getElementById("api-info");
+    const totalValueEl = document.getElementById("total-value");
+    const requestSentEl = document.getElementById("request-sent");
     const resultsEl = document.getElementById("results");
 
-    function showResult(data) {
+    function showResponse(data) {
+      totalValueEl.textContent = data.total_value ?? "No total_value returned.";
       resultsEl.textContent = JSON.stringify(data, null, 2);
     }
 
     function showError(error) {
-      resultsEl.textContent = `Error: ${error.message}`;
+      totalValueEl.textContent = "Request failed.";
+      resultsEl.textContent = `URL: ${error.url}\nError: ${error.message}`;
+    }
+
+    function showApiError(error) {
+      apiInfoEl.textContent = `URL: ${error.url}\nError: ${error.message}`;
+    }
+
+    async function fetchJson(url, options = {}) {
+      try {
+        const response = await fetch(url, options);
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(typeof data.detail === "string" ? data.detail : "API request failed.");
+        }
+
+        return data;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown fetch error.";
+        throw { url, message };
+      }
     }
 
     document.getElementById("check-api").addEventListener("click", async () => {
-      resultsEl.textContent = "Loading...";
+      const url = `${API_BASE}/api/info`;
+      apiInfoEl.textContent = "Loading...";
 
       try {
-        const response = await fetch("http://127.0.0.1:8000/api/info");
-        const data = await response.json();
-        showResult(data);
+        const data = await fetchJson(url);
+        apiInfoEl.textContent = JSON.stringify(data, null, 2);
       } catch (error) {
-        showError(error);
+        showApiError(error);
       }
     });
 
-    document.getElementById("run-test-calculation").addEventListener("click", async () => {
+    document.getElementById("calculate").addEventListener("click", async () => {
+      totalValueEl.textContent = "Calculating...";
+      requestSentEl.textContent = "Preparing request...";
       resultsEl.textContent = "Loading...";
 
+      const rawCost = costInput.value.trim();
+      const rawYearAcquired = yearAcquiredInput.value.trim();
+      const cost = rawCost === "" ? 0 : parseFloat(rawCost);
+      const yearAcquired = rawYearAcquired === "" ? 0 : Number(rawYearAcquired);
+      const scheduleType = scheduleTypeInput.value;
+      const depreciationSchedule = depreciationScheduleInput.value;
+      const url = `${API_BASE}/api/calculate`;
+      const bucket = yearAcquired > 0 ? String(yearAcquired) : "prior";
+
+      const payload = {
+        schedule_type: scheduleType,
+        rows: [
+          {
+            bucket: bucket,
+            display_year: bucket,
+            cost: cost,
+            historical_cost: cost,
+            year_acquired: yearAcquired
+          }
+        ],
+        depreciation_schedule: depreciationSchedule
+      };
+
+      requestSentEl.textContent = JSON.stringify(payload, null, 2);
+
       try {
-        const response = await fetch("http://127.0.0.1:8000/api/calculate", {
+        const data = await fetchJson(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({
-            schedule_type: "B",
-            rows: [{ cost: 10000 }],
-            depreciation_schedule: "5"
-          })
+          body: JSON.stringify(payload)
         });
 
-        const data = await response.json();
-        showResult(data);
+        showResponse(data);
       } catch (error) {
         showError(error);
       }
