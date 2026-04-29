@@ -80,3 +80,27 @@ def build_schedule_a_rows(
         }
     )
     return rows
+
+
+def _build_as_is_rows(bucket: str, label: str, value: Any) -> list[dict[str, Any]]:
+    amount = round(float(value or 0.0), 2)
+    return [
+        {
+            "bucket": bucket,
+            "display_year": str(label),
+            "year_acquired": None,
+            "cost": amount,
+            "factor": 1.0,
+            "value": amount,
+        }
+    ]
+
+
+def build_schedule_b_rows(actual_cost: Any) -> list[dict[str, Any]]:
+    """Schedule B Inventory uses actual cost as-is with no depreciation applied."""
+    return _build_as_is_rows("flat_value", "Schedule B - Inventory", actual_cost)
+
+
+def build_schedule_c_rows(actual_cost: Any) -> list[dict[str, Any]]:
+    """Schedule C Supplies uses actual cost as-is with no depreciation applied."""
+    return _build_as_is_rows("flat_value", "Schedule C - Supplies", actual_cost)

@@ -60,7 +60,12 @@ from app.review_workflow import (
     stamp_reviewed_pdf,
 )
 from core.depreciation_tables import TABLE_METADATA, load_depreciation_tables
-from core.valuation_engine import build_schedule_a_rows, calculate_depreciated_value
+from core.valuation_engine import (
+    build_schedule_a_rows,
+    build_schedule_b_rows,
+    build_schedule_c_rows,
+    calculate_depreciated_value,
+)
 
 DEFAULT_SUPABASE_URL = "https://pzawjgckzcgnfsfuylqy.supabase.co"
 DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_q6lNn59Y-kz8lG0cYfJkYw_lL7xElsA"
@@ -1985,7 +1990,12 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
             label_visibility="collapsed",
         )
         editor["costs"] = {"flat_value": round(float(flat_value), 2)}
-        rows = build_flat_value_rows(selected_preset["label"], editor["costs"]["flat_value"])
+        if selected_section_key == "schedule_b_inventory":
+            rows = build_schedule_b_rows(editor["costs"]["flat_value"])
+        elif selected_section_key == "schedule_c_supplies":
+            rows = build_schedule_c_rows(editor["costs"]["flat_value"])
+        else:
+            rows = build_flat_value_rows(selected_preset["label"], editor["costs"]["flat_value"])
     else:
         supplemental_rows: list[dict[str, Any]] = []
         if supplemental_flat_label:

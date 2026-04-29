@@ -6,6 +6,7 @@ from app.rendition_calculator import (
     calculate_section_total,
     load_depreciation_tables,
 )
+from core.valuation_engine import build_schedule_b_rows, build_schedule_c_rows
 
 
 def test_build_calculator_rows_uses_selected_tax_year_and_prior_bucket():
@@ -81,6 +82,14 @@ def test_flat_value_rows_build_single_total_row():
         }
     ]
     assert calculate_section_total(rows) == 12500.0
+
+
+def test_schedule_b_rows_match_existing_flat_value_contract():
+    assert build_schedule_b_rows(12500) == build_flat_value_rows("Schedule B - Inventory", 12500)
+
+
+def test_schedule_c_rows_match_existing_flat_value_contract():
+    assert build_schedule_c_rows(850) == build_flat_value_rows("Schedule C - Supplies", 850)
 
 
 def test_schedule_d_auto_roll_value_can_be_added_to_depreciation_rows():
