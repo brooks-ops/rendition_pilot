@@ -1912,6 +1912,7 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
 
     selected_preset = SECTION_PRESETS[selected_section_key]
     entry_mode = str(selected_preset.get("entry_mode") or "depreciation")
+    supplemental_flat_label = str(selected_preset.get("supplemental_flat_label") or "").strip()
     if selected_section_key != editor["section_key"]:
         st.session_state[name_key] = ""
         st.session_state[custom_name_key] = ""
@@ -1988,6 +1989,24 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
         editor["costs"] = {"flat_value": round(float(flat_value), 2)}
         rows = build_flat_value_rows(selected_preset["label"], editor["costs"]["flat_value"])
     else:
+        supplemental_rows: list[dict[str, Any]] = []
+        if supplemental_flat_label:
+            supplemental_bucket = "auto_roll_value"
+            supplemental_key = get_calculator_cost_key(file_name, int(editor["nonce"]), supplemental_bucket)
+            if supplemental_key not in st.session_state:
+                st.session_state[supplemental_key] = float(editor["costs"].get(supplemental_bucket, 0.0) or 0.0)
+            st.markdown(f'<div class="ap-calc-label">{supplemental_flat_label}</div>', unsafe_allow_html=True)
+            supplemental_value = st.number_input(
+                supplemental_flat_label,
+                min_value=0.0,
+                step=100.0,
+                format="%.2f",
+                key=supplemental_key,
+                label_visibility="collapsed",
+            )
+            editor["costs"][supplemental_bucket] = round(float(supplemental_value), 2)
+            supplemental_rows = build_flat_value_rows(supplemental_flat_label, editor["costs"][supplemental_bucket])
+
         rows = build_calculator_rows(
             depreciation_table,
             int(selected_tax_year),
@@ -2029,6 +2048,8 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
                 row["value"] = round(row["cost"] * row["factor"], 2)
                 row_cols[2].markdown(f'<span class="ap-calc-factor">{row["factor"]:.2f}</span>', unsafe_allow_html=True)
                 row_cols[3].markdown(f'<div class="ap-calc-value">{format_money(row["value"])}</div>', unsafe_allow_html=True)
+
+        rows = supplemental_rows + rows
 
     section_total = calculate_section_total(rows)
     save_calculator_editor(file_name, editor)

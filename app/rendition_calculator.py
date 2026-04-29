@@ -45,6 +45,7 @@ SECTION_PRESETS = {
         "category": "Vehicles",
         "default_table": "9_year",
         "entry_mode": "depreciation",
+        "supplemental_flat_label": "Auto Roll Value",
     },
     "schedule_e_computers": {
         "label": "Schedule E - Computers",

@@ -69,3 +69,11 @@ def test_flat_value_rows_build_single_total_row():
         }
     ]
     assert calculate_section_total(rows) == 12500.0
+
+
+def test_schedule_d_auto_roll_value_can_be_added_to_depreciation_rows():
+    rows = build_flat_value_rows("Auto Roll Value", 4000) + build_calculator_rows("9_year", 2026, costs={"2025": 10000})
+
+    assert rows[0]["bucket"] == "flat_value"
+    assert rows[0]["value"] == 4000.0
+    assert calculate_section_total(rows) == 13000.0

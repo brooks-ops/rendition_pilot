@@ -1,5 +1,6 @@
 from app.rendition_value_engine import (
     RenditionLineItem,
+    _parse_money_tokens,
     calculate_rendition_value,
     calculate_schedule_a,
     calculate_schedule_b,
@@ -65,6 +66,12 @@ def test_schedule_d_historical_cost_uses_9_year_table():
     assert result["evaluated_items"][0]["depreciation_factor"] == expected_factor
 
 
+def test_parse_money_tokens_rejects_merged_year_strings_but_keeps_real_amounts():
+    assert _parse_money_tokens("2021 2423 2024") == []
+    assert _parse_money_tokens("2425 2025") == []
+    assert _parse_money_tokens("10,424") == [{"raw": "10,424", "value": 10424.0, "start": 0}]
+
+
 def test_schedule_e_furniture_uses_9_year_table():
     expected_value, _expected_factor = get_depreciated_value(12000.0, 2024, 9)
     result = calculate_schedule_e(
@@ -111,6 +118,17 @@ def test_schedule_e_other_uses_9_year_table():
         [RenditionLineItem(schedule="E", subsection="other", historical_cost=9000.0, year_acquired=2022)]
     )
     assert result["subsection_totals"]["other"] == expected_value
+
+
+def test_values_over_trust_threshold_are_zeroed_and_flagged():
+    result = calculate_schedule_b(
+        [RenditionLineItem(schedule="B", exact_value=25000001.0, raw_text="bad OCR row")]
+    )
+
+    assert result["total"] == 0.0
+    assert "value_over_trust_threshold" in result["flags"]
+    assert result["evaluated_items"][0]["calculated_value"] == 0.0
+    assert result["evaluated_items"][0]["value_source"] == "value_zeroed_over_trust_threshold"
 
 
 def test_missing_year_creates_flag_and_does_not_guess():

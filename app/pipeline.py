@@ -3191,10 +3191,49 @@ def run_rendition_pipeline(
     )
     structured_line_items = list(structured_result.get("line_items") or [])
     structured_recommended_value = structured_result.get("recommended_value")
+    extraction_provider = structured_result.get("extraction_provider")
+    structured_review_flags = list(structured_result.get("review_flags") or [])
+    document_confidence = structured_result.get("document_confidence")
+    normalized_schema = structured_result.get("normalized_schema") or {}
+    structured_debug = structured_result.get("debug") or {}
     use_legacy_schedule_rule = (
-        structured_result.get("extraction_provider") == "fallback_text"
-        and not structured_line_items
-        and legacy_valuation_result.get("final_recommended_value") is not None
+        legacy_valuation_result.get("final_recommended_value") is not None
+        and (
+            (
+                extraction_provider == "fallback_text"
+                and not structured_line_items
+            )
+            or (
+                extraction_provider == "fallback_text"
+                and (
+                    structured_recommended_value in {None, 0.0}
+                    or "ambiguous_schedule_e_subsection_mapping" in structured_review_flags
+                    or any(
+                        flag in structured_review_flags
+                        for flag in {
+                            "missing_schedule_a",
+                            "missing_schedule_b",
+                            "missing_schedule_c",
+                            "missing_schedule_d",
+                            "low_confidence_schedule_a",
+                            "low_confidence_schedule_b",
+                            "low_confidence_schedule_c",
+                            "low_confidence_schedule_d",
+                        }
+                    )
+                    or (
+                        structured_recommended_value not in {None, 0.0}
+                        and float(legacy_valuation_result.get("final_recommended_value") or 0.0)
+                        > float(structured_recommended_value or 0.0) * 2
+                        and structured_line_items
+                        and all(
+                            "text_fallback_extraction" in (item.get("flags") or [])
+                            for item in structured_line_items
+                        )
+                    )
+                )
+            )
+        )
     )
     if use_legacy_schedule_rule:
         schedule_breakdown = {
@@ -3212,20 +3251,14 @@ def run_rendition_pipeline(
         }
         structured_line_items = list(legacy_valuation_result.get("line_items") or [])
         structured_recommended_value = legacy_valuation_result.get("final_recommended_value")
-    else:
-        schedule_breakdown = structured_result.get("schedule_breakdown") or {}
-    schedule_e_breakdown = ((schedule_breakdown.get("schedule_e") or {}).get("categories") or {})
-    normalized_schema = structured_result.get("normalized_schema") or {}
-    structured_review_flags = list(structured_result.get("review_flags") or [])
-    extraction_provider = structured_result.get("extraction_provider")
-    document_confidence = structured_result.get("document_confidence")
-    structured_debug = structured_result.get("debug") or {}
-    if use_legacy_schedule_rule:
         structured_review_flags = sorted(set(structured_review_flags + ["legacy_ocr_schedule_rule_fallback_used"]))
         structured_debug = {
             **structured_debug,
             "legacy_ocr_schedule_rule_fallback_used": True,
         }
+    else:
+        schedule_breakdown = structured_result.get("schedule_breakdown") or {}
+    schedule_e_breakdown = ((schedule_breakdown.get("schedule_e") or {}).get("categories") or {})
     result.update(
         {
             "source_pdf": str(pdf_path),

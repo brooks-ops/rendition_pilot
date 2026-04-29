@@ -27,6 +27,7 @@ SCHEDULE_E_BREAKDOWN_KEYS = [
     "pos_servers_mainframes",
     "other",
 ]
+MAX_TRUSTED_EXTRACTED_VALUE = 20_000_000.0
 
 MONEY_TOKEN_RE = re.compile(
     r"\$?\s*[0-9Oo][0-9Oo,\s.]{0,20}(?:\.\d{1,2})?"
@@ -410,6 +411,12 @@ def _evaluate_line_item(
         row_flags.append("unreadable_value")
         value_source = "no_usable_value"
 
+    if selected_value is not None and float(selected_value) > MAX_TRUSTED_EXTRACTED_VALUE:
+        selected_value = 0.0
+        factor_used = None
+        row_flags.append("value_over_trust_threshold")
+        value_source = "value_zeroed_over_trust_threshold"
+
     if (item.confidence or 0) < 0.55:
         row_flags.append("low_confidence_ocr")
 
@@ -640,6 +647,11 @@ def _parse_money_tokens(text: str) -> list[dict[str, Any]]:
         if value < 100:
             continue
         if float(value).is_integer() and 1900 <= int(value) <= 2100:
+            continue
+        compact = raw.replace("$", "").strip()
+        digit_groups = re.findall(r"\d{3,4}", compact)
+        year_like_groups = [group for group in digit_groups if YEAR_RE.fullmatch(group)]
+        if " " in compact and "," not in compact and "." not in compact and len(digit_groups) >= 2 and year_like_groups:
             continue
         tokens.append({"raw": raw, "value": value, "start": match.start()})
     return tokens
