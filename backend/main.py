@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
@@ -40,6 +41,16 @@ class CalculateResponse(BaseModel):
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "rendition-pilot-api"}
+
+
+@app.get("/api/info")
+def info() -> dict[str, str]:
+    return {
+        "status": "ok",
+        "service": "rendition-pilot-api",
+        "version": "v1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def _to_float(value: Any) -> float:
