@@ -6,7 +6,7 @@ from app.rendition_calculator import (
     calculate_section_total,
     load_depreciation_tables,
 )
-from core.valuation_engine import build_schedule_b_rows, build_schedule_c_rows
+from core.valuation_engine import build_schedule_b_rows, build_schedule_c_rows, build_schedule_d_rows
 
 
 def test_build_calculator_rows_uses_selected_tax_year_and_prior_bucket():
@@ -98,3 +98,15 @@ def test_schedule_d_auto_roll_value_can_be_added_to_depreciation_rows():
     assert rows[0]["bucket"] == "flat_value"
     assert rows[0]["value"] == 4000.0
     assert calculate_section_total(rows) == 13000.0
+
+
+def test_schedule_d_rows_match_existing_nine_year_contract():
+    tables = load_depreciation_tables()
+    costs = {"2025": 10000, "2024": 5000, "prior": 2500}
+
+    assert build_schedule_d_rows(2026, costs=costs, tables=tables) == build_calculator_rows(
+        "9_year",
+        2026,
+        costs=costs,
+        tables=tables,
+    )

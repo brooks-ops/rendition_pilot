@@ -32,6 +32,36 @@ def build_schedule_a_rows(
     tables: dict[str, TableDefinition] | None = None,
 ) -> list[dict[str, Any]]:
     """Schedule A adds Good Faith Estimate values as-is and depreciates Historical Cost values on the 9-year schedule by Year Acquired, then totals those adjusted values."""
+    return _build_nine_year_schedule_rows(
+        tax_year,
+        costs=costs,
+        good_faith_value=good_faith_value,
+    )
+
+
+def build_schedule_d_rows(
+    tax_year: int,
+    *,
+    costs: dict[str, Any] | None = None,
+    good_faith_value: Any = None,
+    tables: dict[str, TableDefinition] | None = None,
+) -> list[dict[str, Any]]:
+    """Schedule D adds Good Faith values as-is and depreciates Historical Cost values on the 9-year schedule using Year Acquired."""
+    return _build_nine_year_schedule_rows(
+        tax_year,
+        costs=costs,
+        good_faith_value=good_faith_value,
+        tables=tables,
+    )
+
+
+def _build_nine_year_schedule_rows(
+    tax_year: int,
+    *,
+    costs: dict[str, Any] | None = None,
+    good_faith_value: Any = None,
+    tables: dict[str, TableDefinition] | None = None,
+) -> list[dict[str, Any]]:
     definitions = tables or load_depreciation_tables()
     table = definitions["9_year"]
     cost_map = costs or {}
