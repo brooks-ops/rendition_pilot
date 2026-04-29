@@ -1,4 +1,6 @@
 streamlit
+fastapi
+uvicorn
 pandas
 pdfplumber
 pymupdf
