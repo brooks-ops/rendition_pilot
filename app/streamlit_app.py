@@ -23,7 +23,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.cli import build_cli_summary
-from app.depreciation import DepreciationEngine
 from app.district_service import (
     DistrictContext,
     DistrictServiceError,
@@ -61,6 +60,7 @@ from app.review_workflow import (
     stamp_reviewed_pdf,
 )
 from core.depreciation_tables import TABLE_METADATA, load_depreciation_tables
+from core.valuation_engine import calculate_depreciated_value
 
 DEFAULT_SUPABASE_URL = "https://pzawjgckzcgnfsfuylqy.supabase.co"
 DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_q6lNn59Y-kz8lG0cYfJkYw_lL7xElsA"
@@ -1672,18 +1672,6 @@ def extract_money_values(text: str) -> list[float]:
         if value is not None and value > 0:
             values.append(value)
     return values
-
-
-def calculate_depreciated_value(historical_cost: float, acquisition_year: int, life_years: int) -> tuple[float | None, float | None]:
-    schedule_path = PROJECT_ROOT / "Data" / "depreciation_schedule.csv"
-    if not schedule_path.exists():
-        return None, None
-    engine = DepreciationEngine(str(schedule_path))
-    return engine.assess_value(
-        original_cost=float(historical_cost),
-        acquisition_year=int(acquisition_year),
-        life_years=int(life_years),
-    )
 
 
 def apply_manual_assist_override(file_name: str, file_bytes: bytes, manual_override: dict) -> None:
