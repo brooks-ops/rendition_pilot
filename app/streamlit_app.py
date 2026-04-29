@@ -40,14 +40,12 @@ from app.district_service import (
 from app.pipeline import run_rendition_pipeline
 from app.rendition_calculator import (
     SECTION_PRESETS,
-    TABLE_METADATA,
     build_calculator_rows,
     build_flat_value_rows,
     build_saved_calculator,
     calculate_combined_total,
     calculate_section_total,
     generate_calculator_name,
-    load_depreciation_tables,
     resolve_tax_year,
 )
 from app.review_workflow import (
@@ -62,6 +60,7 @@ from app.review_workflow import (
     save_review_outputs,
     stamp_reviewed_pdf,
 )
+from core.depreciation_tables import TABLE_METADATA, load_depreciation_tables
 
 DEFAULT_SUPABASE_URL = "https://pzawjgckzcgnfsfuylqy.supabase.co"
 DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_q6lNn59Y-kz8lG0cYfJkYw_lL7xElsA"
