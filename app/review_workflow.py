@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -13,12 +14,65 @@ OUTPUT_DIR = PROJECT_ROOT / "Output"
 COMPLETED_DIR = OUTPUT_DIR / "completed_reviews"
 APPRAISER_UPLOAD_DIR = OUTPUT_DIR / "appraiser_uploads"
 QUEUE_CSV = OUTPUT_DIR / "review_queue.csv"
+LEGACY_LUBBOCK_DISTRICT_SLUG = "lubbock-cad"
 
 
-def ensure_output_dirs() -> None:
+def safe_district_slug(value: str | None) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "-", str(value or "").strip().lower()).strip("-_")
+    return cleaned or "district"
+
+
+def get_output_paths(district_slug: str | None = None) -> dict[str, Path]:
+    if district_slug:
+        root = OUTPUT_DIR / "districts" / safe_district_slug(district_slug)
+    else:
+        root = OUTPUT_DIR
+    return {
+        "root": root,
+        "completed": root / "completed_reviews",
+        "uploads": root / "appraiser_uploads",
+        "queue_csv": root / "review_queue.csv",
+    }
+
+
+def ensure_output_dirs(district_slug: str | None = None) -> dict[str, Path]:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    COMPLETED_DIR.mkdir(parents=True, exist_ok=True)
-    APPRAISER_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    paths = get_output_paths(district_slug)
+    paths["root"].mkdir(parents=True, exist_ok=True)
+    paths["completed"].mkdir(parents=True, exist_ok=True)
+    paths["uploads"].mkdir(parents=True, exist_ok=True)
+    return paths
+
+
+def backfill_legacy_outputs(district_slug: str | None) -> None:
+    if safe_district_slug(district_slug) != LEGACY_LUBBOCK_DISTRICT_SLUG:
+        return
+
+    legacy_paths = get_output_paths(None)
+    district_paths = ensure_output_dirs(district_slug)
+
+    for pattern in ("*_review.json", "*_summary.csv"):
+        for source in legacy_paths["root"].glob(pattern):
+            destination = district_paths["root"] / source.name
+            if not destination.exists():
+                shutil.copy2(source, destination)
+
+    if legacy_paths["queue_csv"].exists() and not district_paths["queue_csv"].exists():
+        shutil.copy2(legacy_paths["queue_csv"], district_paths["queue_csv"])
+
+    for source_dir_key in ("completed", "uploads"):
+        source_dir = legacy_paths[source_dir_key]
+        destination_dir = district_paths[source_dir_key]
+        if not source_dir.exists():
+            continue
+        for source in source_dir.iterdir():
+            destination = destination_dir / source.name
+            if destination.exists():
+                continue
+            if source.is_dir():
+                shutil.copytree(source, destination)
+            else:
+                shutil.copy2(source, destination)
 
 
 def safe_stem(file_name: str) -> str:
@@ -188,6 +242,7 @@ def build_final_review_record(
     appraiser_initials: str = "",
     decision: str = "accepted",
     account_number: str = "",
+    district_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     assessment = result.get("assessment_summary", {}) or {}
     agent_review = result.get("agent_review", {}) or {}
@@ -195,7 +250,7 @@ def build_final_review_record(
     metadata = result.get("metadata", {}) or {}
     account_number = safe_account_number(account_number or metadata.get("account_number"))
 
-    return {
+    record = {
         "file_name": file_name,
         "account_number": account_number,
         "locked_at": datetime.now().isoformat(timespec="seconds"),
@@ -215,22 +270,34 @@ def build_final_review_record(
         "agent_reasoning": agent_review.get("reasoning"),
         "agent_recommended_values": agent_review.get("recommended_values", {}),
     }
+    if district_context:
+        record["district"] = {
+            "id": district_context.get("district_id"),
+            "slug": district_context.get("district_slug"),
+            "name": district_context.get("district_name"),
+        }
+    return record
 
 
-def stamp_reviewed_pdf(file_name: str, file_bytes: bytes, final_record: dict[str, Any]) -> Path:
+def stamp_reviewed_pdf(
+    file_name: str,
+    file_bytes: bytes,
+    final_record: dict[str, Any],
+    district_slug: str | None = None,
+) -> Path:
     """
     Stamp page 1 with the locked value, appraiser initials, date, decision,
     and appraiser notes. Long notes are also appended as a final review page.
     The original PDF is not modified.
     """
-    ensure_output_dirs()
+    paths = ensure_output_dirs(district_slug)
 
     import fitz  # PyMuPDF
 
     account_number = safe_account_number(final_record.get("account_number"))
     stem = account_number or safe_stem(file_name)
     decision = str(final_record.get("decision") or "reviewed").lower()
-    out_path = APPRAISER_UPLOAD_DIR / f"{stem}.pdf"
+    out_path = paths["uploads"] / f"{stem}.pdf"
 
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     if len(doc) == 0:
@@ -329,30 +396,48 @@ def stamp_reviewed_pdf(file_name: str, file_bytes: bytes, final_record: dict[str
     return out_path
 
 
-def save_review_outputs(file_name: str, result: dict[str, Any], final_record: dict[str, Any] | None = None) -> dict[str, Path]:
-    ensure_output_dirs()
+def save_review_outputs(
+    file_name: str,
+    result: dict[str, Any],
+    final_record: dict[str, Any] | None = None,
+    district_context: dict[str, Any] | None = None,
+) -> dict[str, Path]:
+    district_slug = str((district_context or {}).get("district_slug") or "").strip() or None
+    paths = ensure_output_dirs(district_slug)
     stem = safe_stem(file_name)
-    paths = {
-        "json": OUTPUT_DIR / f"{stem}_review.json",
-        "summary": OUTPUT_DIR / f"{stem}_summary.csv",
+    file_paths = {
+        "json": paths["root"] / f"{stem}_review.json",
+        "summary": paths["root"] / f"{stem}_summary.csv",
     }
 
     payload = dict(result)
+    if district_context:
+        payload["district"] = {
+            "id": district_context.get("district_id"),
+            "slug": district_context.get("district_slug"),
+            "name": district_context.get("district_name"),
+        }
     if final_record:
         payload["final_review"] = final_record
 
-    paths["json"].write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-    write_summary_csv(paths["summary"], file_name, result, final_record)
+    file_paths["json"].write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    write_summary_csv(file_paths["summary"], file_name, result, final_record, district_context=district_context)
 
     if final_record:
-        final_path = COMPLETED_DIR / f"{stem}_final.json"
+        final_path = paths["completed"] / f"{stem}_final.json"
         final_path.write_text(json.dumps(final_record, indent=2, default=str), encoding="utf-8")
-        paths["final"] = final_path
+        file_paths["final"] = final_path
 
-    return paths
+    return file_paths
 
 
-def write_summary_csv(path: Path, file_name: str, result: dict[str, Any], final_record: dict[str, Any] | None = None) -> None:
+def write_summary_csv(
+    path: Path,
+    file_name: str,
+    result: dict[str, Any],
+    final_record: dict[str, Any] | None = None,
+    district_context: dict[str, Any] | None = None,
+) -> None:
     assessment = result.get("assessment_summary", {}) or {}
     agent_review = result.get("agent_review", {}) or {}
     form_flags = result.get("form_flags", {}) or {}
@@ -362,6 +447,9 @@ def write_summary_csv(path: Path, file_name: str, result: dict[str, Any], final_
 
     row = {
         "file_name": file_name,
+        "district_id": (district_context or {}).get("district_id"),
+        "district_slug": (district_context or {}).get("district_slug"),
+        "district_name": (district_context or {}).get("district_name"),
         "tax_year": metadata.get("tax_year"),
         "owner_name": metadata.get("owner_name"),
         "account_number": metadata.get("account_number"),
@@ -389,14 +477,23 @@ def write_summary_csv(path: Path, file_name: str, result: dict[str, Any], final_
         writer.writerow(row)
 
 
-def append_queue_row(file_name: str, result: dict[str, Any], status: str) -> None:
-    ensure_output_dirs()
+def append_queue_row(
+    file_name: str,
+    result: dict[str, Any],
+    status: str,
+    district_context: dict[str, Any] | None = None,
+) -> None:
+    district_slug = str((district_context or {}).get("district_slug") or "").strip() or None
+    paths = ensure_output_dirs(district_slug)
     assessment = result.get("assessment_summary", {}) or {}
     agent_review = result.get("agent_review", {}) or {}
     metadata = result.get("metadata", {}) or {}
     row = {
         "processed_at": datetime.now().isoformat(timespec="seconds"),
         "file_name": file_name,
+        "district_id": (district_context or {}).get("district_id"),
+        "district_slug": (district_context or {}).get("district_slug"),
+        "district_name": (district_context or {}).get("district_name"),
         "tax_year": metadata.get("tax_year"),
         "owner_name": metadata.get("owner_name"),
         "account_number": metadata.get("account_number"),
@@ -408,8 +505,9 @@ def append_queue_row(file_name: str, result: dict[str, Any], status: str) -> Non
         "agent_status": agent_review.get("status"),
     }
 
-    write_header = not QUEUE_CSV.exists()
-    with QUEUE_CSV.open("a", newline="", encoding="utf-8") as handle:
+    queue_csv = paths["queue_csv"]
+    write_header = not queue_csv.exists()
+    with queue_csv.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(row.keys()))
         if write_header:
             writer.writeheader()

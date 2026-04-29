@@ -24,6 +24,19 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from app.cli import build_cli_summary
 from app.depreciation import DepreciationEngine
+from app.district_service import (
+    DistrictContext,
+    DistrictServiceError,
+    create_or_update_district,
+    find_district_by_domain,
+    infer_domain_from_email,
+    link_user_to_district,
+    normalize_email,
+    resolve_district_for_user,
+    slugify_district_name,
+    slugify_district_slug,
+    verify_supabase_district_setup,
+)
 from app.pipeline import run_rendition_pipeline
 from app.rendition_calculator import (
     SECTION_PRESETS,
@@ -37,30 +50,29 @@ from app.rendition_calculator import (
     resolve_tax_year,
 )
 from app.review_workflow import (
-    APPRAISER_UPLOAD_DIR,
-    COMPLETED_DIR,
     OUTPUT_DIR,
-    QUEUE_CSV,
     append_queue_row,
+    backfill_legacy_outputs,
     build_final_review_record,
     ensure_output_dirs,
+    get_output_paths,
     get_recommended_value,
     save_review_outputs,
     stamp_reviewed_pdf,
 )
 
-
-AUTHORIZED_USERS = {
-    "bbarrett@lubbockcad.org",
-    "bgarnica@lubbockcad.org",
-    "emontoya@lubbockcad.org",
-    "ctrimble@lubbockcad.org",
-    "lflores@lubbockcad.org",
-    "hmccauley@dallamcad.org",
-}
-
 DEFAULT_SUPABASE_URL = "https://pzawjgckzcgnfsfuylqy.supabase.co"
 DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_q6lNn59Y-kz8lG0cYfJkYw_lL7xElsA"
+UNLINKED_DISTRICT_MESSAGE = "Your account is not currently linked to an appraisal district. Please contact an administrator."
+AUTH_SESSION_KEYS = {
+    "authenticated_user",
+    "authenticated_user_id",
+    "supabase_access_token",
+    "district_id",
+    "district_slug",
+    "district_name",
+    "district_domain",
+}
 
 st.set_page_config(
     page_title="AppraisalPilot",
@@ -482,6 +494,69 @@ def get_supabase_config() -> tuple[str, str]:
     )
 
 
+def get_supabase_service_role_key() -> str:
+    return get_secret("SUPABASE_SERVICE_ROLE_KEY", "")
+
+
+def clear_non_auth_session_state() -> None:
+    for key in list(st.session_state.keys()):
+        if key not in AUTH_SESSION_KEYS:
+            st.session_state.pop(key, None)
+
+
+def get_session_district_context() -> dict[str, str | None] | None:
+    district_id = str(st.session_state.get("district_id") or "").strip()
+    district_slug = str(st.session_state.get("district_slug") or "").strip()
+    district_name = str(st.session_state.get("district_name") or "").strip()
+    if not district_id or not district_slug or not district_name:
+        return None
+    return {
+        "district_id": district_id,
+        "district_slug": district_slug,
+        "district_name": district_name,
+        "district_domain": str(st.session_state.get("district_domain") or "").strip() or None,
+    }
+
+
+def get_session_district_slug() -> str | None:
+    context = get_session_district_context()
+    if not context:
+        return None
+    return str(context["district_slug"])
+
+
+def build_district_context(user: dict[str, Any], access_token: str) -> DistrictContext | None:
+    supabase_url, anon_key = get_supabase_config()
+    service_role_key = get_supabase_service_role_key()
+    email = normalize_email(str(user.get("email") or ""))
+    user_id = str(user.get("id") or "").strip() or None
+    return resolve_district_for_user(
+        supabase_url=supabase_url,
+        anon_key=anon_key,
+        access_token=access_token,
+        email=email,
+        user_id=user_id,
+        service_role_key=service_role_key or None,
+    )
+
+
+def apply_authenticated_session(user: dict[str, Any], access_token: str, district: DistrictContext) -> None:
+    clear_non_auth_session_state()
+    st.session_state["authenticated_user"] = district.email
+    st.session_state["authenticated_user_id"] = district.user_id or str(user.get("id") or "").strip() or None
+    st.session_state["supabase_access_token"] = access_token
+    st.session_state["district_id"] = district.district_id
+    st.session_state["district_slug"] = district.district_slug
+    st.session_state["district_name"] = district.district_name
+    st.session_state["district_domain"] = district.domain
+    backfill_legacy_outputs(district.district_slug)
+    st.query_params["session_token"] = access_token
+
+
+def show_unlinked_district_message() -> None:
+    st.error(UNLINKED_DISTRICT_MESSAGE)
+
+
 def supabase_auth_request(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     supabase_url, anon_key = get_supabase_config()
     if not anon_key:
@@ -557,7 +632,11 @@ def get_supabase_user(access_token: str) -> dict[str, Any]:
 
 
 def restore_login_from_query_params() -> None:
-    if st.session_state.get("authenticated_user") and st.session_state.get("supabase_access_token"):
+    if (
+        st.session_state.get("authenticated_user")
+        and st.session_state.get("supabase_access_token")
+        and st.session_state.get("district_id")
+    ):
         return
 
     access_token = st.query_params.get("session_token", "")
@@ -570,32 +649,44 @@ def restore_login_from_query_params() -> None:
         st.query_params.clear()
         return
 
-    email = str(user.get("email", "")).lower()
-    if email in AUTHORIZED_USERS:
-        st.session_state["authenticated_user"] = email
-        st.session_state["supabase_access_token"] = access_token
-    else:
+    try:
+        district = build_district_context(user, access_token)
+    except Exception:
         st.query_params.clear()
+        return
+
+    if not district:
+        st.query_params.clear()
+        st.session_state["district_link_missing"] = True
+        return
+
+    apply_authenticated_session(user, access_token, district)
 
 
-def persist_login(email: str, access_token: str) -> None:
-    st.session_state["authenticated_user"] = email
-    st.session_state["supabase_access_token"] = access_token
-    st.query_params["session_token"] = access_token
+def persist_login(user: dict[str, Any], access_token: str, district: DistrictContext) -> None:
+    apply_authenticated_session(user, access_token, district)
 
 
 def clear_login() -> None:
-    st.session_state.pop("authenticated_user", None)
-    st.session_state.pop("supabase_access_token", None)
+    for key in list(st.session_state.keys()):
+        st.session_state.pop(key, None)
     st.query_params.clear()
 
 
 def require_login() -> bool:
     restore_login_from_query_params()
 
-    if st.session_state.get("authenticated_user") in AUTHORIZED_USERS and st.session_state.get("supabase_access_token"):
+    if st.session_state.pop("district_link_missing", False):
+        show_unlinked_district_message()
+
+    if (
+        st.session_state.get("authenticated_user")
+        and st.session_state.get("supabase_access_token")
+        and st.session_state.get("district_id")
+    ):
         with st.sidebar:
             st.caption(f"Signed in as {st.session_state['authenticated_user']}")
+            st.caption(f"District: {st.session_state['district_name']}")
             if st.button("Sign Out", key="sign_out"):
                 clear_login()
                 st.rerun()
@@ -613,7 +704,7 @@ def require_login() -> bool:
         st.code('$env:SUPABASE_ANON_KEY="your-supabase-anon-key"', language="powershell")
         return False
 
-    login_tab, create_tab = st.tabs(["Login", "Create Login"])
+    login_tab, create_tab, cad_tab = st.tabs(["Login", "Create Login", "New CAD Setup"])
 
     with login_tab:
         with st.form("login_form"):
@@ -622,10 +713,6 @@ def require_login() -> bool:
             submitted = st.form_submit_button("Login")
 
         if submitted:
-            if email not in AUTHORIZED_USERS:
-                st.error("This email is not authorized for AppraisalPilot.")
-                return False
-
             try:
                 auth_result = sign_in_with_supabase(email, password)
             except Exception as exc:
@@ -637,20 +724,31 @@ def require_login() -> bool:
                 st.error("Login did not return a session. Confirm the account email first, then try again.")
                 return False
 
-            persist_login(email, access_token)
+            try:
+                user = auth_result.get("user") or get_supabase_user(access_token)
+                district = build_district_context(user, access_token)
+            except DistrictServiceError as exc:
+                st.error(str(exc))
+                return False
+            except Exception as exc:
+                st.error(f"District lookup failed: {exc}")
+                return False
+
+            if not district:
+                show_unlinked_district_message()
+                return False
+
+            persist_login(user, access_token, district)
             st.rerun()
 
     with create_tab:
         with st.form("create_login_form"):
-            new_email = st.text_input("Email", value="", placeholder="name@lubbockcad.org", key="signup_email").strip().lower()
+            new_email = st.text_input("Email", value="", placeholder="name@cad.org", key="signup_email").strip().lower()
             new_password = st.text_input("Password", value="", type="password", key="signup_password")
             confirm_password = st.text_input("Confirm Password", value="", type="password", key="signup_confirm_password")
             create_submitted = st.form_submit_button("Create Login")
 
         if create_submitted:
-            if new_email not in AUTHORIZED_USERS:
-                st.error("This email is not authorized to create an AppraisalPilot login.")
-                return False
             if len(new_password) < 8:
                 st.error("Password must be at least 8 characters.")
                 return False
@@ -664,15 +762,164 @@ def require_login() -> bool:
                 st.error(f"Account creation failed: {exc}")
                 return False
 
+            access_token = (
+                signup_result.get("access_token")
+                or (signup_result.get("session") or {}).get("access_token")
+            )
+            user = signup_result.get("user")
+            if access_token and not user:
+                try:
+                    user = get_supabase_user(access_token)
+                except Exception:
+                    user = {"email": new_email}
+
             if signup_result.get("session") or signup_result.get("access_token"):
-                access_token = (
-                    signup_result.get("access_token")
-                    or (signup_result.get("session") or {}).get("access_token")
-                )
-                persist_login(new_email, access_token)
+                if access_token:
+                    service_role_key = get_supabase_service_role_key()
+                    email_domain = infer_domain_from_email(new_email)
+                    if service_role_key and email_domain:
+                        try:
+                            domain_district = find_district_by_domain(
+                                supabase_url=_supabase_url,
+                                service_role_key=service_role_key,
+                                domain=email_domain,
+                            )
+                            if domain_district:
+                                link_user_to_district(
+                                    supabase_url=_supabase_url,
+                                    service_role_key=service_role_key,
+                                    district_id=domain_district.district_id,
+                                    email=new_email,
+                                    user_id=str((user or {}).get("id") or "").strip() or None,
+                                )
+                        except Exception:
+                            pass
+
+                try:
+                    district = build_district_context(user or {"email": new_email}, access_token)
+                except DistrictServiceError as exc:
+                    st.error(str(exc))
+                    return False
+                except Exception as exc:
+                    st.error(f"District lookup failed: {exc}")
+                    return False
+
+                if not district:
+                    show_unlinked_district_message()
+                    return False
+
+                persist_login(user or {"email": new_email}, access_token, district)
                 st.rerun()
             else:
                 st.success("Login created. Check your email if Supabase requires confirmation, then return to the Login tab.")
+
+    with cad_tab:
+        service_role_key = get_supabase_service_role_key()
+        if not service_role_key:
+            st.info("Set SUPABASE_SERVICE_ROLE_KEY to enable new CAD onboarding.")
+        else:
+            try:
+                verify_supabase_district_setup(
+                    supabase_url=_supabase_url,
+                    service_role_key=service_role_key,
+                )
+            except DistrictServiceError as exc:
+                st.error(str(exc))
+                st.caption("Apply the migration in Supabase first, then reload this page.")
+        with st.form("new_cad_form"):
+            district_name = st.text_input("District Name", value="", placeholder="Example County Appraisal District", key="new_cad_name")
+            district_slug_input = st.text_input("District Slug", value="", placeholder="example-cad", key="new_cad_slug")
+            admin_email = st.text_input("Admin Email", value="", placeholder="name@cad.org", key="new_cad_email").strip().lower()
+            new_password = st.text_input("Password", value="", type="password", key="new_cad_password")
+            confirm_password = st.text_input("Confirm Password", value="", type="password", key="new_cad_confirm_password")
+            cad_submitted = st.form_submit_button("Create District and Login")
+
+        if cad_submitted:
+            if not service_role_key:
+                st.error("SUPABASE_SERVICE_ROLE_KEY is required for CAD onboarding.")
+                return False
+            try:
+                verify_supabase_district_setup(
+                    supabase_url=_supabase_url,
+                    service_role_key=service_role_key,
+                )
+            except DistrictServiceError as exc:
+                st.error(str(exc))
+                return False
+            if not district_name.strip():
+                st.error("District name is required.")
+                return False
+            if not admin_email:
+                st.error("Admin email is required.")
+                return False
+            if len(new_password) < 8:
+                st.error("Password must be at least 8 characters.")
+                return False
+            if new_password != confirm_password:
+                st.error("Passwords do not match.")
+                return False
+
+            district_slug = slugify_district_slug(district_slug_input) or slugify_district_name(district_name)
+            district_domain = infer_domain_from_email(admin_email)
+
+            try:
+                district = create_or_update_district(
+                    supabase_url=_supabase_url,
+                    service_role_key=service_role_key,
+                    name=district_name,
+                    slug=district_slug,
+                    domain=district_domain,
+                )
+            except Exception as exc:
+                st.error(f"District setup failed: {exc}")
+                return False
+
+            try:
+                signup_result = create_supabase_account(admin_email, new_password)
+            except Exception as exc:
+                st.error(f"Account creation failed: {exc}")
+                return False
+
+            access_token = (
+                signup_result.get("access_token")
+                or (signup_result.get("session") or {}).get("access_token")
+            )
+            user = signup_result.get("user")
+            if access_token and not user:
+                try:
+                    user = get_supabase_user(access_token)
+                except Exception:
+                    user = {"email": admin_email}
+
+            user_id = str((user or {}).get("id") or "").strip() or None
+
+            try:
+                link_user_to_district(
+                    supabase_url=_supabase_url,
+                    service_role_key=service_role_key,
+                    district_id=district.district_id,
+                    email=admin_email,
+                    user_id=user_id,
+                )
+            except Exception as exc:
+                st.error(f"District user linking failed: {exc}")
+                return False
+
+            if access_token:
+                try:
+                    linked_district = build_district_context(user or {"email": admin_email}, access_token)
+                except Exception as exc:
+                    st.error(f"District lookup failed: {exc}")
+                    return False
+
+                if not linked_district:
+                    show_unlinked_district_message()
+                    return False
+
+                persist_login(user or {"email": admin_email}, access_token, linked_district)
+                st.rerun()
+            else:
+                st.success("District created and user linked. Confirm the email if required, then sign in from the Login tab.")
 
     return False
 
@@ -760,15 +1007,18 @@ def parse_money_input(value: Any) -> float | None:
 
 
 def get_calculator_store_key(file_name: str) -> str:
-    return f"saved_calculators_{file_name}"
+    district_slug = get_session_district_slug() or "global"
+    return f"saved_calculators_{district_slug}_{file_name}"
 
 
 def get_calculator_editor_key(file_name: str) -> str:
-    return f"calculator_editor_{file_name}"
+    district_slug = get_session_district_slug() or "global"
+    return f"calculator_editor_{district_slug}_{file_name}"
 
 
 def get_calculator_cost_key(file_name: str, nonce: int, bucket: str) -> str:
-    return f"calculator_cost_{file_name}_{nonce}_{bucket}"
+    district_slug = get_session_district_slug() or "global"
+    return f"calculator_cost_{district_slug}_{file_name}_{nonce}_{bucket}"
 
 
 def get_saved_calculators(file_name: str) -> list[dict[str, Any]]:
@@ -2047,6 +2297,7 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
                     appraiser_initials=appraiser_initials.strip().upper(),
                     account_number=account_number.strip().upper(),
                     decision=decision_code,
+                    district_context=get_session_district_context(),
                 )
                 record["saved_calculators"] = get_saved_calculators(file_name)
                 record["calculated_total_value"] = combined_total
@@ -2065,13 +2316,20 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
                         file_name=file_name,
                         file_bytes=file_bytes,
                         final_record=locked_record,
+                        district_slug=get_session_district_slug(),
                     )
                     locked_record["stamped_pdf"] = str(stamped_pdf)
-                    paths = save_review_outputs(file_name=file_name, result=result, final_record=locked_record)
+                    paths = save_review_outputs(
+                        file_name=file_name,
+                        result=result,
+                        final_record=locked_record,
+                        district_context=get_session_district_context(),
+                    )
                     append_queue_row(
                         file_name=file_name,
                         result={**result, "final_review": locked_record},
                         status="Locked",
+                        district_context=get_session_district_context(),
                     )
                 except Exception as exc:
                     st.error(f"Could not save stamped rendition: {exc}")
@@ -2381,8 +2639,17 @@ def render_batch_review() -> None:
 
             rows.append(build_batch_row(uploaded_file.name, result))
             results_payload[uploaded_file.name] = result
-            save_review_outputs(file_name=uploaded_file.name, result=result)
-            append_queue_row(file_name=uploaded_file.name, result=result, status=get_status_label(result))
+            save_review_outputs(
+                file_name=uploaded_file.name,
+                result=result,
+                district_context=get_session_district_context(),
+            )
+            append_queue_row(
+                file_name=uploaded_file.name,
+                result=result,
+                status=get_status_label(result),
+                district_context=get_session_district_context(),
+            )
             progress_bar.progress(idx / total)
 
         status_text.success("Batch review completed.")
@@ -2418,19 +2685,22 @@ def render_batch_review() -> None:
 
 
 def render_review_queue() -> None:
-    ensure_output_dirs()
+    district_context = get_session_district_context()
+    district_slug = get_session_district_slug()
+    backfill_legacy_outputs(district_slug)
+    paths = ensure_output_dirs(district_slug)
     st.markdown('<div class="ap-card">', unsafe_allow_html=True)
     st.subheader("Review Queue")
-    st.caption(f"Saved outputs are written to {OUTPUT_DIR}")
+    st.caption(f"Saved outputs are written to {paths['root']}")
 
-    if QUEUE_CSV.exists():
+    if paths["queue_csv"].exists():
         try:
-            df = pd.read_csv(QUEUE_CSV)
+            df = pd.read_csv(paths["queue_csv"])
             st.dataframe(df.sort_values(by="processed_at", ascending=False), use_container_width=True, hide_index=True)
             st.download_button(
                 "Download Queue CSV",
-                data=QUEUE_CSV.read_bytes(),
-                file_name="review_queue.csv",
+                data=paths["queue_csv"].read_bytes(),
+                file_name=f"{(district_context or {}).get('district_slug') or 'district'}_review_queue.csv",
                 mime="text/csv",
                 use_container_width=True,
                 key="queue_download_csv",
@@ -2444,7 +2714,7 @@ def render_review_queue() -> None:
 
     st.markdown('<div class="ap-card">', unsafe_allow_html=True)
     st.subheader("Completed Reviews")
-    completed_files = sorted(COMPLETED_DIR.glob("*_final.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    completed_files = sorted(paths["completed"].glob("*_final.json"), key=lambda path: path.stat().st_mtime, reverse=True)
     if not completed_files:
         st.info("No locked final reviews yet.")
     else:
@@ -2471,9 +2741,17 @@ def main() -> None:
     if not require_login():
         return
 
+    district_context = get_session_district_context()
+    backfill_legacy_outputs(get_session_district_slug())
+
     st.markdown('<div class="ap-title">AppraisalPilot</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="ap-subtitle">Intelligent BPP rendition review with side-by-side document verification and batch triage.</div>',
+        (
+            '<div class="ap-subtitle">'
+            f"{(district_context or {}).get('district_name') or 'District'}"
+            " | Intelligent BPP rendition review with side-by-side document verification and batch triage."
+            "</div>"
+        ),
         unsafe_allow_html=True,
     )
 
