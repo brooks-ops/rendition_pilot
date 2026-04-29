@@ -16,30 +16,49 @@ SECTION_PRESETS = {
         "schedule": "A",
         "category": "Furniture & Fixtures",
         "default_table": "9_year",
+        "entry_mode": "depreciation",
     },
     "schedule_a_machinery": {
         "label": "Schedule A - Machinery & Equipment",
         "schedule": "A",
         "category": "Machinery & Equipment",
         "default_table": "9_year",
+        "entry_mode": "depreciation",
+    },
+    "schedule_b_inventory": {
+        "label": "Schedule B - Inventory",
+        "schedule": "B",
+        "category": "Inventory",
+        "default_table": "flat",
+        "entry_mode": "flat",
+    },
+    "schedule_c_supplies": {
+        "label": "Schedule C - Supplies",
+        "schedule": "C",
+        "category": "Supplies",
+        "default_table": "flat",
+        "entry_mode": "flat",
     },
     "schedule_d_vehicles": {
         "label": "Schedule D - Vehicles",
         "schedule": "D",
         "category": "Vehicles",
         "default_table": "9_year",
+        "entry_mode": "depreciation",
     },
     "schedule_e_computers": {
         "label": "Schedule E - Computers",
         "schedule": "E",
         "category": "Computers",
         "default_table": "5_year",
+        "entry_mode": "depreciation",
     },
     "custom": {
         "label": "Custom",
         "schedule": "Custom",
         "category": "Custom",
         "default_table": "8_year",
+        "entry_mode": "depreciation",
     },
 }
 
@@ -169,6 +188,20 @@ def build_calculator_rows(
 
 def calculate_section_total(rows: list[dict[str, Any]]) -> float:
     return round(sum(float(row.get("value", 0.0) or 0.0) for row in rows), 2)
+
+
+def build_flat_value_rows(label: str, value: Any) -> list[dict[str, Any]]:
+    amount = round(float(value or 0.0), 2)
+    return [
+        {
+            "bucket": "flat_value",
+            "display_year": str(label),
+            "year_acquired": None,
+            "cost": amount,
+            "factor": 1.0,
+            "value": amount,
+        }
+    ]
 
 
 def generate_calculator_name(schedule: str, category: str) -> str:

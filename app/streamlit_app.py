@@ -42,6 +42,7 @@ from app.rendition_calculator import (
     SECTION_PRESETS,
     TABLE_METADATA,
     build_calculator_rows,
+    build_flat_value_rows,
     build_saved_calculator,
     calculate_combined_total,
     calculate_section_total,
@@ -1048,7 +1049,7 @@ def build_default_calculator_editor(tax_year: int) -> dict[str, Any]:
     preset = SECTION_PRESETS["schedule_a_furniture"]
     return {
         "section_key": "schedule_a_furniture",
-        "name": str(preset["label"]),
+        "name": "",
         "schedule": str(preset["schedule"]),
         "category": str(preset["category"]),
         "custom_name": "",
@@ -1854,7 +1855,7 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
     preset = SECTION_PRESETS.get(editor["section_key"], SECTION_PRESETS["schedule_a_furniture"])
     editor["schedule"] = str(editor.get("schedule") or preset["schedule"])
     editor["category"] = str(editor.get("category") or preset["category"])
-    editor["depreciation_table"] = str(editor.get("depreciation_table") or "8_year")
+    editor["depreciation_table"] = str(editor.get("depreciation_table") or preset["default_table"])
     editor["custom_name"] = str(editor.get("custom_name") or "")
     editor["name"] = str(editor.get("name") or "")
     editor["costs"] = dict(editor.get("costs") or {})
@@ -1910,6 +1911,13 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
         )
 
     selected_preset = SECTION_PRESETS[selected_section_key]
+    entry_mode = str(selected_preset.get("entry_mode") or "depreciation")
+    if selected_section_key != editor["section_key"]:
+        st.session_state[name_key] = ""
+        st.session_state[custom_name_key] = ""
+        st.session_state[table_key] = str(selected_preset["default_table"])
+        editor["costs"] = {}
+
     custom_name = ""
     if selected_section_key == "custom":
         st.markdown('<div class="ap-calc-label">Custom Section Name</div>', unsafe_allow_html=True)
@@ -1928,28 +1936,32 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
         category_value = custom_name or "Custom"
 
     generated_name = custom_name if selected_section_key == "custom" and custom_name else generate_calculator_name(schedule, category_value)
-    if not st.session_state.get(name_key):
-        st.session_state[name_key] = generated_name
 
     st.markdown('<div class="ap-calc-label">Calculator Name</div>', unsafe_allow_html=True)
     calculator_name = st.text_input(
         "Calculator Name",
         key=name_key,
-        placeholder=generated_name,
+        placeholder="FFME, HTE, or other appraiser section name",
         label_visibility="collapsed",
     ).strip()
 
     if table_key not in st.session_state or editor.get("section_key") != selected_section_key:
         st.session_state[table_key] = str(selected_preset["default_table"])
 
-    st.markdown('<div class="ap-calc-label">Depreciation Table</div>', unsafe_allow_html=True)
-    depreciation_table = st.selectbox(
-        "Depreciation Table",
-        list(TABLE_METADATA.keys()),
-        format_func=lambda key: TABLE_METADATA[key]["label"],
-        key=table_key,
-        label_visibility="collapsed",
-    )
+    depreciation_table = str(selected_preset["default_table"])
+    if entry_mode == "depreciation":
+        st.markdown('<div class="ap-calc-label">Depreciation Table</div>', unsafe_allow_html=True)
+        depreciation_table = st.selectbox(
+            "Depreciation Table",
+            list(TABLE_METADATA.keys()),
+            format_func=lambda key: TABLE_METADATA[key]["label"],
+            key=table_key,
+            label_visibility="collapsed",
+        )
+    else:
+        st.markdown('<div class="ap-calc-label">Value Entry</div>', unsafe_allow_html=True)
+        st.caption("Flat value only for this schedule.")
+        st.session_state[table_key] = str(selected_preset["default_table"])
 
     editor["section_key"] = selected_section_key
     editor["schedule"] = schedule
@@ -1959,47 +1971,64 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
     editor["depreciation_table"] = depreciation_table
     editor["tax_year"] = int(selected_tax_year)
 
-    rows = build_calculator_rows(
-        depreciation_table,
-        int(selected_tax_year),
-        costs=editor["costs"],
-        tables=tables,
-    )
+    rows: list[dict[str, Any]]
+    if entry_mode == "flat":
+        flat_value_key = get_calculator_cost_key(file_name, int(editor["nonce"]), "flat_value")
+        if flat_value_key not in st.session_state:
+            st.session_state[flat_value_key] = float(editor["costs"].get("flat_value", 0.0) or 0.0)
+        st.markdown('<div class="ap-calc-label">Section Value</div>', unsafe_allow_html=True)
+        flat_value = st.number_input(
+            "Section Value",
+            min_value=0.0,
+            step=100.0,
+            format="%.2f",
+            key=flat_value_key,
+            label_visibility="collapsed",
+        )
+        editor["costs"] = {"flat_value": round(float(flat_value), 2)}
+        rows = build_flat_value_rows(selected_preset["label"], editor["costs"]["flat_value"])
+    else:
+        rows = build_calculator_rows(
+            depreciation_table,
+            int(selected_tax_year),
+            costs=editor["costs"],
+            tables=tables,
+        )
 
-    st.markdown(
-        """
-        <div class="ap-calc-table-head">
-            <div>Year</div>
-            <div>Cost</div>
-            <div>Factor</div>
-            <div style="text-align:right;">Value</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        st.markdown(
+            """
+            <div class="ap-calc-table-head">
+                <div>Year</div>
+                <div>Cost</div>
+                <div>Factor</div>
+                <div style="text-align:right;">Value</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    rows_container = st.container(height=360, border=False)
-    with rows_container:
-        for row in rows:
-            cost_input_key = get_calculator_cost_key(file_name, int(editor["nonce"]), row["bucket"])
-            if cost_input_key not in st.session_state:
-                st.session_state[cost_input_key] = float(editor["costs"].get(row["bucket"], 0.0) or 0.0)
+        rows_container = st.container(height=360, border=False)
+        with rows_container:
+            for row in rows:
+                cost_input_key = get_calculator_cost_key(file_name, int(editor["nonce"]), row["bucket"])
+                if cost_input_key not in st.session_state:
+                    st.session_state[cost_input_key] = float(editor["costs"].get(row["bucket"], 0.0) or 0.0)
 
-            row_cols = st.columns([0.65, 1.3, 0.8, 0.95], gap="small")
-            row_cols[0].markdown(f'<div class="ap-calc-year">{row["display_year"]}</div>', unsafe_allow_html=True)
-            cost_value = row_cols[1].number_input(
-                f"Cost {row['display_year']}",
-                min_value=0.0,
-                step=100.0,
-                format="%.2f",
-                key=cost_input_key,
-                label_visibility="collapsed",
-            )
-            editor["costs"][row["bucket"]] = round(float(cost_value), 2)
-            row["cost"] = editor["costs"][row["bucket"]]
-            row["value"] = round(row["cost"] * row["factor"], 2)
-            row_cols[2].markdown(f'<span class="ap-calc-factor">{row["factor"]:.2f}</span>', unsafe_allow_html=True)
-            row_cols[3].markdown(f'<div class="ap-calc-value">{format_money(row["value"])}</div>', unsafe_allow_html=True)
+                row_cols = st.columns([0.65, 1.3, 0.8, 0.95], gap="small")
+                row_cols[0].markdown(f'<div class="ap-calc-year">{row["display_year"]}</div>', unsafe_allow_html=True)
+                cost_value = row_cols[1].number_input(
+                    f"Cost {row['display_year']}",
+                    min_value=0.0,
+                    step=100.0,
+                    format="%.2f",
+                    key=cost_input_key,
+                    label_visibility="collapsed",
+                )
+                editor["costs"][row["bucket"]] = round(float(cost_value), 2)
+                row["cost"] = editor["costs"][row["bucket"]]
+                row["value"] = round(row["cost"] * row["factor"], 2)
+                row_cols[2].markdown(f'<span class="ap-calc-factor">{row["factor"]:.2f}</span>', unsafe_allow_html=True)
+                row_cols[3].markdown(f'<div class="ap-calc-value">{format_money(row["value"])}</div>', unsafe_allow_html=True)
 
     section_total = calculate_section_total(rows)
     save_calculator_editor(file_name, editor)
@@ -2079,7 +2108,7 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
                 with st.expander(label, expanded=False):
                     st.caption(
                         f"Schedule {calculator.get('schedule')} | Tax Year {calculator.get('tax_year')} | "
-                        f"{TABLE_METADATA.get(calculator.get('depreciation_table'), {}).get('label', calculator.get('depreciation_table'))}"
+                        f"{TABLE_METADATA.get(calculator.get('depreciation_table'), {}).get('label', calculator.get('depreciation_table') or 'flat')}"
                     )
                     review_rows = [
                         {

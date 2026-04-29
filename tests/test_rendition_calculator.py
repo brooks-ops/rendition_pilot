@@ -1,5 +1,6 @@
 from app.rendition_calculator import (
     build_calculator_rows,
+    build_flat_value_rows,
     build_saved_calculator,
     calculate_combined_total,
     calculate_section_total,
@@ -52,3 +53,19 @@ def test_saved_calculator_payload_and_combined_total():
     assert calculator["rows"][0]["display_year"] == "2025"
     assert calculator["rows"][-1]["display_year"] == "2010 & Prior"
     assert calculate_combined_total([calculator, {"section_total": 1250.25}]) == round(calculator["section_total"] + 1250.25, 2)
+
+
+def test_flat_value_rows_build_single_total_row():
+    rows = build_flat_value_rows("Schedule B - Inventory", 12500)
+
+    assert rows == [
+        {
+            "bucket": "flat_value",
+            "display_year": "Schedule B - Inventory",
+            "year_acquired": None,
+            "cost": 12500.0,
+            "factor": 1.0,
+            "value": 12500.0,
+        }
+    ]
+    assert calculate_section_total(rows) == 12500.0
