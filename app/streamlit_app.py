@@ -2187,6 +2187,20 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
             unsafe_allow_html=True,
         )
 
+    shortcut_1, shortcut_2 = st.columns(2)
+    with shortcut_1:
+        if st.button("Mark Closed", key=f"mark_closed_{file_name}", use_container_width=True):
+            st.session_state[decision_key] = "Closed"
+            st.session_state[final_value_key] = "0"
+            st.session_state[final_source_key] = "closed_account"
+            st.rerun()
+    with shortcut_2:
+        if st.button("Mark No Assets", key=f"mark_no_assets_{file_name}", use_container_width=True):
+            st.session_state[decision_key] = "No Assets"
+            st.session_state[final_value_key] = "0"
+            st.session_state[final_source_key] = "no_assets_reported"
+            st.rerun()
+
     c1, c2 = st.columns([1, 1])
     with c1:
         final_value_text = st.text_input(
@@ -2211,20 +2225,6 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
             ])),
             key=final_source_key,
         )
-
-    shortcut_1, shortcut_2 = st.columns(2)
-    with shortcut_1:
-        if st.button("Mark Closed", key=f"mark_closed_{file_name}", use_container_width=True):
-            st.session_state[decision_key] = "Closed"
-            st.session_state[final_value_key] = "0"
-            st.session_state[final_source_key] = "closed_account"
-            st.rerun()
-    with shortcut_2:
-        if st.button("Mark No Assets", key=f"mark_no_assets_{file_name}", use_container_width=True):
-            st.session_state[decision_key] = "No Assets"
-            st.session_state[final_value_key] = "0"
-            st.session_state[final_source_key] = "no_assets_reported"
-            st.rerun()
 
     c3, c4 = st.columns([1, 1])
     with c3:
