@@ -98,6 +98,19 @@ def get_recommended_value(result: dict[str, Any]) -> Any:
     )
 
 
+def get_decision_label(decision: Any) -> str:
+    normalized = str(decision or "").strip().lower()
+    if normalized == "accepted":
+        return "ACCEPTED"
+    if normalized == "adjusted":
+        return "ADJUSTED"
+    if normalized == "closed":
+        return "CLOSED"
+    if normalized in {"no_assets", "no-assets"}:
+        return "NO ASSETS"
+    return "REVIEWED"
+
+
 def wrap_text(text: Any, max_chars: int = 48, max_lines: int | None = None) -> list[str]:
     words = str(text or "").replace("\r", "\n").split()
     lines: list[str] = []
@@ -315,8 +328,9 @@ def stamp_reviewed_pdf(
 
     locked_at = str(final_record.get("locked_at") or datetime.now().isoformat(timespec="seconds"))
     date_text = locked_at.split("T", 1)[0]
-    decision_label = "ACCEPTED" if decision == "accepted" else "ADJUSTED"
+    decision_label = get_decision_label(decision)
     appraiser_notes = str(final_record.get("appraiser_notes") or "").strip()
+    special_status = decision in {"closed", "no_assets", "no-assets"}
 
     stamp_lines = [
         "APPRAISAL REVIEW",
@@ -331,23 +345,39 @@ def stamp_reviewed_pdf(
         stamp_lines.append("NOTE:")
         stamp_lines.extend(note_lines)
 
-    page.draw_rect(stamp_rect, color=(0.05, 0.18, 0.34), fill=(1, 1, 1), width=1.2)
+    border_color = (0.78, 0.08, 0.08) if special_status else (0.05, 0.18, 0.34)
+    fill_color = (1.0, 0.94, 0.94) if special_status else (1, 1, 1)
+    text_color = border_color
+
+    page.draw_rect(stamp_rect, color=border_color, fill=fill_color, width=2.2 if special_status else 1.2)
     y = stamp_rect.y0 + 12
     for idx, line in enumerate(stamp_lines):
-        fontsize = 9 if idx == 0 else 8.5
+        fontsize = 10 if idx == 0 and special_status else (9 if idx == 0 else 8.5)
         page.insert_text(
             fitz.Point(stamp_rect.x0 + 9, y),
             line,
             fontsize=fontsize,
             fontname="helv",
-            color=(0.05, 0.18, 0.34),
+            color=text_color,
         )
         y += 14
+
+    if special_status:
+        status_rect = fitz.Rect(54, 88, page_width - 54, 170)
+        page.draw_rect(status_rect, color=border_color, fill=(1, 1, 1), width=3)
+        page.insert_textbox(
+            status_rect,
+            decision_label,
+            fontsize=30,
+            fontname="helv",
+            color=border_color,
+            align=1,
+        )
 
     if appraiser_notes:
         notes_page = doc.new_page(width=612, height=792)
         margin = 54
-        title_color = (0.05, 0.18, 0.34)
+        title_color = border_color if special_status else (0.05, 0.18, 0.34)
         notes_page.insert_text(
             fitz.Point(margin, 58),
             "APPRAISER REVIEW NOTES",

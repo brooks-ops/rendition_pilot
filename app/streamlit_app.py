@@ -55,6 +55,7 @@ from app.review_workflow import (
     backfill_legacy_outputs,
     build_final_review_record,
     ensure_output_dirs,
+    get_decision_label,
     get_output_paths,
     get_recommended_value,
     save_review_outputs,
@@ -1004,6 +1005,18 @@ def parse_money_input(value: Any) -> float | None:
         return float(str(value).replace("$", "").replace(",", "").strip())
     except (TypeError, ValueError):
         return None
+
+
+REVIEW_DECISION_LABELS = {
+    "Accepted Recommended Value": "accepted",
+    "Adjusted Value": "adjusted",
+    "Closed": "closed",
+    "No Assets": "no_assets",
+}
+
+
+def is_zero_value_decision(decision_code: str) -> bool:
+    return decision_code in {"closed", "no_assets"}
 
 
 def get_calculator_store_key(file_name: str) -> str:
@@ -2154,6 +2167,9 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
         st.session_state[final_value_key] = "" if recommended_value is None else str(recommended_value)
     if final_source_key not in st.session_state:
         st.session_state[final_source_key] = default_source
+    decision_key = f"final_decision_{file_name}"
+    if decision_key not in st.session_state:
+        st.session_state[decision_key] = "Accepted Recommended Value"
 
     st.markdown('<div class="ap-card">', unsafe_allow_html=True)
     st.subheader("Finalize Review")
@@ -2190,9 +2206,25 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
                 "schedule_e_total",
                 "agent_review",
                 "manual_review",
+                "closed_account",
+                "no_assets_reported",
             ])),
             key=final_source_key,
         )
+
+    shortcut_1, shortcut_2 = st.columns(2)
+    with shortcut_1:
+        if st.button("Mark Closed", key=f"mark_closed_{file_name}", use_container_width=True):
+            st.session_state[decision_key] = "Closed"
+            st.session_state[final_value_key] = "0"
+            st.session_state[final_source_key] = "closed_account"
+            st.rerun()
+    with shortcut_2:
+        if st.button("Mark No Assets", key=f"mark_no_assets_{file_name}", use_container_width=True):
+            st.session_state[decision_key] = "No Assets"
+            st.session_state[final_value_key] = "0"
+            st.session_state[final_source_key] = "no_assets_reported"
+            st.rerun()
 
     c3, c4 = st.columns([1, 1])
     with c3:
@@ -2205,9 +2237,9 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
     with c4:
         decision = st.radio(
             "Review Decision",
-            ["Accepted Recommended Value", "Adjusted Value"],
+            list(REVIEW_DECISION_LABELS.keys()),
             horizontal=True,
-            key=f"final_decision_{file_name}",
+            key=decision_key,
         )
 
     account_number = st.text_input(
@@ -2226,9 +2258,10 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
 
     locked_record = st.session_state.get("single_locked_record")
     if locked_record:
+        locked_decision_label = get_decision_label(locked_record.get("decision"))
         st.success(
-            f"Locked {format_money(locked_record.get('final_value'))} "
-            f"for {locked_record.get('account_number') or account_number}."
+            f"Locked {locked_decision_label} for {locked_record.get('account_number') or account_number} "
+            f"at {format_money(locked_record.get('final_value'))}."
         )
         download_name = f"{locked_record.get('account_number') or Path(file_name).stem}.pdf"
         if not st.session_state.get("single_download_stamped_bytes"):
@@ -2279,7 +2312,10 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
     lock_final, save_rendition = st.columns(2)
     with lock_final:
         if st.button("Lock Final Value", type="primary", key=f"lock_review_{file_name}", use_container_width=True):
+            decision_code = REVIEW_DECISION_LABELS.get(decision, "adjusted")
             final_value = parse_money_input(final_value_text)
+            if final_value is None and is_zero_value_decision(decision_code):
+                final_value = 0.0
             if final_value is None:
                 st.error("Enter a valid final value before locking.")
             elif not appraiser_initials.strip():
@@ -2287,7 +2323,6 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
             elif not account_number.strip():
                 st.error("Enter the appraisal district account / P# before locking.")
             else:
-                decision_code = "accepted" if decision == "Accepted Recommended Value" else "adjusted"
                 record = build_final_review_record(
                     file_name=file_name,
                     result=result,
@@ -2301,6 +2336,8 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
                 )
                 record["saved_calculators"] = get_saved_calculators(file_name)
                 record["calculated_total_value"] = combined_total
+                st.session_state.pop("single_download_stamped_bytes", None)
+                st.session_state.pop("single_download_stamped_name", None)
                 st.session_state["single_locked_record"] = record
                 st.success("Final value locked. Click Save Rendition to create the stamped upload PDF.")
                 st.rerun()
