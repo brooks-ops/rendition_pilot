@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from core.valuation_engine import (
@@ -18,6 +19,22 @@ from core.valuation_engine import (
 
 
 app = FastAPI(title="Rendition Pilot API")
+
+# Local-development CORS only. This allows the static frontend and local dev
+# servers to call the API without changing any backend logic.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "null",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 DEPRECIATION_SCHEDULE_MAP = {
     "5": "5_year",

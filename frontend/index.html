@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rendition Pilot Frontend</title>
+</head>
+<body>
+  <h1>Rendition Pilot</h1>
+
+  <button id="check-api">Check API</button>
+  <button id="run-test-calculation">Run Test Calculation</button>
+
+  <h2>Results</h2>
+  <pre id="results">No results yet.</pre>
+
+  <script>
+    const resultsEl = document.getElementById("results");
+
+    function showResult(data) {
+      resultsEl.textContent = JSON.stringify(data, null, 2);
+    }
+
+    function showError(error) {
+      resultsEl.textContent = `Error: ${error.message}`;
+    }
+
+    document.getElementById("check-api").addEventListener("click", async () => {
+      resultsEl.textContent = "Loading...";
+
+      try {
+        const response = await fetch("http://127.0.0.1:8000/api/info");
+        const data = await response.json();
+        showResult(data);
+      } catch (error) {
+        showError(error);
+      }
+    });
+
+    document.getElementById("run-test-calculation").addEventListener("click", async () => {
+      resultsEl.textContent = "Loading...";
+
+      try {
+        const response = await fetch("http://127.0.0.1:8000/api/calculate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            schedule_type: "B",
+            rows: [{ cost: 10000 }],
+            depreciation_schedule: "5"
+          })
+        });
+
+        const data = await response.json();
+        showResult(data);
+      } catch (error) {
+        showError(error);
+      }
+    });
+  </script>
+</body>
+</html>
