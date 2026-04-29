@@ -65,6 +65,7 @@ from core.valuation_engine import (
     build_schedule_b_rows,
     build_schedule_c_rows,
     build_schedule_d_rows,
+    build_schedule_e_rows,
     calculate_depreciated_value,
 )
 
@@ -2017,14 +2018,24 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
             supplemental_rows = build_flat_value_rows(supplemental_flat_label, editor["costs"][supplemental_bucket])
 
         if selected_section_key in {"schedule_a_furniture", "schedule_a_machinery"}:
+            # In the manual calculator, the appraiser controls the depreciation table even when the rendition schedule type suggests a common default.
             rows = build_schedule_a_rows(
                 int(selected_tax_year),
+                depreciation_table=depreciation_table,
                 costs=editor["costs"],
                 tables=tables,
             )
         elif selected_section_key == "schedule_d_vehicles":
             rows = build_schedule_d_rows(
                 int(selected_tax_year),
+                depreciation_table=depreciation_table,
+                costs=editor["costs"],
+                tables=tables,
+            )
+        elif selected_section_key == "schedule_e_computers":
+            rows = build_schedule_e_rows(
+                int(selected_tax_year),
+                depreciation_table=depreciation_table,
                 costs=editor["costs"],
                 tables=tables,
             )

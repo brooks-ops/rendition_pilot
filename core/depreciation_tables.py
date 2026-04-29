@@ -84,5 +84,34 @@ def load_depreciation_tables(schedule_path: Path | None = None) -> dict[str, Tab
     return tables
 
 
+def get_depreciation_table_definition(
+    table_key: str,
+    tables: dict[str, TableDefinition] | None = None,
+) -> TableDefinition:
+    definitions = tables or load_depreciation_tables()
+    normalized_key = str(table_key or "").strip()
+    if normalized_key not in definitions:
+        available = ", ".join(TABLE_METADATA.keys())
+        raise KeyError(f"Unknown depreciation table '{table_key}'. Expected one of: {available}")
+    return definitions[normalized_key]
+
+
+def build_depreciation_table_sanity_snapshot(
+    *,
+    tax_year: int = 2026,
+    comparison_year: int = 2022,
+    sample_cost: float = 1000.0,
+    tables: dict[str, TableDefinition] | None = None,
+) -> dict[str, float]:
+    definitions = tables or load_depreciation_tables()
+    bucket_index = max(int(tax_year) - 1 - int(comparison_year), 0)
+    snapshot: dict[str, float] = {}
+    for table_key in TABLE_METADATA:
+        table = get_depreciation_table_definition(table_key, definitions)
+        factor_index = min(bucket_index, len(table.factors) - 1)
+        snapshot[table_key] = round(float(sample_cost) * float(table.factors[factor_index]), 2)
+    return snapshot
+
+
 def available_depreciation_table_keys() -> list[str]:
     return list(TABLE_METADATA.keys())

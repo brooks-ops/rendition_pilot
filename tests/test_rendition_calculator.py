@@ -6,7 +6,14 @@ from app.rendition_calculator import (
     calculate_section_total,
     load_depreciation_tables,
 )
-from core.valuation_engine import build_schedule_b_rows, build_schedule_c_rows, build_schedule_d_rows
+from core.depreciation_tables import build_depreciation_table_sanity_snapshot
+from core.valuation_engine import (
+    build_schedule_a_rows,
+    build_schedule_b_rows,
+    build_schedule_c_rows,
+    build_schedule_d_rows,
+    build_schedule_e_rows,
+)
 
 
 def test_build_calculator_rows_uses_selected_tax_year_and_prior_bucket():
@@ -110,3 +117,60 @@ def test_schedule_d_rows_match_existing_nine_year_contract():
         costs=costs,
         tables=tables,
     )
+
+
+def test_schedule_e_rows_match_existing_five_year_contract():
+    tables = load_depreciation_tables()
+    costs = {"2025": 6000, "2024": 3000, "prior": 1500}
+
+    assert build_schedule_e_rows(2026, costs=costs, tables=tables) == build_calculator_rows(
+        "5_year",
+        2026,
+        costs=costs,
+        tables=tables,
+    )
+
+
+def test_schedule_a_rows_respect_selected_manual_depreciation_table():
+    tables = load_depreciation_tables()
+    costs = {"2025": 1000, "2024": 1000, "prior": 1000}
+
+    assert build_schedule_a_rows(2026, depreciation_table="8_year", costs=costs, tables=tables) == build_calculator_rows(
+        "8_year",
+        2026,
+        costs=costs,
+        tables=tables,
+    )
+
+
+def test_schedule_d_rows_respect_selected_manual_depreciation_table():
+    tables = load_depreciation_tables()
+    costs = {"2025": 1000, "2024": 1000, "prior": 1000}
+
+    assert build_schedule_d_rows(2026, depreciation_table="12_year", costs=costs, tables=tables) == build_calculator_rows(
+        "12_year",
+        2026,
+        costs=costs,
+        tables=tables,
+    )
+
+
+def test_schedule_e_rows_respect_selected_manual_depreciation_table():
+    tables = load_depreciation_tables()
+    costs = {"2025": 1000, "2024": 1000, "prior": 1000}
+
+    assert build_schedule_e_rows(2026, depreciation_table="9_year", costs=costs, tables=tables) == build_calculator_rows(
+        "9_year",
+        2026,
+        costs=costs,
+        tables=tables,
+    )
+
+
+def test_depreciation_table_sanity_snapshot_keeps_manual_tables_distinct():
+    snapshot = build_depreciation_table_sanity_snapshot(tax_year=2026, comparison_year=2022, sample_cost=1000.0)
+
+    assert snapshot["5_year"] == 150.0
+    assert snapshot["8_year"] == 350.0
+    assert snapshot["9_year"] == 600.0
+    assert snapshot["12_year"] == 650.0
