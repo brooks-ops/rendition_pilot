@@ -60,7 +60,7 @@ from app.review_workflow import (
     stamp_reviewed_pdf,
 )
 from core.depreciation_tables import TABLE_METADATA, load_depreciation_tables
-from core.valuation_engine import calculate_depreciated_value
+from core.valuation_engine import build_schedule_a_rows, calculate_depreciated_value
 
 DEFAULT_SUPABASE_URL = "https://pzawjgckzcgnfsfuylqy.supabase.co"
 DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_q6lNn59Y-kz8lG0cYfJkYw_lL7xElsA"
@@ -2005,12 +2005,19 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
             editor["costs"][supplemental_bucket] = round(float(supplemental_value), 2)
             supplemental_rows = build_flat_value_rows(supplemental_flat_label, editor["costs"][supplemental_bucket])
 
-        rows = build_calculator_rows(
-            depreciation_table,
-            int(selected_tax_year),
-            costs=editor["costs"],
-            tables=tables,
-        )
+        if selected_section_key in {"schedule_a_furniture", "schedule_a_machinery"}:
+            rows = build_schedule_a_rows(
+                int(selected_tax_year),
+                costs=editor["costs"],
+                tables=tables,
+            )
+        else:
+            rows = build_calculator_rows(
+                depreciation_table,
+                int(selected_tax_year),
+                costs=editor["costs"],
+                tables=tables,
+            )
 
         st.markdown(
             """
