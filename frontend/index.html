@@ -139,8 +139,11 @@
     }
     .pdf-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
     .pdf-nav { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .pdf-stage { background: #0f2a44; border-radius: 14px; padding: 12px; min-height: 420px; display: flex; align-items: center; justify-content: center; }
-    .pdf-stage img { max-width: 100%; max-height: 72vh; object-fit: contain; border-radius: 10px; }
+    .pdf-stage { background: #0f2a44; border-radius: 14px; padding: 12px; min-height: 420px; max-height: 72vh; display: flex; align-items: flex-start; justify-content: flex-start; overflow: auto; }
+    .pdf-stage img { width: 100%; max-width: none; height: auto; object-fit: contain; border-radius: 10px; margin: 0 auto; transform-origin: center center; }
+    .pdf-zoom { display: inline-flex; align-items: center; gap: 6px; }
+    .pdf-zoom button { min-width: 42px; padding: 0 10px; }
+    .pdf-zoom-label { color: var(--muted); font-weight: 800; min-width: 54px; text-align: center; }
     .calc-head { display: grid; grid-template-columns: 1.25fr 0.75fr; gap: 12px; }
     .calc-table-head, .calc-row {
       display: grid;
@@ -365,6 +368,12 @@
                 <button id="pdf-next" class="secondary" type="button">Next</button>
                 <button id="pdf-left" class="secondary" type="button">Left</button>
                 <button id="pdf-right" class="secondary" type="button">Right</button>
+                <span class="pdf-zoom">
+                  <button id="pdf-zoom-out" class="secondary" type="button" title="Zoom out">-</button>
+                  <span id="pdf-zoom-label" class="pdf-zoom-label">100%</span>
+                  <button id="pdf-zoom-in" class="secondary" type="button" title="Zoom in">+</button>
+                  <button id="pdf-zoom-reset" class="secondary" type="button">Reset</button>
+                </span>
               </div>
             </div>
             <div class="pdf-stage">
@@ -704,6 +713,7 @@
         pdfPages: [],
         pdfPageIndex: 0,
         pdfRotation: 0,
+        pdfZoom: 1,
         savedCalculators: [],
         editingCalculatorId: null,
         lockedRecord: null,
@@ -992,6 +1002,7 @@
         pdfPages: [],
         pdfPageIndex: 0,
         pdfRotation: 0,
+        pdfZoom: 1,
         savedCalculators: [],
         editingCalculatorId: null,
         lockedRecord: null,
@@ -1024,6 +1035,7 @@
         empty.classList.remove("hidden");
         $("pdf-meta").textContent = "No PDF loaded.";
         $("pdf-page-select").innerHTML = "";
+        $("pdf-zoom-label").textContent = "100%";
         return;
       }
       empty.classList.add("hidden");
@@ -1032,9 +1044,17 @@
       appState.single.pdfPageIndex = pageIndex;
       img.src = `data:image/png;base64,${pages[pageIndex]}`;
       img.style.transform = `rotate(${appState.single.pdfRotation}deg)`;
-      $("pdf-meta").textContent = `${pages.length} pages | Page ${pageIndex + 1} of ${pages.length} | Rotation ${appState.single.pdfRotation} degrees`;
+      img.style.width = `${Math.round(appState.single.pdfZoom * 100)}%`;
+      $("pdf-zoom-label").textContent = `${Math.round(appState.single.pdfZoom * 100)}%`;
+      $("pdf-meta").textContent = `${pages.length} pages | Page ${pageIndex + 1} of ${pages.length} | Zoom ${Math.round(appState.single.pdfZoom * 100)}% | Rotation ${appState.single.pdfRotation} degrees`;
       $("pdf-page-select").innerHTML = pages.map((_, index) => `<option value="${index}">Page ${index + 1}</option>`).join("");
       $("pdf-page-select").value = String(pageIndex);
+    }
+
+    function setPdfZoom(nextZoom) {
+      if (!appState.single.pdfPages.length) return;
+      appState.single.pdfZoom = Math.min(3, Math.max(0.5, nextZoom));
+      renderPdfPreview();
     }
 
     function populateCalcOptions() {
@@ -1548,6 +1568,7 @@
       appState.single.pdfPages = payload.pdf_pages || [];
       appState.single.pdfPageIndex = 0;
       appState.single.pdfRotation = 0;
+      appState.single.pdfZoom = 1;
       appState.single.lockedRecord = null;
       appState.single.stamped = null;
       renderPdfPreview();
@@ -1697,6 +1718,9 @@
         appState.single.pdfRotation = (appState.single.pdfRotation + 90) % 360;
         renderPdfPreview();
       });
+      $("pdf-zoom-out").addEventListener("click", () => setPdfZoom(appState.single.pdfZoom - 0.25));
+      $("pdf-zoom-in").addEventListener("click", () => setPdfZoom(appState.single.pdfZoom + 0.25));
+      $("pdf-zoom-reset").addEventListener("click", () => setPdfZoom(1));
 
       $("calc-section").addEventListener("change", () => {
         appState.single.editingCalculatorId = null;
