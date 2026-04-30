@@ -22,6 +22,7 @@ class DistrictContext:
     email: str
     user_id: str | None = None
     domain: str | None = None
+    role: str = "member"
 
     def to_session_dict(self) -> dict[str, str | None]:
         return asdict(self)
@@ -69,6 +70,11 @@ def _extract_error_message(payload: Any) -> str:
 def _rewrite_district_error(message: str) -> str:
     lowered = str(message or "").lower()
     if "district_users" in lowered or "districts" in lowered:
+        if "role" in lowered and "does not exist" in lowered:
+            return (
+                "Supabase district user roles are missing. Run "
+                "`supabase/migrations/20260430_district_user_roles.sql` in the Supabase SQL editor, then try again."
+            )
         if (
             "does not exist" in lowered
             or "could not find the table" in lowered
@@ -149,6 +155,7 @@ def _parse_membership_row(row: dict[str, Any]) -> DistrictContext | None:
         return None
     user_id = str(row.get("user_id") or "").strip() or None
     domain = str(district.get("domain") or "").strip() or None
+    role = str(row.get("role") or "member").strip().lower() or "member"
     return DistrictContext(
         district_id=district_id,
         district_slug=district_slug,
@@ -156,6 +163,7 @@ def _parse_membership_row(row: dict[str, Any]) -> DistrictContext | None:
         email=email,
         user_id=user_id,
         domain=domain,
+        role=role,
     )
 
 
@@ -167,7 +175,7 @@ def _fetch_membership(
     email: str | None = None,
 ) -> DistrictContext | None:
     params: dict[str, Any] = {
-        "select": "district_id,user_id,email,districts(id,name,slug,domain)",
+        "select": "district_id,user_id,email,role,districts(id,name,slug,domain)",
         "limit": "1",
     }
     if user_id:
@@ -286,8 +294,12 @@ def link_user_to_district(
     district_id: str,
     email: str,
     user_id: str | None = None,
+    role: str = "member",
 ) -> None:
     normalized_email = normalize_email(email)
+    normalized_role = str(role or "member").strip().lower()
+    if normalized_role not in {"admin", "member"}:
+        normalized_role = "member"
     headers = _postgrest_headers(service_role_key)
 
     existing_by_email = _fetch_membership(
@@ -311,6 +323,7 @@ def link_user_to_district(
         "district_id": district_id,
         "user_id": user_id,
         "email": normalized_email,
+        "role": normalized_role,
     }
     _request_json(
         "POST",
@@ -368,6 +381,39 @@ def resolve_district_for_user(
                 email=membership.email,
                 user_id=user_id,
                 domain=membership.domain,
+                role=membership.role,
             )
 
     return membership
+
+
+def get_invited_district_user(
+    *,
+    supabase_url: str,
+    service_role_key: str,
+    email: str,
+) -> DistrictContext | None:
+    return _fetch_membership(
+        supabase_url,
+        _postgrest_headers(service_role_key),
+        email=normalize_email(email),
+    )
+
+
+def list_district_users(
+    *,
+    supabase_url: str,
+    service_role_key: str,
+    district_id: str,
+) -> list[dict[str, Any]]:
+    rows = _request_json(
+        "GET",
+        f"{supabase_url.rstrip('/')}/rest/v1/district_users",
+        _postgrest_headers(service_role_key),
+        params={
+            "select": "id,district_id,user_id,email,role,created_at",
+            "district_id": f"eq.{district_id}",
+            "order": "created_at.asc",
+        },
+    )
+    return rows if isinstance(rows, list) else []

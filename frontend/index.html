@@ -291,6 +291,7 @@
         <button class="tab-btn active" data-view="single" type="button">Single Review</button>
         <button class="tab-btn" data-view="batch" type="button">Batch Review</button>
         <button class="tab-btn" data-view="queue" type="button">Review Queue</button>
+        <button id="admin-tab" class="tab-btn hidden" data-view="admin" type="button">Admin</button>
       </div>
 
       <div id="view-single" class="view active">
@@ -623,6 +624,39 @@
           </div>
         </section>
       </div>
+
+      <div id="view-admin" class="view">
+        <section class="card">
+          <h3>Authorized CAD Users</h3>
+          <div class="subtle" style="margin-bottom:12px;">Add the CAD email before that person creates a login. Only listed emails can create Rendition Pilot accounts.</div>
+          <div class="layout-3">
+            <div class="field">
+              <label for="invite-email">Email</label>
+              <input id="invite-email" type="email" placeholder="appraiser@cad.org">
+            </div>
+            <div class="field">
+              <label for="invite-role">Role</label>
+              <select id="invite-role">
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <button id="invite-submit" type="button">Add User</button>
+            </div>
+          </div>
+          <div class="button-row" style="margin-top:4px;margin-bottom:12px;">
+            <button id="refresh-users" class="secondary" type="button">Refresh Users</button>
+          </div>
+          <div class="queue-table-wrap">
+            <table>
+              <thead id="users-head"></thead>
+              <tbody id="users-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </section>
   </div>
 
@@ -656,6 +690,9 @@
       batch: {
         rows: [],
         results: null,
+      },
+      admin: {
+        users: [],
       }
     };
 
@@ -782,12 +819,16 @@
       $("app-shell").classList.toggle("hidden", !authed);
       $("user-box").classList.toggle("hidden", !authed);
       if (authed) {
+        const isAdmin = appState.auth.district.role === "admin";
         $("signed-in-email").textContent = `Signed in as ${appState.auth.district.email || appState.auth.user?.email || ""}`;
-        $("signed-in-district").textContent = `District: ${appState.auth.district.district_name}`;
+        $("signed-in-district").textContent = `District: ${appState.auth.district.district_name} | Role: ${appState.auth.district.role || "member"}`;
         $("app-subtitle").textContent = `${appState.auth.district.district_name} | Intelligent BPP rendition review with side-by-side document verification and batch triage.`;
+        $("admin-tab").classList.toggle("hidden", !isAdmin);
         refreshQueue();
+        if (isAdmin) refreshDistrictUsers();
       } else {
         $("app-subtitle").textContent = "Authorized rendition review access only.";
+        $("admin-tab").classList.add("hidden");
       }
     }
 
@@ -799,6 +840,7 @@
           button.classList.add("active");
           $(`view-${button.dataset.view}`).classList.add("active");
           if (button.dataset.view === "queue" && appState.auth?.district) refreshQueue();
+          if (button.dataset.view === "admin" && appState.auth?.district?.role === "admin") refreshDistrictUsers();
         });
       });
       document.querySelectorAll("[data-auth-view]").forEach((button) => {
@@ -1486,6 +1528,22 @@
       renderTable("completed-head", "completed-body", data.completed_rows);
     }
 
+    async function refreshDistrictUsers() {
+      if (!appState.auth?.access_token || appState.auth?.district?.role !== "admin") return;
+      const data = await fetchJson("/api/district/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token: appState.auth.access_token })
+      });
+      appState.admin.users = data.users || [];
+      renderTable("users-head", "users-body", appState.admin.users.map((user) => ({
+        email: user.email,
+        role: user.role || "member",
+        status: user.user_id ? "Account created" : "Invited",
+        created_at: user.created_at || "-"
+      })));
+    }
+
     function renderTable(headId, bodyId, rows) {
       const head = $(headId);
       const body = $(bodyId);
@@ -1753,6 +1811,33 @@
       });
       $("refresh-queue").addEventListener("click", async () => {
         try { await refreshQueue(); } catch (error) { showFlash(error.message, "error"); }
+      });
+      $("refresh-users").addEventListener("click", async () => {
+        try { await refreshDistrictUsers(); } catch (error) { showFlash(error.message, "error"); }
+      });
+      $("invite-submit").addEventListener("click", async () => {
+        try {
+          const email = $("invite-email").value.trim().toLowerCase();
+          const role = $("invite-role").value;
+          const data = await fetchJson("/api/district/users/invite", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              access_token: appState.auth.access_token,
+              email,
+              role
+            })
+          });
+          appState.admin.users = data.users || [];
+          $("invite-email").value = "";
+          renderTable("users-head", "users-body", appState.admin.users.map((user) => ({
+            email: user.email,
+            role: user.role || "member",
+            status: user.user_id ? "Account created" : "Invited",
+            created_at: user.created_at || "-"
+          })));
+          showFlash("Authorized user added.", "success");
+        } catch (error) { showFlash(error.message, "error"); }
       });
 
       $("login-submit").addEventListener("click", async () => {

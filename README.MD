@@ -73,7 +73,7 @@ python extract_pages_ocr.py --pdf "Data/samples/sample_rendition.pdf" --provider
 
 ## Supabase Setup
 
-- Run `supabase/migrations/20260429_multi_district_renditions.sql` in the Supabase SQL editor before using New CAD Setup.
+- Run `supabase/migrations/20260429_multi_district_renditions.sql` and `supabase/migrations/20260430_district_user_roles.sql` in the Supabase SQL editor before using New CAD Setup.
 - Set `APP_BASE_URL` to the public Render app URL so Supabase confirmation emails send users back to the deployed HTML app.
 - In Supabase Auth settings, make sure both the project Site URL and redirect allow list include that same Render URL.
 - The OpenAI OCR/review path only works if the OpenAI project has active quota/billing.

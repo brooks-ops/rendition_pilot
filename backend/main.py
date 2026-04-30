@@ -23,8 +23,10 @@ from app.district_service import (
     DistrictServiceError,
     create_or_update_district,
     find_district_by_domain,
+    get_invited_district_user,
     infer_domain_from_email,
     link_user_to_district,
+    list_district_users,
     normalize_email,
     resolve_district_for_user,
     slugify_district_name,
@@ -191,6 +193,11 @@ class DistrictSetupRequest(SignupRequest):
     district_name: str
     district_slug: str = ""
     admin_email: str
+
+
+class DistrictInviteRequest(SessionRequest):
+    email: str
+    role: Literal["admin", "member"] = "member"
 
 
 class LockReviewRequest(BaseModel):
@@ -362,7 +369,23 @@ def _district_to_dict(district: DistrictContext | None) -> dict[str, Any] | None
         "district_domain": district.domain,
         "email": district.email,
         "user_id": district.user_id,
+        "role": district.role,
     }
+
+
+def get_authenticated_district_context(access_token: str) -> DistrictContext:
+    user = get_supabase_user(access_token)
+    district = build_district_context(user, access_token)
+    if not district:
+        raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
+    return district
+
+
+def require_district_admin(access_token: str) -> DistrictContext:
+    district = get_authenticated_district_context(access_token)
+    if district.role != "admin":
+        raise HTTPException(status_code=403, detail="Only district admins can manage authorized users.")
+    return district
 
 
 def build_district_context(user: dict[str, Any], access_token: str) -> DistrictContext | None:
@@ -742,33 +765,41 @@ def auth_restore(request: SessionRequest) -> dict[str, Any]:
 @app.post("/api/auth/signup")
 def auth_signup(request: SignupRequest) -> dict[str, Any]:
     email = request.email.strip().lower()
+    service_role_key = get_supabase_service_role_key()
+    supabase_url, _anon_key = get_supabase_config()
+    if not service_role_key:
+        raise HTTPException(status_code=500, detail="SUPABASE_SERVICE_ROLE_KEY is required for account invitations.")
     if len(request.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
     if request.password != request.confirm_password:
         raise HTTPException(status_code=400, detail="Passwords do not match.")
+    try:
+        invited_user = get_invited_district_user(
+            supabase_url=supabase_url,
+            service_role_key=service_role_key,
+            email=email,
+        )
+    except DistrictServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not invited_user:
+        raise HTTPException(
+            status_code=403,
+            detail="This email is not authorized for Rendition Pilot. Ask your CAD admin to add it first.",
+        )
     signup_result = create_supabase_account(email, request.password)
     access_token = signup_result.get("access_token") or (signup_result.get("session") or {}).get("access_token")
     user = signup_result.get("user")
     if access_token and not user:
         user = get_supabase_user(access_token)
     if access_token:
-        supabase_url, _anon_key = get_supabase_config()
-        service_role_key = get_supabase_service_role_key()
-        email_domain = infer_domain_from_email(email)
-        if service_role_key and email_domain:
-            domain_district = find_district_by_domain(
-                supabase_url=supabase_url,
-                service_role_key=service_role_key,
-                domain=email_domain,
-            )
-            if domain_district:
-                link_user_to_district(
-                    supabase_url=supabase_url,
-                    service_role_key=service_role_key,
-                    district_id=domain_district.district_id,
-                    email=email,
-                    user_id=str((user or {}).get("id") or "").strip() or None,
-                )
+        link_user_to_district(
+            supabase_url=supabase_url,
+            service_role_key=service_role_key,
+            district_id=invited_user.district_id,
+            email=email,
+            user_id=str((user or {}).get("id") or "").strip() or None,
+            role=invited_user.role,
+        )
         district = build_district_context(user or {"email": email}, access_token)
         if not district:
             raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
@@ -809,6 +840,7 @@ def auth_district_setup(request: DistrictSetupRequest) -> dict[str, Any]:
         district_id=district.district_id,
         email=request.admin_email.strip().lower(),
         user_id=user_id,
+        role="admin",
     )
     if not access_token:
         return {"message": "District created and user linked. Confirm the email if required, then sign in."}
@@ -817,6 +849,52 @@ def auth_district_setup(request: DistrictSetupRequest) -> dict[str, Any]:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
     backfill_legacy_outputs(linked_district.district_slug)
     return {"access_token": access_token, "user": to_jsonable(user), "district": _district_to_dict(linked_district)}
+
+
+@app.post("/api/district/users")
+def district_user_list(request: SessionRequest) -> dict[str, Any]:
+    service_role_key = get_supabase_service_role_key()
+    supabase_url, _anon_key = get_supabase_config()
+    if not service_role_key:
+        raise HTTPException(status_code=500, detail="SUPABASE_SERVICE_ROLE_KEY is required for district user management.")
+    district = require_district_admin(request.access_token)
+    try:
+        users = list_district_users(
+            supabase_url=supabase_url,
+            service_role_key=service_role_key,
+            district_id=district.district_id,
+        )
+    except DistrictServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"district": _district_to_dict(district), "users": to_jsonable(users)}
+
+
+@app.post("/api/district/users/invite")
+def district_user_invite(request: DistrictInviteRequest) -> dict[str, Any]:
+    service_role_key = get_supabase_service_role_key()
+    supabase_url, _anon_key = get_supabase_config()
+    if not service_role_key:
+        raise HTTPException(status_code=500, detail="SUPABASE_SERVICE_ROLE_KEY is required for district user management.")
+    district = require_district_admin(request.access_token)
+    email = normalize_email(request.email)
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="Enter a valid email address.")
+    try:
+        link_user_to_district(
+            supabase_url=supabase_url,
+            service_role_key=service_role_key,
+            district_id=district.district_id,
+            email=email,
+            role=request.role,
+        )
+        users = list_district_users(
+            supabase_url=supabase_url,
+            service_role_key=service_role_key,
+            district_id=district.district_id,
+        )
+    except DistrictServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"district": _district_to_dict(district), "users": to_jsonable(users)}
 
 
 @app.post("/api/pdf/render")
