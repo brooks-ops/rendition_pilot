@@ -409,6 +409,18 @@
             </div>
             <div id="calc-depreciation-wrap">
               <div class="calc-table-head">
+                <div>GFE</div>
+                <div>Amount</div>
+                <div>Factor</div>
+                <div style="text-align:right;">Value</div>
+              </div>
+              <div class="calc-row">
+                <div>Good Faith Estimate</div>
+                <div><input id="calc-good-faith-row" type="number" min="0" step="0.01" value="0"></div>
+                <div><span class="calc-factor">1.00</span></div>
+                <div id="calc-good-faith-value" style="text-align:right;">$0.00</div>
+              </div>
+              <div class="calc-table-head">
                 <div>Year</div>
                 <div>Cost</div>
                 <div>Factor</div>
@@ -419,9 +431,19 @@
             <div class="calc-footer">
               <div class="layout-3">
                 <div>
-                  <div class="small-label">Total</div>
+                  <div class="small-label">GFE</div>
+                  <div id="calc-gfe-total" style="font-size:1.05rem;font-weight:800;">$0.00</div>
+                </div>
+                <div>
+                  <div class="small-label">Depreciated</div>
+                  <div id="calc-depreciated-total" style="font-size:1.05rem;font-weight:800;">$0.00</div>
+                </div>
+                <div>
+                  <div class="small-label">Section Total</div>
                   <div id="calc-total" style="font-size:1.25rem;font-weight:800;">$0.00</div>
                 </div>
+              </div>
+              <div class="layout-3" style="margin-top:10px;">
                 <div><button id="calc-save-section" type="button">Save Section</button></div>
                 <div><button id="calc-new-section" class="secondary" type="button">New Section</button></div>
               </div>
@@ -1051,6 +1073,7 @@
         $("calc-custom-name").value = "";
         $("calc-flat-value").value = "0";
         $("calc-auto-roll").value = "0";
+        $("calc-good-faith-row").value = "0";
       }
       renderCalculatorRows();
     }
@@ -1079,6 +1102,7 @@
       const rowsEl = $("calc-rows");
       rowsEl.innerHTML = "";
       if (preset.entry_mode === "flat") {
+        $("calc-good-faith-row").value = "0";
         updateCalculatorTotal();
         return;
       }
@@ -1105,8 +1129,11 @@
       const schedule = preset.schedule;
       const name = $("calc-name").value.trim() || (customName || getDefaultCalculatorName(schedule, category));
       let rows = [];
+      let gfeTotal = 0;
+      let depreciatedTotal = 0;
       if (preset.entry_mode === "flat") {
         const amount = Number($("calc-flat-value").value || 0);
+        depreciatedTotal = amount;
         rows = [{
           bucket: "flat_value",
           display_year: category,
@@ -1116,23 +1143,27 @@
           value: amount
         }];
       } else {
+        gfeTotal = Number($("calc-good-faith-row").value || 0);
         rows = Array.from($("calc-rows").querySelectorAll("input")).map((input) => {
           const parent = input.closest(".calc-row");
           const bucket = input.dataset.bucket;
           const cost = Number(input.value || 0);
           const factor = Number(parent.querySelector(".calc-factor").textContent);
+          const value = Number((cost * factor).toFixed(2));
+          depreciatedTotal += value;
           return {
             bucket,
             display_year: parent.children[0].textContent,
             year_acquired: bucket === "prior" ? null : Number(bucket),
             cost,
             factor,
-            value: Number((cost * factor).toFixed(2))
+            value
           };
         });
         if (preset.supplemental_flat_label) {
           const autoRoll = Number($("calc-auto-roll").value || 0);
           if (autoRoll > 0) {
+            depreciatedTotal += autoRoll;
             rows.unshift({
               bucket: "flat_value",
               display_year: preset.supplemental_flat_label,
@@ -1143,7 +1174,18 @@
             });
           }
         }
+        if (gfeTotal > 0) {
+          rows.unshift({
+            bucket: "good_faith_value",
+            display_year: "Good Faith Estimate",
+            year_acquired: null,
+            cost: gfeTotal,
+            factor: 1,
+            value: gfeTotal
+          });
+        }
       }
+      const sectionTotal = rows.reduce((sum, row) => sum + Number(row.value || 0), 0);
       return {
         id: appState.single.editingCalculatorId,
         name,
@@ -1152,25 +1194,35 @@
         depreciation_table: preset.entry_mode === "depreciation" ? $("calc-table").value : "flat",
         tax_year: Number($("calc-tax-year").value || new Date().getFullYear()),
         rows,
-        section_total: rows.reduce((sum, row) => sum + Number(row.value || 0), 0)
+        good_faith_total: gfeTotal,
+        depreciated_total: depreciatedTotal,
+        section_total: sectionTotal
       };
     }
 
     function updateCalculatorTotal() {
       const preset = getCurrentPreset();
       let total = 0;
+      let gfeTotal = 0;
+      let depreciatedTotal = 0;
       if (preset.entry_mode === "flat") {
         total = Number($("calc-flat-value").value || 0);
+        depreciatedTotal = total;
       } else {
+        gfeTotal = Number($("calc-good-faith-row").value || 0);
+        $("calc-good-faith-value").textContent = formatMoney(gfeTotal);
         Array.from($("calc-rows").querySelectorAll(".calc-row")).forEach((row) => {
           const cost = Number(row.querySelector("input").value || 0);
           const factor = Number(row.querySelector(".calc-factor").textContent);
           const value = Number((cost * factor).toFixed(2));
           row.querySelector("[data-value]").textContent = formatMoney(value);
-          total += value;
+          depreciatedTotal += value;
         });
-        if (getCurrentPreset().supplemental_flat_label) total += Number($("calc-auto-roll").value || 0);
+        if (getCurrentPreset().supplemental_flat_label) depreciatedTotal += Number($("calc-auto-roll").value || 0);
+        total = gfeTotal + depreciatedTotal;
       }
+      $("calc-gfe-total").textContent = formatMoney(gfeTotal);
+      $("calc-depreciated-total").textContent = formatMoney(depreciatedTotal);
       $("calc-total").textContent = formatMoney(total);
     }
 
@@ -1183,6 +1235,7 @@
           <div class="saved-section">
             <div class="saved-title">${item.name} | ${formatMoney(item.section_total)}</div>
             <div class="subtle">Schedule ${item.schedule} | Tax Year ${item.tax_year} | ${item.depreciation_table}</div>
+            <div class="subtle">GFE ${formatMoney(item.good_faith_total || 0)} | Depreciated ${formatMoney(item.depreciated_total || 0)} | Section Total ${formatMoney(item.section_total || 0)}</div>
             <div class="button-row" style="margin-top:10px;">
               <button class="secondary" type="button" data-edit-calc="${item.id}">Edit</button>
               <button class="secondary" type="button" data-delete-calc="${item.id}">Delete</button>
@@ -1216,6 +1269,7 @@
       $("calc-custom-name").value = "";
       $("calc-flat-value").value = "0";
       $("calc-auto-roll").value = "0";
+      $("calc-good-faith-row").value = "0";
       updateCalculatorPreset();
       renderSavedCalculators();
     }
@@ -1230,11 +1284,18 @@
       $("calc-name").value = item.name || "";
       $("calc-custom-name").value = $("calc-section").value === "custom" ? item.name : "";
       updateCalculatorPreset();
-      if (item.depreciation_table && item.depreciation_table !== "flat") $("calc-table").value = item.depreciation_table;
+      if (item.depreciation_table && item.depreciation_table !== "flat") {
+        $("calc-table").value = item.depreciation_table;
+        renderCalculatorRows();
+      }
       if (getCurrentPreset().entry_mode === "flat") {
         $("calc-flat-value").value = String(item.rows?.[0]?.cost || 0);
       } else {
         item.rows.forEach((row) => {
+          if (row.bucket === "good_faith_value") {
+            $("calc-good-faith-row").value = String(row.cost || row.value || 0);
+            return;
+          }
           if (row.bucket === "flat_value") {
             $("calc-auto-roll").value = String(row.cost || 0);
             return;
@@ -1645,6 +1706,7 @@
       $("calc-table").addEventListener("change", renderCalculatorRows);
       $("calc-flat-value").addEventListener("input", updateCalculatorTotal);
       $("calc-auto-roll").addEventListener("input", updateCalculatorTotal);
+      $("calc-good-faith-row").addEventListener("input", updateCalculatorTotal);
       $("calc-save-section").addEventListener("click", () => {
         const payload = buildCalculatorPayload();
         if ($("calc-section").value === "custom" && !payload.name.trim()) {
