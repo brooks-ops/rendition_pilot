@@ -3,162 +3,1831 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rendition Pilot Calculator</title>
+  <title>AppraisalPilot</title>
+  <style>
+    :root {
+      --bg: #0b1f3a;
+      --panel: #102948;
+      --panel-2: #0f2a44;
+      --panel-3: #112f4e;
+      --text: #ffffff;
+      --muted: #d7dfea;
+      --subtle: #c7d2e3;
+      --gold: #ffd700;
+      --gold-2: #e6c200;
+      --border: rgba(255, 215, 0, 0.2);
+      --border-soft: rgba(255, 255, 255, 0.08);
+      --danger: #e74c3c;
+      --warn: #f1c40f;
+      --success: #2ecc71;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", Tahoma, sans-serif; }
+    body { min-height: 100vh; }
+    .page { max-width: 1500px; margin: 0 auto; padding: 32px 20px 48px; }
+    .title { font-size: 2.2rem; font-weight: 800; color: var(--gold); margin-bottom: 6px; }
+    .subtitle { color: var(--muted); margin-bottom: 18px; }
+    .topbar { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 14px; }
+    .userbox { color: var(--muted); font-size: 0.92rem; text-align: right; }
+    .tabs, .subtabs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+    .tab-btn, .subtab-btn {
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      border-radius: 999px;
+      min-height: 38px;
+      padding: 0 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .tab-btn.active, .subtab-btn.active { background: var(--gold); color: var(--bg); }
+    .view { display: none; }
+    .view.active { display: block; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .card.tight { padding: 14px 16px; }
+    h1, h2, h3, h4 { margin: 0 0 10px; color: var(--gold); }
+    .muted { color: var(--muted); }
+    .subtle { color: var(--subtle); font-size: 0.92rem; line-height: 1.45; }
+    .layout-2 { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 16px; align-items: start; }
+    .layout-2-wide { display: grid; grid-template-columns: 1.08fr 0.92fr; gap: 16px; align-items: start; }
+    .layout-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .layout-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .controls { display: grid; grid-template-columns: 1.7fr 1.1fr 0.55fr; gap: 12px; align-items: end; }
+    .field { margin-bottom: 12px; }
+    label, .small-label {
+      display: block;
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 0.76rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    input, textarea, select {
+      width: 100%;
+      background: #112b4a;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      min-height: 40px;
+    }
+    textarea { min-height: 90px; resize: vertical; }
+    button {
+      background: var(--gold);
+      color: var(--bg);
+      font-weight: 800;
+      border: none;
+      border-radius: 10px;
+      min-height: 42px;
+      padding: 0 16px;
+      cursor: pointer;
+    }
+    button:hover { background: var(--gold-2); }
+    button.secondary {
+      background: transparent;
+      color: var(--gold);
+      border: 1px solid var(--border);
+    }
+    button.danger { background: var(--danger); color: white; }
+    button:disabled { opacity: 0.55; cursor: default; }
+    .button-row { display: flex; flex-wrap: wrap; gap: 10px; }
+    .status {
+      border-radius: 12px;
+      padding: 14px 16px;
+      font-weight: 700;
+      margin-bottom: 14px;
+      border: 1px solid var(--border);
+      background: rgba(255, 215, 0, 0.12);
+    }
+    .status.error { background: rgba(231, 76, 60, 0.15); border-color: var(--danger); color: white; }
+    .status.success { background: rgba(46, 204, 113, 0.15); border-color: var(--success); }
+    .status.warn { background: rgba(241, 196, 15, 0.15); border-color: var(--warn); }
+    .hidden { display: none !important; }
+    .metric-card {
+      background: var(--panel);
+      border: 2px solid rgba(255, 215, 0, 0.35);
+      border-radius: 18px;
+      padding: 22px;
+      margin-bottom: 16px;
+    }
+    .metric-label { color: var(--subtle); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    .metric-value { color: var(--text); font-size: 2.6rem; font-weight: 800; margin-top: 6px; }
+    .mini-card {
+      background: var(--panel-2);
+      border-radius: 14px;
+      padding: 16px;
+      min-height: 108px;
+      border: 1px solid rgba(255, 215, 0, 0.12);
+    }
+    .mini-card .label { font-size: 0.9rem; color: var(--muted); margin-bottom: 8px; }
+    .mini-card .value { font-size: 1.4rem; font-weight: 800; line-height: 1.2; word-break: break-word; }
+    .reason-box {
+      background: var(--panel-3);
+      border-left: 5px solid var(--gold);
+      border-radius: 10px;
+      padding: 16px;
+      color: white;
+      margin-top: 10px;
+    }
+    .pdf-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .pdf-nav { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .pdf-stage { background: #0f2a44; border-radius: 14px; padding: 12px; min-height: 420px; display: flex; align-items: center; justify-content: center; }
+    .pdf-stage img { max-width: 100%; max-height: 72vh; object-fit: contain; border-radius: 10px; }
+    .calc-head { display: grid; grid-template-columns: 1.25fr 0.75fr; gap: 12px; }
+    .calc-table-head, .calc-row {
+      display: grid;
+      grid-template-columns: 0.7fr 1.35fr 0.75fr 1fr;
+      gap: 10px;
+      align-items: center;
+    }
+    .calc-table-head {
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0 4px 6px 4px;
+      border-bottom: 1px solid var(--border-soft);
+      margin-top: 10px;
+    }
+    .calc-rows { max-height: 360px; overflow: auto; margin-top: 8px; }
+    .calc-row { padding: 8px 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+    .calc-factor { display: inline-block; padding: 3px 8px; border-radius: 999px; background: rgba(255, 215, 0, 0.12); border: 1px solid rgba(255, 215, 0, 0.25); color: var(--gold); font-size: 0.8rem; font-weight: 700; }
+    .calc-footer { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-soft); }
+    .saved-work-card { background: var(--panel-2); border: 1px solid rgba(255, 215, 0, 0.14); border-radius: 12px; padding: 12px; margin-top: 10px; }
+    .saved-section { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 12px; margin-top: 10px; }
+    .saved-title { color: var(--gold); font-size: 0.95rem; font-weight: 700; margin-bottom: 6px; }
+    .assist-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    details {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    details > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 14px 16px;
+      font-weight: 700;
+      color: white;
+    }
+    details > div { padding: 0 16px 16px; }
+    details > summary::-webkit-details-marker { display: none; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border-soft); font-size: 0.92rem; vertical-align: top; }
+    th { color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.74rem; }
+    .kv-table { display: grid; gap: 4px; }
+    .kv-row { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--border-soft); }
+    .kv-row:last-child { border-bottom: none; }
+    .kv-label { color: var(--subtle); font-weight: 600; }
+    .kv-value { color: white; text-align: right; }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: var(--panel-2);
+      border-radius: 12px;
+      padding: 12px;
+      border: 1px solid rgba(255, 215, 0, 0.12);
+      overflow: auto;
+    }
+    .login-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+    .dynamic-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .batch-table-wrap, .queue-table-wrap { overflow: auto; }
+    @media (max-width: 1120px) {
+      .layout-2, .layout-2-wide, .controls, .layout-3, .layout-4, .dynamic-grid-4, .calc-head { grid-template-columns: 1fr; }
+      .userbox { text-align: left; }
+    }
+  </style>
 </head>
 <body>
-  <h1>Rendition Pilot Calculator</h1>
+  <div class="page">
+    <div class="topbar">
+      <div>
+        <div class="title">AppraisalPilot</div>
+        <div id="app-subtitle" class="subtitle">Authorized rendition review access only.</div>
+      </div>
+      <div id="user-box" class="userbox hidden">
+        <div id="signed-in-email"></div>
+        <div id="signed-in-district"></div>
+        <div style="margin-top:10px;"><button id="sign-out" class="secondary" type="button">Sign Out</button></div>
+      </div>
+    </div>
 
-  <div>
-    <label for="cost">Cost</label><br>
-    <input id="cost" type="number" step="0.01" min="0" value="10000">
+    <div id="flash" class="status hidden"></div>
+
+    <section id="auth-shell" class="card">
+      <div class="subtabs">
+        <button class="subtab-btn active" data-auth-view="login" type="button">Login</button>
+        <button class="subtab-btn" data-auth-view="signup" type="button">Create Login</button>
+        <button class="subtab-btn" data-auth-view="cad" type="button">New CAD Setup</button>
+      </div>
+
+      <div id="auth-login" class="auth-view login-grid">
+        <div class="field">
+          <label for="login-email">Email</label>
+          <input id="login-email" type="email" placeholder="name@lubbockcad.org">
+        </div>
+        <div class="field">
+          <label for="login-password">Password</label>
+          <input id="login-password" type="password">
+        </div>
+        <div><button id="login-submit" type="button">Login</button></div>
+      </div>
+
+      <div id="auth-signup" class="auth-view login-grid hidden">
+        <div class="field">
+          <label for="signup-email">Email</label>
+          <input id="signup-email" type="email" placeholder="name@cad.org">
+        </div>
+        <div class="field">
+          <label for="signup-password">Password</label>
+          <input id="signup-password" type="password">
+        </div>
+        <div class="field">
+          <label for="signup-confirm">Confirm Password</label>
+          <input id="signup-confirm" type="password">
+        </div>
+        <div><button id="signup-submit" type="button">Create Login</button></div>
+      </div>
+
+      <div id="auth-cad" class="auth-view login-grid hidden">
+        <div class="subtle">Creates the district, links the admin user, and opens the full review workspace.</div>
+        <div class="field">
+          <label for="cad-name">District Name</label>
+          <input id="cad-name" type="text" placeholder="Example County Appraisal District">
+        </div>
+        <div class="field">
+          <label for="cad-slug">District Slug</label>
+          <input id="cad-slug" type="text" placeholder="example-cad">
+        </div>
+        <div class="field">
+          <label for="cad-email">Admin Email</label>
+          <input id="cad-email" type="email" placeholder="name@cad.org">
+        </div>
+        <div class="field">
+          <label for="cad-password">Password</label>
+          <input id="cad-password" type="password">
+        </div>
+        <div class="field">
+          <label for="cad-confirm">Confirm Password</label>
+          <input id="cad-confirm" type="password">
+        </div>
+        <div><button id="cad-submit" type="button">Create District and Login</button></div>
+      </div>
+    </section>
+
+    <section id="app-shell" class="hidden">
+      <div class="tabs">
+        <button class="tab-btn active" data-view="single" type="button">Single Review</button>
+        <button class="tab-btn" data-view="batch" type="button">Batch Review</button>
+        <button class="tab-btn" data-view="queue" type="button">Review Queue</button>
+      </div>
+
+      <div id="view-single" class="view active">
+        <section class="card">
+          <h3>Single Review Controls</h3>
+          <div id="provider-status" class="subtle" style="margin-bottom:12px;"></div>
+          <div class="controls">
+            <div class="field">
+              <label for="single-file">Upload rendition PDF</label>
+              <input id="single-file" type="file" accept="application/pdf">
+            </div>
+            <div class="field">
+              <label for="single-mode">Valuation Mode</label>
+              <select id="single-mode">
+                <option>Auto / Recommended</option>
+                <option>Force Attachment Total</option>
+                <option>Force Good Faith Value</option>
+                <option>Force Historical Cost Less Depreciation</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <button id="single-run" type="button">Run Review</button>
+            </div>
+          </div>
+          <div id="single-dynamic" class="dynamic-grid-4 hidden"></div>
+        </section>
+
+        <section class="card">
+          <h3>Analysis</h3>
+          <div class="subtle">Focus on Recommended Value, Valuation Path, Confidence, extraction source, and reason first.</div>
+          <div id="analysis-empty" class="subtle">Run Review to populate the analysis summary.</div>
+          <div id="analysis-body" class="hidden">
+            <div class="metric-card">
+              <div class="metric-label">Recommended Value</div>
+              <div id="analysis-recommended" class="metric-value">-</div>
+            </div>
+            <div id="analysis-provider" class="muted" style="margin-bottom:10px;"></div>
+            <div class="layout-3">
+              <div class="mini-card">
+                <div class="label">Valuation Path</div>
+                <div id="analysis-path" class="value">-</div>
+              </div>
+              <div class="mini-card">
+                <div class="label">Percent Good</div>
+                <div id="analysis-percent-good" class="value">-</div>
+              </div>
+              <div id="analysis-confidence-card" class="mini-card">
+                <div class="label">Confidence</div>
+                <div id="analysis-confidence" class="value">-</div>
+              </div>
+            </div>
+            <div id="analysis-status" class="status" style="margin-top:14px;"></div>
+            <h4>Decision Reason</h4>
+            <div id="analysis-reason" class="reason-box">-</div>
+          </div>
+        </section>
+
+        <div class="layout-2-wide">
+          <section class="card tight">
+            <h3>Rendition PDF</h3>
+            <div class="button-row" style="margin-bottom:10px;">
+              <button id="download-original" class="secondary" type="button">Download PDF</button>
+              <span id="pdf-file-name" class="muted"></span>
+            </div>
+            <div class="pdf-toolbar">
+              <div id="pdf-meta" class="muted">No PDF loaded.</div>
+              <div class="pdf-nav">
+                <button id="pdf-prev" class="secondary" type="button">Prev</button>
+                <select id="pdf-page-select" style="width:auto;"></select>
+                <button id="pdf-next" class="secondary" type="button">Next</button>
+                <button id="pdf-left" class="secondary" type="button">Left</button>
+                <button id="pdf-right" class="secondary" type="button">Right</button>
+              </div>
+            </div>
+            <div class="pdf-stage">
+              <img id="pdf-image" alt="PDF Preview" class="hidden">
+              <div id="pdf-empty" class="subtle">Upload and run a PDF to render the document here.</div>
+            </div>
+          </section>
+
+          <section class="card tight">
+            <h3>Rendition Calculator</h3>
+            <div class="subtle">Compact appraisal worksheet. Enter costs while keeping the PDF visible.</div>
+
+            <div class="calc-head">
+              <div class="field">
+                <label for="calc-section">Section</label>
+                <select id="calc-section"></select>
+              </div>
+              <div class="field">
+                <label for="calc-tax-year">Tax Year</label>
+                <input id="calc-tax-year" type="number" min="2000" max="2100" step="1">
+              </div>
+            </div>
+            <div id="calc-custom-wrap" class="field hidden">
+              <label for="calc-custom-name">Custom Section Name</label>
+              <input id="calc-custom-name" type="text" placeholder="Schedule A - Leasehold Improvements">
+            </div>
+            <div class="field">
+              <label for="calc-name">Calculator Name</label>
+              <input id="calc-name" type="text" placeholder="FFME, HTE, or other appraiser section name">
+            </div>
+            <div id="calc-table-wrap" class="field">
+              <label for="calc-table">Depreciation Table</label>
+              <select id="calc-table"></select>
+            </div>
+            <div id="calc-flat-wrap" class="field hidden">
+              <label for="calc-flat-value">Section Value</label>
+              <input id="calc-flat-value" type="number" min="0" step="0.01" value="0">
+            </div>
+            <div id="calc-auto-roll-wrap" class="field hidden">
+              <label for="calc-auto-roll">Auto Roll Value</label>
+              <input id="calc-auto-roll" type="number" min="0" step="0.01" value="0">
+            </div>
+            <div id="calc-depreciation-wrap">
+              <div class="calc-table-head">
+                <div>Year</div>
+                <div>Cost</div>
+                <div>Factor</div>
+                <div style="text-align:right;">Value</div>
+              </div>
+              <div id="calc-rows" class="calc-rows"></div>
+            </div>
+            <div class="calc-footer">
+              <div class="layout-3">
+                <div>
+                  <div class="small-label">Total</div>
+                  <div id="calc-total" style="font-size:1.25rem;font-weight:800;">$0.00</div>
+                </div>
+                <div><button id="calc-save-section" type="button">Save Section</button></div>
+                <div><button id="calc-new-section" class="secondary" type="button">New Section</button></div>
+              </div>
+            </div>
+
+            <div class="saved-work-card">
+              <div class="saved-title">Saved Work</div>
+              <div id="saved-total" style="font-size:1.25rem;font-weight:800;margin-bottom:10px;">$0.00</div>
+              <div class="button-row">
+                <button id="calc-use-total" class="secondary" type="button">Use Calculated Total as Final Value</button>
+              </div>
+              <div id="saved-sections"></div>
+            </div>
+          </section>
+        </div>
+
+        <div class="layout-2">
+          <section class="card">
+            <h3>Manual Assist</h3>
+            <div class="subtle">Use this when auto extraction is low confidence or the appraiser needs to override the extracted value.</div>
+            <div class="assist-tabs">
+              <button class="subtab-btn active" data-assist="attachment" type="button">Attachment Total</button>
+              <button class="subtab-btn" data-assist="goodfaith" type="button">Good Faith Sum</button>
+              <button class="subtab-btn" data-assist="historical" type="button">Historical Cost</button>
+            </div>
+
+            <div id="assist-attachment" class="assist-view">
+              <div class="field">
+                <label for="assist-attachment-total">Attachment Total</label>
+                <input id="assist-attachment-total" type="number" min="0" step="0.01">
+              </div>
+              <div class="field">
+                <label for="assist-attachment-notes">Attachment Notes</label>
+                <textarea id="assist-attachment-notes"></textarea>
+              </div>
+              <button id="assist-apply-attachment" type="button">Apply Attachment Total</button>
+            </div>
+
+            <div id="assist-goodfaith" class="assist-view hidden">
+              <div class="field">
+                <label for="assist-goodfaith-amounts">Good Faith Amounts</label>
+                <textarea id="assist-goodfaith-amounts" placeholder="$4,500.00&#10;$9,000.00&#10;$30,250.00"></textarea>
+              </div>
+              <div class="layout-2">
+                <div class="mini-card"><div class="label">Line Items</div><div id="assist-goodfaith-count" class="value">0</div></div>
+                <div class="mini-card"><div class="label">Good Faith Total</div><div id="assist-goodfaith-total" class="value">$0.00</div></div>
+              </div>
+              <div class="field" style="margin-top:12px;">
+                <label for="assist-goodfaith-notes">Good Faith Notes</label>
+                <textarea id="assist-goodfaith-notes"></textarea>
+              </div>
+              <button id="assist-apply-goodfaith" type="button">Apply Good Faith Sum</button>
+            </div>
+
+            <div id="assist-historical" class="assist-view hidden">
+              <div class="layout-3">
+                <div class="field">
+                  <label for="assist-historical-cost">Historical Cost</label>
+                  <input id="assist-historical-cost" type="number" min="0" step="0.01">
+                </div>
+                <div class="field">
+                  <label for="assist-acquisition-year">Acquisition Year</label>
+                  <input id="assist-acquisition-year" type="number" min="1900" max="2100" step="1">
+                </div>
+                <div class="field">
+                  <label for="assist-life-years">Life Years</label>
+                  <input id="assist-life-years" type="number" min="1" max="50" step="1" value="5">
+                </div>
+              </div>
+              <div class="field">
+                <label for="assist-historical-notes">Historical Cost Notes</label>
+                <textarea id="assist-historical-notes"></textarea>
+              </div>
+              <button id="assist-apply-historical" type="button">Apply Historical Cost</button>
+            </div>
+          </section>
+
+          <section class="card">
+            <h3>Finalize Review</h3>
+            <div class="subtle">Confirm the final value, enter initials/account, then lock and save the reviewed rendition.</div>
+            <div id="final-calc-box" class="reason-box hidden"></div>
+            <div class="layout-2" style="margin-bottom:12px;">
+              <button id="mark-closed" class="secondary" type="button">Mark Closed</button>
+              <button id="mark-no-assets" class="secondary" type="button">Mark No Assets</button>
+            </div>
+            <div class="layout-2">
+              <div class="field">
+                <label for="final-value">Final Value</label>
+                <input id="final-value" type="text">
+              </div>
+              <div class="field">
+                <label for="final-source">Final Source</label>
+                <select id="final-source"></select>
+              </div>
+            </div>
+            <div class="layout-2">
+              <div class="field">
+                <label for="final-initials">Appraiser Initials</label>
+                <input id="final-initials" type="text" maxlength="12">
+              </div>
+              <div class="field">
+                <label for="final-decision">Review Decision</label>
+                <select id="final-decision"></select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="final-account-number">Appraisal District Account / P#</label>
+              <input id="final-account-number" type="text" placeholder="Example: P164755">
+            </div>
+            <div class="field">
+              <label for="final-notes">Appraiser Notes</label>
+              <textarea id="final-notes"></textarea>
+            </div>
+            <div id="locked-status" class="status hidden"></div>
+            <div id="saved-status" class="status hidden"></div>
+            <div class="button-row">
+              <button id="lock-review" type="button">Lock Final Value</button>
+              <button id="save-review" class="secondary" type="button">Save Rendition</button>
+              <button id="download-stamped" class="secondary hidden" type="button">Download Stamped Rendition</button>
+              <button id="next-account" class="secondary hidden" type="button">Next Account</button>
+            </div>
+          </section>
+        </div>
+
+        <details>
+          <summary>Document / Form / Schedule Details</summary>
+          <div id="details-section"></div>
+        </details>
+        <details>
+          <summary>AI Review / Reasoning</summary>
+          <div id="agent-review-section"></div>
+        </details>
+        <details>
+          <summary>Extracted Value Evidence</summary>
+          <div id="candidate-section"></div>
+        </details>
+        <details>
+          <summary>One-Page Summary</summary>
+          <div><pre id="summary-text">-</pre></div>
+        </details>
+        <details>
+          <summary>Technical JSON</summary>
+          <div><pre id="technical-json">-</pre></div>
+        </details>
+      </div>
+
+      <div id="view-batch" class="view">
+        <section class="card">
+          <h3>Batch Review Controls</h3>
+          <div class="field">
+            <label for="batch-files">Upload multiple rendition PDFs</label>
+            <input id="batch-files" type="file" accept="application/pdf" multiple>
+          </div>
+          <button id="batch-run" type="button">Run Batch Review</button>
+        </section>
+        <section class="card">
+          <h3>Batch Review</h3>
+          <div class="subtle">Upload multiple PDFs, run the pipeline on all of them, and use the table to spot outliers fast.</div>
+          <div id="batch-status" class="muted">Upload one or more PDFs to begin batch review.</div>
+          <div id="batch-results" class="hidden">
+            <div class="button-row" style="margin-bottom:12px;">
+              <button id="batch-download-json" class="secondary" type="button">Download Batch Results JSON</button>
+              <button id="batch-download-csv" class="secondary" type="button">Download Batch Results CSV</button>
+            </div>
+            <div class="batch-table-wrap">
+              <table>
+                <thead id="batch-head"></thead>
+                <tbody id="batch-body"></tbody>
+              </table>
+            </div>
+            <details style="margin-top:12px;">
+              <summary>Raw Batch JSON</summary>
+              <div><pre id="batch-json">-</pre></div>
+            </details>
+          </div>
+        </section>
+      </div>
+
+      <div id="view-queue" class="view">
+        <section class="card">
+          <h3>Review Queue</h3>
+          <div id="queue-root" class="muted"></div>
+          <div class="button-row" style="margin-top:10px;margin-bottom:12px;">
+            <button id="refresh-queue" class="secondary" type="button">Refresh Queue</button>
+          </div>
+          <div class="queue-table-wrap">
+            <table>
+              <thead id="queue-head"></thead>
+              <tbody id="queue-body"></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="card">
+          <h3>Completed Reviews</h3>
+          <div class="queue-table-wrap">
+            <table>
+              <thead id="completed-head"></thead>
+              <tbody id="completed-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </section>
   </div>
-
-  <br>
-
-  <div>
-    <label for="year-acquired">Year Acquired</label><br>
-    <input id="year-acquired" type="number" step="1" value="2025">
-  </div>
-
-  <br>
-
-  <div>
-    <label for="schedule-type">Schedule Type</label><br>
-    <select id="schedule-type">
-      <option value="A">A</option>
-      <option value="B" selected>B</option>
-      <option value="C">C</option>
-      <option value="D">D</option>
-      <option value="E">E</option>
-    </select>
-  </div>
-
-  <br>
-
-  <div>
-    <label for="depreciation-schedule">Depreciation Schedule</label><br>
-    <select id="depreciation-schedule">
-      <option value="5">5</option>
-      <option value="8">8</option>
-      <option value="9" selected>9</option>
-      <option value="12">12</option>
-    </select>
-  </div>
-
-  <br>
-
-  <button id="check-api">Check API</button>
-  <button id="calculate">Calculate</button>
-
-  <h2>API Info</h2>
-  <pre id="api-info">No API check yet.</pre>
-
-  <h2>Total Value</h2>
-  <div id="total-value">No calculation yet.</div>
-
-  <h2>Request Sent</h2>
-  <pre id="request-sent">No request sent yet.</pre>
-
-  <h2>Raw JSON</h2>
-  <pre id="results">No results yet.</pre>
 
   <script>
-    const API_BASE = "http://127.0.0.1:8000";
-
-    const costInput = document.getElementById("cost");
-    const yearAcquiredInput = document.getElementById("year-acquired");
-    const scheduleTypeInput = document.getElementById("schedule-type");
-    const depreciationScheduleInput = document.getElementById("depreciation-schedule");
-    const apiInfoEl = document.getElementById("api-info");
-    const totalValueEl = document.getElementById("total-value");
-    const requestSentEl = document.getElementById("request-sent");
-    const resultsEl = document.getElementById("results");
-
-    function showResponse(data) {
-      totalValueEl.textContent = data.total_value ?? "No total_value returned.";
-      resultsEl.textContent = JSON.stringify(data, null, 2);
-    }
-
-    function showError(error) {
-      totalValueEl.textContent = "Request failed.";
-      resultsEl.textContent = `URL: ${error.url}\nError: ${error.message}`;
-    }
-
-    function showApiError(error) {
-      apiInfoEl.textContent = `URL: ${error.url}\nError: ${error.message}`;
-    }
-
-    async function fetchJson(url, options = {}) {
-      try {
-        const response = await fetch(url, options);
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(typeof data.detail === "string" ? data.detail : "API request failed.");
-        }
-
-        return data;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown fetch error.";
-        throw { url, message };
+    const API_BASE = (() => {
+      const params = new URLSearchParams(window.location.search);
+      const explicit = params.get("api");
+      if (explicit) return explicit.replace(/\/$/, "");
+      if (window.location.protocol.startsWith("http")) return window.location.origin;
+      return "http://127.0.0.1:8000";
+    })();
+    const MONEY_RE = /\$\s*\(?[0-9][0-9,\s]*(?:\.\d{1,2})?\)?|\b\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?\b|\b\d+\.\d{2}\b/g;
+    const AUTH_KEY = "appraisalpilot_auth";
+    const appState = {
+      bootstrap: null,
+      auth: null,
+      single: {
+        file: null,
+        fileBase64: null,
+        fileBytesUrl: null,
+        result: null,
+        summary: "",
+        pdfPages: [],
+        pdfPageIndex: 0,
+        pdfRotation: 0,
+        savedCalculators: [],
+        editingCalculatorId: null,
+        lockedRecord: null,
+        stamped: null,
+      },
+      batch: {
+        rows: [],
+        results: null,
       }
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function showFlash(message, type = "warn") {
+      const flash = $("flash");
+      flash.textContent = message;
+      flash.className = `status ${type}`;
+      flash.classList.remove("hidden");
     }
 
-    document.getElementById("check-api").addEventListener("click", async () => {
-      const url = `${API_BASE}/api/info`;
-      apiInfoEl.textContent = "Loading...";
+    function hideFlash() {
+      $("flash").classList.add("hidden");
+    }
 
-      try {
-        const data = await fetchJson(url);
-        apiInfoEl.textContent = JSON.stringify(data, null, 2);
-      } catch (error) {
-        showApiError(error);
-      }
-    });
+    function formatMoney(value) {
+      if (value === null || value === undefined || value === "") return "-";
+      const amount = Number(value);
+      if (Number.isNaN(amount)) return String(value);
+      return amount.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
 
-    document.getElementById("calculate").addEventListener("click", async () => {
-      totalValueEl.textContent = "Calculating...";
-      requestSentEl.textContent = "Preparing request...";
-      resultsEl.textContent = "Loading...";
+    function formatPercent(value) {
+      if (value === null || value === undefined || value === "") return "-";
+      const amount = Number(value);
+      if (Number.isNaN(amount)) return String(value);
+      return `${(amount * 100).toFixed(2)}%`;
+    }
 
-      const rawCost = costInput.value.trim();
-      const rawYearAcquired = yearAcquiredInput.value.trim();
-      const cost = rawCost === "" ? 0 : parseFloat(rawCost);
-      const yearAcquired = rawYearAcquired === "" ? 0 : Number(rawYearAcquired);
-      const scheduleType = scheduleTypeInput.value;
-      const depreciationSchedule = depreciationScheduleInput.value;
-      const url = `${API_BASE}/api/calculate`;
-      const bucket = yearAcquired > 0 ? String(yearAcquired) : "prior";
+    function formatText(value) {
+      if (value === null || value === undefined || value === "") return "-";
+      if (Array.isArray(value)) return value.length ? value.join(" | ") : "-";
+      if (typeof value === "object") return JSON.stringify(value);
+      return String(value);
+    }
 
-      const payload = {
-        schedule_type: scheduleType,
-        rows: [
-          {
-            bucket: bucket,
-            display_year: bucket,
-            cost: cost,
-            historical_cost: cost,
-            year_acquired: yearAcquired
-          }
-        ],
-        depreciation_schedule: depreciationSchedule
+    function parseMoneyInput(value) {
+      if (value === null || value === undefined || value === "") return null;
+      const parsed = Number(String(value).replace(/\$/g, "").replace(/,/g, "").trim());
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+
+    function prettifyPath(path) {
+      const mapping = {
+        use_manual_attachment_total: "Manual Attachment Total",
+        use_manual_good_faith_value: "Manual Good Faith Value",
+        use_manual_historical_cost_depreciated: "Historical Cost Less Depreciation",
+        use_attachment_total_pending_review: "Attachment Total",
+        use_schedule_total_pending_review: "Schedule E Total",
+        use_good_faith_value_pending_review: "Good Faith Estimate",
+        calculator_combined_total: "Calculator Combined Total",
+        manual_review: "Manual Review"
       };
+      return path ? (mapping[path] || path) : "-";
+    }
 
-      requestSentEl.textContent = JSON.stringify(payload, null, 2);
+    function prettifyConfidence(confidence) {
+      if (!confidence) return "-";
+      const lowered = String(confidence).toLowerCase();
+      return lowered.charAt(0).toUpperCase() + lowered.slice(1);
+    }
 
+    function confidenceColor(confidence) {
+      const lowered = String(confidence || "").toLowerCase();
+      if (lowered === "high") return "#2ecc71";
+      if (lowered === "medium") return "#f1c40f";
+      return "#e74c3c";
+    }
+
+    function getRecommendedValue(result) {
+      const assessment = (result && result.assessment_summary) || {};
+      return assessment.recommended_value ?? assessment.recommended_market_value ?? assessment.recommended_assessed_value ?? assessment.extracted_value ?? null;
+    }
+
+    function getStatusLabel(result) {
+      const assessment = (result && result.assessment_summary) || {};
+      const issues = assessment.issues || [];
+      const agentReview = (result && result.agent_review) || {};
+      if (assessment.recommended_path === "manual_review") return "Manual Review";
+      if (agentReview.status === "fallback") return "Review Recommended";
+      if (issues.length) return "Review Recommended";
+      return "Ready";
+    }
+
+    async function fetchJson(path, options = {}) {
+      const response = await fetch(`${API_BASE}${path}`, options);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || data.message || "Request failed.");
+      return data;
+    }
+
+    function setAuthSession(session) {
+      appState.auth = session;
+      localStorage.setItem(AUTH_KEY, JSON.stringify(session));
+      renderAuthState();
+    }
+
+    function clearAuthSession() {
+      appState.auth = null;
+      localStorage.removeItem(AUTH_KEY);
+      renderAuthState();
+    }
+
+    async function restoreAuthSession() {
+      const raw = localStorage.getItem(AUTH_KEY);
+      if (!raw) return;
       try {
-        const data = await fetchJson(url, {
+        const session = JSON.parse(raw);
+        const restored = await fetchJson("/api/auth/restore", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(payload)
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: session.access_token })
         });
-
-        showResponse(data);
+        setAuthSession(restored);
       } catch (error) {
-        showError(error);
+        localStorage.removeItem(AUTH_KEY);
       }
+    }
+
+    function renderAuthState() {
+      const authed = !!(appState.auth && appState.auth.access_token && appState.auth.district);
+      $("auth-shell").classList.toggle("hidden", authed);
+      $("app-shell").classList.toggle("hidden", !authed);
+      $("user-box").classList.toggle("hidden", !authed);
+      if (authed) {
+        $("signed-in-email").textContent = `Signed in as ${appState.auth.district.email || appState.auth.user?.email || ""}`;
+        $("signed-in-district").textContent = `District: ${appState.auth.district.district_name}`;
+        $("app-subtitle").textContent = `${appState.auth.district.district_name} | Intelligent BPP rendition review with side-by-side document verification and batch triage.`;
+        refreshQueue();
+      } else {
+        $("app-subtitle").textContent = "Authorized rendition review access only.";
+      }
+    }
+
+    function setupTabs() {
+      document.querySelectorAll(".tab-btn").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll(".tab-btn").forEach((item) => item.classList.remove("active"));
+          document.querySelectorAll(".view").forEach((item) => item.classList.remove("active"));
+          button.classList.add("active");
+          $(`view-${button.dataset.view}`).classList.add("active");
+          if (button.dataset.view === "queue" && appState.auth?.district) refreshQueue();
+        });
+      });
+      document.querySelectorAll("[data-auth-view]").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll("[data-auth-view]").forEach((item) => item.classList.remove("active"));
+          document.querySelectorAll(".auth-view").forEach((item) => item.classList.add("hidden"));
+          button.classList.add("active");
+          $(`auth-${button.dataset.authView}`).classList.remove("hidden");
+        });
+      });
+      document.querySelectorAll("[data-assist]").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll("[data-assist]").forEach((item) => item.classList.remove("active"));
+          document.querySelectorAll(".assist-view").forEach((item) => item.classList.add("hidden"));
+          button.classList.add("active");
+          $(`assist-${button.dataset.assist}`).classList.remove("hidden");
+        });
+      });
+    }
+
+    async function toBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function downloadBase64(base64, fileName, mime = "application/octet-stream") {
+      const link = document.createElement("a");
+      link.href = `data:${mime};base64,${base64}`;
+      link.download = fileName;
+      link.click();
+    }
+
+    function extractMoneyValues(text) {
+      return (String(text || "").match(MONEY_RE) || [])
+        .map((match) => parseMoneyInput(match))
+        .filter((value) => value !== null && value > 0);
+    }
+
+    function buildManualOverrideFromMode() {
+      const mode = $("single-mode").value;
+      if (mode === "Auto / Recommended") return null;
+      if (mode === "Force Attachment Total") {
+        return {
+          attachment_total: parseMoneyInput($("dynamic-attachment").value),
+          good_faith_value: null,
+          historical_cost: null,
+          acquisition_year: null,
+          life_years: null,
+          notes: ""
+        };
+      }
+      if (mode === "Force Good Faith Value") {
+        return {
+          attachment_total: null,
+          good_faith_value: parseMoneyInput($("dynamic-goodfaith").value),
+          historical_cost: null,
+          acquisition_year: null,
+          life_years: null,
+          notes: ""
+        };
+      }
+      return {
+        attachment_total: null,
+        good_faith_value: null,
+        historical_cost: parseMoneyInput($("dynamic-historical-cost").value),
+        acquisition_year: Number($("dynamic-acquisition-year").value || 0) || null,
+        life_years: Number($("dynamic-life-years").value || 0) || null,
+        notes: ""
+      };
+    }
+
+    function renderSingleDynamicInputs() {
+      const target = $("single-dynamic");
+      const mode = $("single-mode").value;
+      if (mode === "Auto / Recommended") {
+        target.classList.add("hidden");
+        target.innerHTML = "";
+        return;
+      }
+      target.classList.remove("hidden");
+      if (mode === "Force Attachment Total") {
+        target.innerHTML = `
+          <div class="field">
+            <label for="dynamic-attachment">Attachment Total</label>
+            <input id="dynamic-attachment" type="number" min="0" step="0.01">
+          </div>
+        `;
+        return;
+      }
+      if (mode === "Force Good Faith Value") {
+        target.innerHTML = `
+          <div class="field">
+            <label for="dynamic-goodfaith">Good Faith Value</label>
+            <input id="dynamic-goodfaith" type="number" min="0" step="0.01">
+          </div>
+        `;
+        return;
+      }
+      const defaultYear = new Date().getFullYear() - 1;
+      target.innerHTML = `
+        <div class="field">
+          <label for="dynamic-historical-cost">Historical Cost</label>
+          <input id="dynamic-historical-cost" type="number" min="0" step="0.01">
+        </div>
+        <div class="field">
+          <label for="dynamic-acquisition-year">Acquisition Year</label>
+          <input id="dynamic-acquisition-year" type="number" min="1900" max="2100" step="1" value="${defaultYear}">
+        </div>
+        <div class="field">
+          <label for="dynamic-life-years">Life Years</label>
+          <input id="dynamic-life-years" type="number" min="1" max="50" step="1" value="5">
+        </div>
+      `;
+    }
+
+    function resetSingleState() {
+      appState.single = {
+        file: null,
+        fileBase64: null,
+        fileBytesUrl: null,
+        result: null,
+        summary: "",
+        pdfPages: [],
+        pdfPageIndex: 0,
+        pdfRotation: 0,
+        savedCalculators: [],
+        editingCalculatorId: null,
+        lockedRecord: null,
+        stamped: null,
+      };
+      $("single-file").value = "";
+      $("pdf-file-name").textContent = "";
+      $("analysis-body").classList.add("hidden");
+      $("analysis-empty").classList.remove("hidden");
+      $("details-section").innerHTML = "";
+      $("agent-review-section").innerHTML = "";
+      $("candidate-section").innerHTML = "";
+      $("summary-text").textContent = "-";
+      $("technical-json").textContent = "-";
+      $("locked-status").classList.add("hidden");
+      $("saved-status").classList.add("hidden");
+      $("download-stamped").classList.add("hidden");
+      $("next-account").classList.add("hidden");
+      renderPdfPreview();
+      resetCalculatorEditor();
+      populateFinalizeSources();
+    }
+
+    function renderPdfPreview() {
+      const pages = appState.single.pdfPages;
+      const img = $("pdf-image");
+      const empty = $("pdf-empty");
+      if (!pages.length) {
+        img.classList.add("hidden");
+        empty.classList.remove("hidden");
+        $("pdf-meta").textContent = "No PDF loaded.";
+        $("pdf-page-select").innerHTML = "";
+        return;
+      }
+      empty.classList.add("hidden");
+      img.classList.remove("hidden");
+      const pageIndex = Math.min(appState.single.pdfPageIndex, pages.length - 1);
+      appState.single.pdfPageIndex = pageIndex;
+      img.src = `data:image/png;base64,${pages[pageIndex]}`;
+      img.style.transform = `rotate(${appState.single.pdfRotation}deg)`;
+      $("pdf-meta").textContent = `${pages.length} pages | Page ${pageIndex + 1} of ${pages.length} | Rotation ${appState.single.pdfRotation} degrees`;
+      $("pdf-page-select").innerHTML = pages.map((_, index) => `<option value="${index}">Page ${index + 1}</option>`).join("");
+      $("pdf-page-select").value = String(pageIndex);
+    }
+
+    function populateCalcOptions() {
+      const sectionSelect = $("calc-section");
+      const tableSelect = $("calc-table");
+      sectionSelect.innerHTML = Object.entries(appState.bootstrap.section_presets)
+        .map(([key, preset]) => `<option value="${key}">${preset.label}</option>`)
+        .join("");
+      tableSelect.innerHTML = Object.entries(appState.bootstrap.table_metadata)
+        .map(([key, meta]) => `<option value="${key}">${meta.label}</option>`)
+        .join("");
+      $("calc-tax-year").value = String(new Date().getFullYear());
+      $("calc-section").value = "schedule_a_furniture";
+      updateCalculatorPreset();
+    }
+
+    function getCurrentPreset() {
+      return appState.bootstrap.section_presets[$("calc-section").value];
+    }
+
+    function getDefaultCalculatorName(schedule, category) {
+      if (String(schedule).toUpperCase() !== "CUSTOM") return `Schedule ${schedule} - ${category}`;
+      return category || "Custom Calculator";
+    }
+
+    function updateCalculatorPreset() {
+      const preset = getCurrentPreset();
+      $("calc-custom-wrap").classList.toggle("hidden", $("calc-section").value !== "custom");
+      $("calc-table-wrap").classList.toggle("hidden", preset.entry_mode !== "depreciation");
+      $("calc-flat-wrap").classList.toggle("hidden", preset.entry_mode !== "flat");
+      $("calc-auto-roll-wrap").classList.toggle("hidden", !preset.supplemental_flat_label);
+      $("calc-depreciation-wrap").classList.toggle("hidden", preset.entry_mode !== "depreciation");
+      $("calc-table").value = preset.default_table === "flat" ? "9_year" : preset.default_table;
+      if (!appState.single.editingCalculatorId) {
+        $("calc-name").value = "";
+        $("calc-custom-name").value = "";
+        $("calc-flat-value").value = "0";
+        $("calc-auto-roll").value = "0";
+      }
+      renderCalculatorRows();
+    }
+
+    function buildDepreciationYears(tableKey, taxYear) {
+      const table = appState.bootstrap.table_metadata[tableKey];
+      const rows = [];
+      const rowCount = table.life_years === 5 ? 15 : 15;
+      const factors = {
+        "5_year": [0.75, 0.45, 0.20, 0.15, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10],
+        "8_year": [0.75, 0.60, 0.45, 0.35, 0.25, 0.20, 0.10, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
+        "9_year": [0.90, 0.80, 0.70, 0.60, 0.50, 0.40, 0.30, 0.20, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10],
+        "12_year": [0.90, 0.80, 0.70, 0.65, 0.60, 0.55, 0.50, 0.45, 0.40, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35]
+      }[tableKey];
+      const baseYear = Number(taxYear) - 1;
+      for (let offset = 0; offset < rowCount; offset += 1) {
+        const year = baseYear - offset;
+        rows.push({ bucket: offset === rowCount - 1 ? "prior" : String(year), display: offset === rowCount - 1 ? `${year} & Prior` : String(year), factor: factors[offset] ?? factors[factors.length - 1], yearAcquired: year });
+      }
+      return rows;
+    }
+
+    function renderCalculatorRows() {
+      const preset = getCurrentPreset();
+      const taxYear = Number($("calc-tax-year").value || new Date().getFullYear());
+      const rowsEl = $("calc-rows");
+      rowsEl.innerHTML = "";
+      if (preset.entry_mode === "flat") {
+        updateCalculatorTotal();
+        return;
+      }
+      const rows = buildDepreciationYears($("calc-table").value, taxYear);
+      rows.forEach((row) => {
+        const div = document.createElement("div");
+        div.className = "calc-row";
+        div.innerHTML = `
+          <div>${row.display}</div>
+          <div><input type="number" min="0" step="0.01" data-bucket="${row.bucket}" value="0"></div>
+          <div><span class="calc-factor">${Number(row.factor).toFixed(2)}</span></div>
+          <div style="text-align:right;" data-value="${row.bucket}">$0.00</div>
+        `;
+        div.querySelector("input").addEventListener("input", updateCalculatorTotal);
+        rowsEl.appendChild(div);
+      });
+      updateCalculatorTotal();
+    }
+
+    function buildCalculatorPayload() {
+      const preset = getCurrentPreset();
+      const customName = $("calc-custom-name").value.trim();
+      const category = $("calc-section").value === "custom" ? (customName || "Custom") : preset.category;
+      const schedule = preset.schedule;
+      const name = $("calc-name").value.trim() || (customName || getDefaultCalculatorName(schedule, category));
+      let rows = [];
+      if (preset.entry_mode === "flat") {
+        const amount = Number($("calc-flat-value").value || 0);
+        rows = [{
+          bucket: "flat_value",
+          display_year: category,
+          year_acquired: null,
+          cost: amount,
+          factor: 1,
+          value: amount
+        }];
+      } else {
+        rows = Array.from($("calc-rows").querySelectorAll("input")).map((input) => {
+          const parent = input.closest(".calc-row");
+          const bucket = input.dataset.bucket;
+          const cost = Number(input.value || 0);
+          const factor = Number(parent.querySelector(".calc-factor").textContent);
+          return {
+            bucket,
+            display_year: parent.children[0].textContent,
+            year_acquired: bucket === "prior" ? null : Number(bucket),
+            cost,
+            factor,
+            value: Number((cost * factor).toFixed(2))
+          };
+        });
+        if (preset.supplemental_flat_label) {
+          const autoRoll = Number($("calc-auto-roll").value || 0);
+          if (autoRoll > 0) {
+            rows.unshift({
+              bucket: "flat_value",
+              display_year: preset.supplemental_flat_label,
+              year_acquired: null,
+              cost: autoRoll,
+              factor: 1,
+              value: autoRoll
+            });
+          }
+        }
+      }
+      return {
+        id: appState.single.editingCalculatorId,
+        name,
+        schedule,
+        category,
+        depreciation_table: preset.entry_mode === "depreciation" ? $("calc-table").value : "flat",
+        tax_year: Number($("calc-tax-year").value || new Date().getFullYear()),
+        rows,
+        section_total: rows.reduce((sum, row) => sum + Number(row.value || 0), 0)
+      };
+    }
+
+    function updateCalculatorTotal() {
+      const preset = getCurrentPreset();
+      let total = 0;
+      if (preset.entry_mode === "flat") {
+        total = Number($("calc-flat-value").value || 0);
+      } else {
+        Array.from($("calc-rows").querySelectorAll(".calc-row")).forEach((row) => {
+          const cost = Number(row.querySelector("input").value || 0);
+          const factor = Number(row.querySelector(".calc-factor").textContent);
+          const value = Number((cost * factor).toFixed(2));
+          row.querySelector("[data-value]").textContent = formatMoney(value);
+          total += value;
+        });
+        if (getCurrentPreset().supplemental_flat_label) total += Number($("calc-auto-roll").value || 0);
+      }
+      $("calc-total").textContent = formatMoney(total);
+    }
+
+    function renderSavedCalculators() {
+      const wrap = $("saved-sections");
+      if (!appState.single.savedCalculators.length) {
+        wrap.innerHTML = `<div class="subtle">No saved calculator sections yet.</div>`;
+      } else {
+        wrap.innerHTML = appState.single.savedCalculators.map((item) => `
+          <div class="saved-section">
+            <div class="saved-title">${item.name} | ${formatMoney(item.section_total)}</div>
+            <div class="subtle">Schedule ${item.schedule} | Tax Year ${item.tax_year} | ${item.depreciation_table}</div>
+            <div class="button-row" style="margin-top:10px;">
+              <button class="secondary" type="button" data-edit-calc="${item.id}">Edit</button>
+              <button class="secondary" type="button" data-delete-calc="${item.id}">Delete</button>
+            </div>
+          </div>
+        `).join("");
+      }
+      const combined = appState.single.savedCalculators.reduce((sum, item) => sum + Number(item.section_total || 0), 0);
+      $("saved-total").textContent = formatMoney(combined);
+      $("final-calc-box").classList.toggle("hidden", combined <= 0);
+      if (combined > 0) {
+        const currentFinal = parseMoneyInput($("final-value").value);
+        $("final-calc-box").innerHTML = `<strong>Calculated Total:</strong> ${formatMoney(combined)}<br><strong>Final Appraiser Value:</strong> ${formatMoney(currentFinal)}`;
+      }
+      wrap.querySelectorAll("[data-edit-calc]").forEach((button) => {
+        button.addEventListener("click", () => loadCalculatorForEdit(button.dataset.editCalc));
+      });
+      wrap.querySelectorAll("[data-delete-calc]").forEach((button) => {
+        button.addEventListener("click", () => {
+          appState.single.savedCalculators = appState.single.savedCalculators.filter((item) => item.id !== button.dataset.deleteCalc);
+          renderSavedCalculators();
+        });
+      });
+    }
+
+    function resetCalculatorEditor() {
+      appState.single.editingCalculatorId = null;
+      $("calc-section").value = "schedule_a_furniture";
+      $("calc-tax-year").value = String(new Date().getFullYear());
+      $("calc-name").value = "";
+      $("calc-custom-name").value = "";
+      $("calc-flat-value").value = "0";
+      $("calc-auto-roll").value = "0";
+      updateCalculatorPreset();
+      renderSavedCalculators();
+    }
+
+    function loadCalculatorForEdit(id) {
+      const item = appState.single.savedCalculators.find((entry) => entry.id === id);
+      if (!item) return;
+      appState.single.editingCalculatorId = item.id;
+      const presetEntry = Object.entries(appState.bootstrap.section_presets).find(([, preset]) => preset.schedule === item.schedule && preset.category === item.category);
+      $("calc-section").value = presetEntry ? presetEntry[0] : "custom";
+      $("calc-tax-year").value = String(item.tax_year);
+      $("calc-name").value = item.name || "";
+      $("calc-custom-name").value = $("calc-section").value === "custom" ? item.name : "";
+      updateCalculatorPreset();
+      if (item.depreciation_table && item.depreciation_table !== "flat") $("calc-table").value = item.depreciation_table;
+      if (getCurrentPreset().entry_mode === "flat") {
+        $("calc-flat-value").value = String(item.rows?.[0]?.cost || 0);
+      } else {
+        item.rows.forEach((row) => {
+          if (row.bucket === "flat_value") {
+            $("calc-auto-roll").value = String(row.cost || 0);
+            return;
+          }
+          const input = $("calc-rows").querySelector(`input[data-bucket="${row.bucket}"]`);
+          if (input) input.value = String(row.cost || 0);
+        });
+        updateCalculatorTotal();
+      }
+    }
+
+    function populateFinalizeSources() {
+      const result = appState.single.result;
+      const assessment = (result && result.assessment_summary) || {};
+      const defaultSource = assessment.value_source || "pipeline_recommendation";
+      const options = [
+        defaultSource,
+        "calculator_combined_total",
+        "manual_override",
+        "attachment_total",
+        "good_faith_value",
+        "historical_cost_depreciated",
+        "schedule_e_total",
+        "agent_review",
+        "manual_review",
+        "closed_account",
+        "no_assets_reported"
+      ].filter((value, index, array) => array.indexOf(value) === index);
+      $("final-source").innerHTML = options.map((value) => `<option value="${value}">${value}</option>`).join("");
+      $("final-decision").innerHTML = Object.entries({
+        accepted: "Accepted Recommended Value",
+        adjusted: "Adjusted Value",
+        closed: "Closed",
+        no_assets: "No Assets"
+      }).map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+      const recommended = getRecommendedValue(result);
+      $("final-value").value = recommended === null ? "" : String(recommended);
+      $("final-source").value = defaultSource;
+      $("final-decision").value = "accepted";
+      const metadata = (result && result.metadata) || {};
+      $("final-account-number").value = metadata.account_number || "";
+      renderSavedCalculators();
+    }
+
+    function renderAnalysis(result) {
+      if (!result) return;
+      const assessment = result.assessment_summary || {};
+      const depreciation = result.depreciated_override_result || {};
+      $("analysis-empty").classList.add("hidden");
+      $("analysis-body").classList.remove("hidden");
+      $("analysis-recommended").textContent = formatMoney(getRecommendedValue(result));
+      $("analysis-provider").textContent = result.extraction_provider ? `Extraction provider: ${result.extraction_provider}` : "";
+      $("analysis-path").textContent = prettifyPath(assessment.recommended_path);
+      $("analysis-percent-good").textContent = formatPercent(depreciation.percent_good);
+      $("analysis-confidence").textContent = prettifyConfidence(assessment.confidence);
+      $("analysis-confidence-card").style.border = `1px solid ${confidenceColor(assessment.confidence)}`;
+      $("analysis-status").textContent = getStatusLabel(result);
+      $("analysis-status").className = `status ${getStatusLabel(result) === "Ready" ? "success" : getStatusLabel(result) === "Manual Review" ? "error" : "warn"}`;
+      $("analysis-reason").textContent = assessment.reason || "-";
+    }
+
+    function renderKvRows(items) {
+      return `<div class="kv-table">${items.map(([label, value]) => `<div class="kv-row"><div class="kv-label">${label}</div><div class="kv-value">${value}</div></div>`).join("")}</div>`;
+    }
+
+    function renderDetails(result) {
+      const formFlags = result.form_flags || {};
+      const metadata = result.metadata || {};
+      const scheduleE = result.schedule_e || {};
+      const scheduleValues = result.schedule_values || {};
+      const attachments = result.attachments || {};
+      const reviewFlags = result.review_flags || {};
+      const schemaReviewFlags = result.schema_review_flags || [];
+      const manualOverride = result.manual_override || {};
+      const assessment = result.assessment_summary || {};
+      const depreciation = result.depreciated_override_result || {};
+      const structured = result.structured_extraction || {};
+      const debug = structured.debug || {};
+      const scheduleBreakdown = structured.schedule_breakdown || {};
+      const ocrReconciliation = result.ocr_reconciliation || {};
+      const providerSummaries = ocrReconciliation.provider_summaries || {};
+      const providerSummaryRows = Object.entries(providerSummaries).map(([provider, summary]) => `
+        <tr>
+          <td>${provider}</td>
+          <td>${formatText(summary.text_chars)}</td>
+          <td>${formatMoney(summary.attachment_total)}</td>
+          <td>${formatMoney(summary.schedule_e_total)}</td>
+          <td>${formatMoney(summary.good_faith_total)}</td>
+        </tr>
+      `).join("");
+      const breakdownRows = Object.entries(scheduleBreakdown).map(([key, section]) => `
+        <tr>
+          <td>${key.replaceAll("_", " ")}</td>
+          <td>${formatMoney(section.total)}</td>
+          <td>${formatText(section.confidence)}</td>
+          <td>${(section.raw_rows || []).length}</td>
+        </tr>
+      `).join("");
+      $("details-section").innerHTML = `
+        <div class="layout-2">
+          <div class="card">
+            <h4>Document Metadata</h4>
+            ${renderKvRows([
+              ["Tax Year", formatText(metadata.tax_year)],
+              ["Owner Name", formatText(metadata.owner_name)],
+              ["Account Number", formatText(metadata.account_number)],
+              ["Signed Date", formatText(metadata.signed_date)],
+            ])}
+            <h4 style="margin-top:16px;">Form Flags</h4>
+            ${renderKvRows([
+              ["Section 3 Present", formFlags.section_3_present ? "Yes" : "No"],
+              ["Section 3 Prior-Year Box Checked", formFlags.section_3_prior_year_checked ? "Yes" : "No"],
+              ["Section 5 Present", formFlags.section_5_present ? "Yes" : "No"],
+              ["Over $20k Language", formFlags.section_5_over_20k_detected ? "Yes" : "No"],
+              ["$125k Language", formFlags.section_5_125k_language_detected ? "Yes" : "No"],
+              ["Section 5 Under $20k Checked", formFlags.section_5_under_20k_checked ? "Yes" : "No"],
+              ["Section 5 $20k+ Checked", formFlags.section_5_20k_or_more_checked ? "Yes" : "No"],
+              ["Section 5 $125k or Less Checked", formFlags.section_5_125k_or_less_checked ? "Yes" : "No"],
+              ["Section 5 More Than $125k Checked", formFlags.section_5_more_than_125k_checked ? "Yes" : "No"],
+              ["Signature Detected", formFlags.signature_block_detected ? "Yes" : "No"],
+              ["SEE ATTACHED", formFlags.see_attached ? "Yes" : "No"],
+            ])}
+          </div>
+          <div class="card">
+            <h4>Review / Decision Details</h4>
+            ${renderKvRows([
+              ["Recommended Path", prettifyPath(assessment.recommended_path)],
+              ["Value Source", formatText(assessment.value_source)],
+              ["Percent Good", formatPercent(depreciation.percent_good)],
+              ["Confidence", prettifyConfidence(assessment.confidence)],
+              ["Needs Manual Row Review", reviewFlags.needs_manual_row_review ? "Yes" : "No"],
+              ["Needs Attachment Review", reviewFlags.needs_attachment_review ? "Yes" : "No"],
+              ["Schema Review Flags", formatText(schemaReviewFlags)],
+              ["Issues", formatText(assessment.issues)],
+            ])}
+            <h4 style="margin-top:16px;">Override Inputs Used</h4>
+            ${renderKvRows([
+              ["Attachment Total", formatMoney(manualOverride.attachment_total)],
+              ["Good Faith Value", formatMoney(manualOverride.good_faith_value)],
+              ["Historical Cost", formatMoney(manualOverride.historical_cost)],
+              ["Acquisition Year", formatText(manualOverride.acquisition_year)],
+              ["Life Years", formatText(manualOverride.life_years)],
+              ["Notes", formatText(manualOverride.notes)],
+            ])}
+          </div>
+        </div>
+        <div class="card">
+          <h4>Schedule / Attachments</h4>
+          ${renderKvRows([
+            ["Extraction Provider", formatText(result.extraction_provider)],
+            ["Document Confidence", formatText(result.document_confidence)],
+            ["Schedule E Present", scheduleE.schedule_e_present ? "Yes" : "No"],
+            ["Schedule E Total", formatMoney(scheduleE.total)],
+            ["Schedule A GFE Total", formatMoney(scheduleValues.good_faith_total)],
+            ["Historical Cost Total", formatMoney(scheduleValues.historical_cost_total)],
+            ["Schedule E M&E Present", scheduleE.machinery_and_equipment_present ? "Yes" : "No"],
+            ["Attachment Summary Present", attachments.attachment_summary_present ? "Yes" : "No"],
+            ["Best Attachment Total", formatMoney(attachments.best_attachment_total)],
+            ["Current Value Detected", attachments.current_value_detected ? "Yes" : "No"],
+            ["Reported Cost Detected", attachments.reported_cost_detected ? "Yes" : "No"],
+            ["Rendered Value Detected", attachments.rendered_value_detected ? "Yes" : "No"],
+            ["Attachment M&E Present", attachments.machinery_and_equipment_present ? "Yes" : "No"],
+          ])}
+          <h4 style="margin-top:16px;">Structured Extraction</h4>
+          <table>
+            <thead><tr><th>Schedule</th><th>Total</th><th>Confidence</th><th>Rows</th></tr></thead>
+            <tbody>${breakdownRows || `<tr><td colspan="4">No schedule breakdown available.</td></tr>`}</tbody>
+          </table>
+          <h4 style="margin-top:16px;">Structured Debug</h4>
+          ${renderKvRows([
+            ["Text Quality Score", formatText(debug.text_quality_score)],
+            ["Document AI Used", debug.document_ai_used ? "Yes" : "No"],
+            ["Document AI Error", formatText(debug.document_ai_error)],
+            ["Missing Schedules", formatText(debug.missing_schedules)],
+            ["Low Confidence Sections", formatText(debug.low_confidence_sections)],
+            ["Document AI Env", formatText(debug.document_ai_env)],
+          ])}
+          <h4 style="margin-top:16px;">OCR Reconciliation</h4>
+          ${renderKvRows([
+            ["Chosen Provider", formatText(ocrReconciliation.chosen_provider)],
+            ["Secondary Providers", formatText(ocrReconciliation.secondary_providers)],
+            ["Provider Agreement", ocrReconciliation.provider_agreement ? "Yes" : "No"],
+            ["Provider Disagreement", ocrReconciliation.provider_disagreement ? "Yes" : "No"],
+            ["Agreement Fields", formatText(Object.keys(ocrReconciliation.agreement_fields || {}))],
+            ["Disagreement Fields", formatText(Object.keys(ocrReconciliation.disagreement_fields || {}))],
+          ])}
+          <table style="margin-top:12px;">
+            <thead><tr><th>Provider</th><th>Text Chars</th><th>Attachment Total</th><th>Schedule E Total</th><th>Good Faith Total</th></tr></thead>
+            <tbody>${providerSummaryRows || `<tr><td colspan="5">No provider summaries available.</td></tr>`}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function renderAgentReview(result) {
+      const agentReview = result.agent_review || {};
+      const values = agentReview.recommended_values || {};
+      $("agent-review-section").innerHTML = `
+        ${renderKvRows([
+          ["Status", formatText(agentReview.status)],
+          ["Selected Source", formatText(values.selected_source)],
+          ["Attachment Total", formatMoney(values.attachment_total)],
+          ["Good Faith Value", formatMoney(values.good_faith_value)],
+          ["Rendered Value", formatMoney(values.rendered_value)],
+          ["Historical Cost", formatMoney(values.historical_cost)],
+          ["Acquisition Year", formatText(values.acquisition_year)],
+          ["Confidence", formatText(agentReview.confidence)],
+          ["Flags", formatText(agentReview.review_flags)],
+        ])}
+        <h4 style="margin-top:16px;">Review Reasoning</h4>
+        <div class="reason-box">${formatText(agentReview.reasoning || agentReview.reason)}</div>
+      `;
+    }
+
+    function renderCandidates(result) {
+      const candidates = result.value_candidates || [];
+      const selected = result.selected_candidate || {};
+      $("candidate-section").innerHTML = `
+        <div class="mini-card" style="margin-bottom:12px;">
+          <div class="label">Selected Candidate</div>
+          <div class="subtle">
+            <strong>Label:</strong> ${formatText(selected.label)}<br>
+            <strong>Value:</strong> ${formatMoney(selected.value)}<br>
+            <strong>Page:</strong> ${formatText(selected.page_number)}<br>
+            <strong>Score:</strong> ${formatText(selected.score)}
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Page</th><th>Field</th><th>Label</th><th>Value</th><th>Score</th><th>Source</th><th>Evidence</th></tr></thead>
+          <tbody>
+            ${candidates.length ? candidates.map((c) => `
+              <tr>
+                <td>${formatText(c.page_number)}</td>
+                <td>${formatText(c.field || c.label)}</td>
+                <td>${formatText(c.label || c.rule)}</td>
+                <td>${formatMoney(c.value)}</td>
+                <td>${formatText(c.score || c.confidence)}</td>
+                <td>${formatText(c.source)}</td>
+                <td>${formatText(c.evidence_text || c.context || c.source_text)}</td>
+              </tr>
+            `).join("") : `<tr><td colspan="7">No value candidates found.</td></tr>`}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function renderSingleResult(payload) {
+      appState.single.result = payload.result;
+      appState.single.summary = payload.summary;
+      appState.single.pdfPages = payload.pdf_pages || [];
+      appState.single.pdfPageIndex = 0;
+      appState.single.pdfRotation = 0;
+      appState.single.lockedRecord = null;
+      appState.single.stamped = null;
+      renderPdfPreview();
+      renderAnalysis(payload.result);
+      renderDetails(payload.result);
+      renderAgentReview(payload.result);
+      renderCandidates(payload.result);
+      $("summary-text").textContent = payload.summary || "-";
+      $("technical-json").textContent = JSON.stringify(payload.result, null, 2);
+      populateFinalizeSources();
+    }
+
+    async function runSingleReview(manualOverride = null) {
+      if (!appState.single.file || !appState.single.fileBase64) {
+        showFlash("Upload a rendition PDF first.", "error");
+        return;
+      }
+      hideFlash();
+      showFlash("Running review...", "warn");
+      const payload = await fetchJson("/api/review/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_name: appState.single.file.name,
+          file_base64: appState.single.fileBase64,
+          manual_override: manualOverride ?? buildManualOverrideFromMode()
+        })
+      });
+      renderSingleResult(payload);
+      showFlash("Review completed.", "success");
+    }
+
+    async function refreshQueue() {
+      if (!appState.auth?.district) return;
+      const districtSlug = encodeURIComponent(appState.auth.district.district_slug || "");
+      const data = await fetchJson(`/api/review-queue?district_slug=${districtSlug}`);
+      $("queue-root").textContent = `Saved outputs are written to ${data.root}`;
+      renderTable("queue-head", "queue-body", data.queue_rows);
+      renderTable("completed-head", "completed-body", data.completed_rows);
+    }
+
+    function renderTable(headId, bodyId, rows) {
+      const head = $(headId);
+      const body = $(bodyId);
+      if (!rows || !rows.length) {
+        head.innerHTML = "";
+        body.innerHTML = `<tr><td>No records found.</td></tr>`;
+        return;
+      }
+      const columns = Object.keys(rows[0]);
+      head.innerHTML = `<tr>${columns.map((column) => `<th>${column.replaceAll("_", " ")}</th>`).join("")}</tr>`;
+      body.innerHTML = rows.map((row) => `<tr>${columns.map((column) => `<td>${formatText(row[column])}</td>`).join("")}</tr>`).join("");
+    }
+
+    function buildFinalLockPayload() {
+      return {
+        file_name: appState.single.file.name,
+        result: appState.single.result,
+        final_value: parseMoneyInput($("final-value").value),
+        final_source: $("final-source").value,
+        appraiser_notes: $("final-notes").value,
+        appraiser_initials: $("final-initials").value,
+        account_number: $("final-account-number").value,
+        decision: $("final-decision").value,
+        district_context: appState.auth?.district || null,
+        saved_calculators: appState.single.savedCalculators
+      };
+    }
+
+    function applyMarkedDecision(type) {
+      $("final-decision").value = type;
+      $("final-value").value = "0";
+      $("final-source").value = type === "closed" ? "closed_account" : "no_assets_reported";
+    }
+
+    async function initialize() {
+      try {
+        appState.bootstrap = await fetchJson("/api/bootstrap");
+      } catch (error) {
+        throw new Error(
+          `Could not reach the API at ${API_BASE}. Start the backend with: uvicorn backend.main:app --reload --port 8000`
+        );
+      }
+      setupTabs();
+      await restoreAuthSession();
+      renderAuthState();
+      populateCalcOptions();
+      renderProviderStatus();
+      renderSingleDynamicInputs();
+      resetSingleState();
+
+      $("single-mode").addEventListener("change", renderSingleDynamicInputs);
+      $("single-file").addEventListener("change", async (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        appState.single.file = file;
+        appState.single.fileBase64 = await toBase64(file);
+        appState.single.fileBytesUrl = URL.createObjectURL(file);
+        $("pdf-file-name").textContent = `File: ${file.name}`;
+      });
+      $("single-run").addEventListener("click", async () => {
+        try { await runSingleReview(); } catch (error) { showFlash(error.message, "error"); }
+      });
+      $("download-original").addEventListener("click", () => {
+        if (appState.single.fileBytesUrl && appState.single.file) {
+          const link = document.createElement("a");
+          link.href = appState.single.fileBytesUrl;
+          link.download = appState.single.file.name;
+          link.click();
+        }
+      });
+      $("pdf-prev").addEventListener("click", () => {
+        if (!appState.single.pdfPages.length) return;
+        appState.single.pdfPageIndex = Math.max(0, appState.single.pdfPageIndex - 1);
+        renderPdfPreview();
+      });
+      $("pdf-next").addEventListener("click", () => {
+        if (!appState.single.pdfPages.length) return;
+        appState.single.pdfPageIndex = Math.min(appState.single.pdfPages.length - 1, appState.single.pdfPageIndex + 1);
+        renderPdfPreview();
+      });
+      $("pdf-page-select").addEventListener("change", (event) => {
+        appState.single.pdfPageIndex = Number(event.target.value || 0);
+        renderPdfPreview();
+      });
+      $("pdf-left").addEventListener("click", () => {
+        appState.single.pdfRotation = (appState.single.pdfRotation - 90 + 360) % 360;
+        renderPdfPreview();
+      });
+      $("pdf-right").addEventListener("click", () => {
+        appState.single.pdfRotation = (appState.single.pdfRotation + 90) % 360;
+        renderPdfPreview();
+      });
+
+      $("calc-section").addEventListener("change", () => {
+        appState.single.editingCalculatorId = null;
+        updateCalculatorPreset();
+      });
+      $("calc-tax-year").addEventListener("change", renderCalculatorRows);
+      $("calc-table").addEventListener("change", renderCalculatorRows);
+      $("calc-flat-value").addEventListener("input", updateCalculatorTotal);
+      $("calc-auto-roll").addEventListener("input", updateCalculatorTotal);
+      $("calc-save-section").addEventListener("click", () => {
+        const payload = buildCalculatorPayload();
+        if ($("calc-section").value === "custom" && !payload.name.trim()) {
+          showFlash("Enter a custom section name before saving this calculator.", "error");
+          return;
+        }
+        if (!payload.id) payload.id = crypto.randomUUID();
+        const index = appState.single.savedCalculators.findIndex((item) => item.id === payload.id);
+        if (index >= 0) appState.single.savedCalculators[index] = payload;
+        else appState.single.savedCalculators.push(payload);
+        resetCalculatorEditor();
+        showFlash(`Saved ${payload.name}.`, "success");
+      });
+      $("calc-new-section").addEventListener("click", resetCalculatorEditor);
+      $("calc-use-total").addEventListener("click", () => {
+        const total = appState.single.savedCalculators.reduce((sum, item) => sum + Number(item.section_total || 0), 0);
+        $("final-value").value = String(total.toFixed(2));
+        $("final-source").value = "calculator_combined_total";
+        renderSavedCalculators();
+        showFlash("Final value populated from saved calculator totals.", "success");
+      });
+
+      $("assist-goodfaith-amounts").addEventListener("input", () => {
+        const values = extractMoneyValues($("assist-goodfaith-amounts").value);
+        $("assist-goodfaith-count").textContent = String(values.length);
+        $("assist-goodfaith-total").textContent = formatMoney(values.reduce((sum, value) => sum + value, 0));
+      });
+      $("assist-apply-attachment").addEventListener("click", async () => {
+        const total = parseMoneyInput($("assist-attachment-total").value);
+        if (!total || total <= 0) return showFlash("Enter an attachment total greater than zero.", "error");
+        try {
+          await runSingleReview({
+            attachment_total: total,
+            good_faith_value: null,
+            historical_cost: null,
+            acquisition_year: null,
+            life_years: null,
+            notes: $("assist-attachment-notes").value || "Manual assist attachment total."
+          });
+        } catch (error) { showFlash(error.message, "error"); }
+      });
+      $("assist-apply-goodfaith").addEventListener("click", async () => {
+        const values = extractMoneyValues($("assist-goodfaith-amounts").value);
+        const total = values.reduce((sum, value) => sum + value, 0);
+        if (total <= 0) return showFlash("Enter one or more good faith amounts.", "error");
+        try {
+          await runSingleReview({
+            attachment_total: null,
+            good_faith_value: total,
+            historical_cost: null,
+            acquisition_year: null,
+            life_years: null,
+            notes: $("assist-goodfaith-notes").value || `Manual assist good faith sum from ${values.length} line item(s).`
+          });
+        } catch (error) { showFlash(error.message, "error"); }
+      });
+      $("assist-apply-historical").addEventListener("click", async () => {
+        const historicalCost = parseMoneyInput($("assist-historical-cost").value);
+        const acquisitionYear = Number($("assist-acquisition-year").value || 0);
+        const lifeYears = Number($("assist-life-years").value || 0);
+        if (!historicalCost || historicalCost <= 0) return showFlash("Enter historical cost greater than zero.", "error");
+        try {
+          await runSingleReview({
+            attachment_total: null,
+            good_faith_value: null,
+            historical_cost: historicalCost,
+            acquisition_year: acquisitionYear,
+            life_years: lifeYears,
+            notes: $("assist-historical-notes").value || "Manual assist historical cost less depreciation."
+          });
+        } catch (error) { showFlash(error.message, "error"); }
+      });
+
+      $("mark-closed").addEventListener("click", () => applyMarkedDecision("closed"));
+      $("mark-no-assets").addEventListener("click", () => applyMarkedDecision("no_assets"));
+      $("lock-review").addEventListener("click", async () => {
+        if (!appState.single.result) return showFlash("Run Review before locking a value.", "error");
+        try {
+          const data = await fetchJson("/api/review/lock", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(buildFinalLockPayload())
+          });
+          appState.single.lockedRecord = data.final_record;
+          $("locked-status").textContent = `Locked ${data.decision_label} for ${data.final_record.account_number} at ${formatMoney(data.final_record.final_value)}.`;
+          $("locked-status").className = "status success";
+          $("locked-status").classList.remove("hidden");
+          showFlash("Final value locked. Click Save Rendition to create the stamped upload PDF.", "success");
+        } catch (error) { showFlash(error.message, "error"); }
+      });
+      $("save-review").addEventListener("click", async () => {
+        if (!appState.single.lockedRecord) return showFlash("Lock the final value before saving the rendition.", "error");
+        try {
+          const data = await fetchJson("/api/review/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              file_name: appState.single.file.name,
+              file_base64: appState.single.fileBase64,
+              result: appState.single.result,
+              final_record: appState.single.lockedRecord,
+              district_context: appState.auth?.district || null
+            })
+          });
+          appState.single.stamped = data;
+          $("saved-status").innerHTML = `Stamped rendition saved to ${data.stamped_pdf_path}<br>${data.saved_outputs.join(" | ")}`;
+          $("saved-status").className = "status success";
+          $("saved-status").classList.remove("hidden");
+          $("download-stamped").classList.remove("hidden");
+          $("next-account").classList.remove("hidden");
+          refreshQueue();
+        } catch (error) { showFlash(error.message, "error"); }
+      });
+      $("download-stamped").addEventListener("click", () => {
+        if (!appState.single.stamped) return;
+        downloadBase64(appState.single.stamped.stamped_pdf_base64, appState.single.stamped.stamped_pdf_name, "application/pdf");
+      });
+      $("next-account").addEventListener("click", () => {
+        resetSingleState();
+        showFlash("Single review state cleared.", "success");
+      });
+
+      $("batch-run").addEventListener("click", async () => {
+        const files = Array.from($("batch-files").files || []);
+        if (!files.length) return showFlash("Upload one or more PDFs to begin batch review.", "error");
+        try {
+          $("batch-status").textContent = `Processing ${files.length} file(s)...`;
+          const payloadFiles = await Promise.all(files.map(async (file) => ({
+            file_name: file.name,
+            file_base64: await toBase64(file)
+          })));
+          const data = await fetchJson("/api/batch/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ files: payloadFiles, district_context: appState.auth?.district || null })
+          });
+          appState.batch.rows = data.rows || [];
+          appState.batch.results = data.results || {};
+          $("batch-status").textContent = "Batch review completed.";
+          $("batch-results").classList.remove("hidden");
+          renderTable("batch-head", "batch-body", appState.batch.rows);
+          $("batch-json").textContent = JSON.stringify(appState.batch.results, null, 2);
+        } catch (error) { showFlash(error.message, "error"); }
+      });
+      $("batch-download-json").addEventListener("click", () => {
+        const blob = new Blob([JSON.stringify(appState.batch.results, null, 2)], { type: "application/json" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "batch_review_results.json";
+        link.click();
+      });
+      $("batch-download-csv").addEventListener("click", () => {
+        const rows = appState.batch.rows || [];
+        if (!rows.length) return;
+        const cols = Object.keys(rows[0]);
+        const csv = [
+          cols.join(","),
+          ...rows.map((row) => cols.map((col) => `"${String(row[col] ?? "").replaceAll('"', '""')}"`).join(","))
+        ].join("\n");
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+        link.download = "batch_review_results.csv";
+        link.click();
+      });
+      $("refresh-queue").addEventListener("click", async () => {
+        try { await refreshQueue(); } catch (error) { showFlash(error.message, "error"); }
+      });
+
+      $("login-submit").addEventListener("click", async () => {
+        try {
+          const data = await fetchJson("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: $("login-email").value, password: $("login-password").value })
+          });
+          setAuthSession(data);
+          showFlash("Login successful.", "success");
+        } catch (error) { showFlash(error.message, "error"); }
+      });
+      $("signup-submit").addEventListener("click", async () => {
+        try {
+          const data = await fetchJson("/api/auth/signup", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: $("signup-email").value,
+              password: $("signup-password").value,
+              confirm_password: $("signup-confirm").value
+            })
+          });
+          if (data.access_token) {
+            setAuthSession(data);
+            showFlash("Account created and linked.", "success");
+          } else {
+            showFlash(data.message || "Account created.", "success");
+          }
+        } catch (error) { showFlash(error.message, "error"); }
+      });
+      $("cad-submit").addEventListener("click", async () => {
+        try {
+          const data = await fetchJson("/api/auth/district-setup", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              district_name: $("cad-name").value,
+              district_slug: $("cad-slug").value,
+              admin_email: $("cad-email").value,
+              email: $("cad-email").value,
+              password: $("cad-password").value,
+              confirm_password: $("cad-confirm").value
+            })
+          });
+          if (data.access_token) {
+            setAuthSession(data);
+            showFlash("District created and admin linked.", "success");
+          } else {
+            showFlash(data.message || "District created.", "success");
+          }
+        } catch (error) { showFlash(error.message, "error"); }
+      });
+      $("sign-out").addEventListener("click", () => {
+        clearAuthSession();
+        resetSingleState();
+        showFlash("Signed out.", "success");
+      });
+    }
+
+    function renderProviderStatus() {
+      const status = (appState.bootstrap && appState.bootstrap.provider_status) || {};
+      const lines = [
+        `Google Document AI: ${status.google_document_ai?.configured ? "configured" : "not configured"}`,
+        `Google Vision: ${status.google_cloud_vision?.configured ? "configured" : "not configured"}`,
+        `OpenAI Vision OCR: ${status.openai_vision_ocr?.configured ? `configured (${status.openai_vision_ocr.model})` : "not configured"}`,
+        `Azure Document Intelligence: ${status.azure_document_intelligence?.configured ? "configured" : "not configured"}`,
+        `OpenAI Review: ${status.openai_review?.enabled ? `enabled (${status.openai_review.model})` : "disabled"}`,
+      ];
+      $("provider-status").textContent = `Reader stack: ${lines.join(" | ")}`;
+    }
+
+    initialize().catch((error) => {
+      showFlash(`Startup failed: ${error.message}`, "error");
     });
   </script>
 </body>
