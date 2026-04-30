@@ -1,17 +1,43 @@
 ## BPP Project
 
-OCR flow:
+FastAPI serves the browser app from `frontend/index.html` and exposes the API endpoints used by that page. Streamlit is not the deployment target.
 
-- Embedded PDF text is used first.
-- If the PDF looks scanned or the text layer is weak, the pipeline now tries `Google Cloud Vision` first.
-- If Google Vision is not configured or fails, the pipeline falls back to `Azure Document Intelligence`, then local `Tesseract`, then the existing OpenAI vision OCR path.
+## Render Deployment
 
-## Google Vision setup
+Create a Render Web Service from this repo.
 
-Add this to `app/.env` or your environment:
+Build command:
+
+```bash
+pip install -r requirements.txt
+```
+
+Start command:
+
+```bash
+uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+```
+
+The deployed app opens at the Render service URL. The HTML uses the same origin for API calls, so no separate frontend service is required.
+
+## Required Environment Variables
+
+Set these in Render's Environment tab:
 
 ```text
+SUPABASE_URL="https://your-project.supabase.co"
+SUPABASE_ANON_KEY="<supabase-anon-key>"
+SUPABASE_SERVICE_ROLE_KEY="<supabase-service-role-key>"
+APP_BASE_URL="https://your-render-service.onrender.com"
+OPENAI_API_KEY="<openai-api-key>"
+OPENAI_VISION_OCR_MODEL="gpt-4.1-mini"
 GOOGLE_VISION_API_KEY="<google-cloud-vision-api-key>"
+GOOGLE_DOCUMENT_AI_PROJECT_ID="<google-project-id>"
+GOOGLE_DOCUMENT_AI_LOCATION="us"
+GOOGLE_DOCUMENT_AI_PROCESSOR_ID="<processor-id>"
+GOOGLE_DOCUMENT_AI_PROCESSOR_NAME="projects/<project-id>/locations/us/processors/<processor-id>"
+GOOGLE_DOCUMENT_AI_API_KEY="<google-document-ai-api-key>"
+OPENAI_REVIEW_ENABLED="true"
 ```
 
 Optional tuning:
@@ -20,14 +46,18 @@ Optional tuning:
 GOOGLE_VISION_OCR_DPI_SCALE="3.0"
 GOOGLE_VISION_OCR_REQUEST_TIMEOUT_SECONDS="20"
 GOOGLE_VISION_OCR_MAX_PAGES="0"
+OPENAI_VISION_OCR_TIMEOUT_SECONDS="12"
+OPENAI_VISION_OCR_MAX_PAGES="8"
+OPENAI_REVIEW_TIMEOUT_SECONDS="8"
 ```
 
-Notes:
+## OCR Flow
 
-- `GOOGLE_VISION_OCR_MAX_PAGES="0"` means no page limit.
-- The Google Vision integration uses `DOCUMENT_TEXT_DETECTION` on rendered PDF pages.
+- Embedded PDF text is used first.
+- If the PDF looks scanned or the text layer is weak, the pipeline tries Google Document AI and Google Cloud Vision.
+- If Google OCR is unavailable, the pipeline can fall back to Azure Document Intelligence, local Tesseract, and OpenAI vision OCR depending on configured credentials.
 
-## One-off OCR export
+## One-Off OCR Export
 
 Run Google Vision against a PDF and save page text plus `pages.json`:
 
@@ -41,26 +71,10 @@ Optional local fallback:
 python extract_pages_ocr.py --pdf "Data/samples/sample_rendition.pdf" --provider tesseract
 ```
 
-## Streamlit Deployment
+## Supabase Setup
 
-The repository now includes a root [streamlit_app.py](/C:/Users/Brooks/Desktop/BPP/BPP%20Project/streamlit_app.py:1) entrypoint for Streamlit Cloud.
-
-Set these app secrets in Streamlit:
-
-```text
-SUPABASE_URL="https://your-project.supabase.co"
-SUPABASE_ANON_KEY="<supabase-anon-key>"
-SUPABASE_SERVICE_ROLE_KEY="<supabase-service-role-key>"
-APP_BASE_URL="https://your-streamlit-app-url"
-GOOGLE_VISION_API_KEY="<google-cloud-vision-api-key>"
-OPENAI_API_KEY="<openai-api-key>"
-OPENAI_REVIEW_ENABLED="true"
-```
-
-Important:
-
-- Run [supabase/migrations/20260429_multi_district_renditions.sql](/C:/Users/Brooks/Desktop/BPP/BPP%20Project/supabase/migrations/20260429_multi_district_renditions.sql:1) in the Supabase SQL editor before using `New CAD Setup`.
-- Set `APP_BASE_URL` to the public app URL so Supabase confirmation emails send users back to a live page.
-- In Supabase Auth settings, make sure both the project `Site URL` and redirect allow list include that same public app URL.
-- The current OpenAI OCR/review path only works if the OpenAI project has active quota/billing.
-- If OpenAI quota is exhausted, Google Vision still carries the OCR path and the app will continue to run.
+- Run `supabase/migrations/20260429_multi_district_renditions.sql` in the Supabase SQL editor before using New CAD Setup.
+- Set `APP_BASE_URL` to the public Render app URL so Supabase confirmation emails send users back to the deployed HTML app.
+- In Supabase Auth settings, make sure both the project Site URL and redirect allow list include that same Render URL.
+- The OpenAI OCR/review path only works if the OpenAI project has active quota/billing.
+- If OpenAI quota is exhausted, Google OCR can still carry the OCR path when configured.
