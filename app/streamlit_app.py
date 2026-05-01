@@ -85,7 +85,7 @@ AUTH_SESSION_KEYS = {
 }
 
 st.set_page_config(
-    page_title="AppraisalPilot",
+    page_title="Appraisal District Copilot",
     page_icon="📄",
     layout="wide",
 )
@@ -713,7 +713,7 @@ def require_login() -> bool:
                 st.rerun()
         return True
 
-    st.markdown('<div class="ap-title">AppraisalPilot</div>', unsafe_allow_html=True)
+    st.markdown('<div class="ap-title">Appraisal District Copilot</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="ap-subtitle">Authorized rendition review access only.</div>',
         unsafe_allow_html=True,
@@ -2934,7 +2934,7 @@ def main() -> None:
     district_context = get_session_district_context()
     backfill_legacy_outputs(get_session_district_slug())
 
-    st.markdown('<div class="ap-title">AppraisalPilot</div>', unsafe_allow_html=True)
+    st.markdown('<div class="ap-title">Appraisal District Copilot</div>', unsafe_allow_html=True)
     st.markdown(
         (
             '<div class="ap-subtitle">'

@@ -154,7 +154,7 @@ REVIEW_DECISION_LABELS = {
 }
 
 
-app = FastAPI(title="AppraisalPilot API")
+app = FastAPI(title="Appraisal District Copilot API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
