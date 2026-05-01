@@ -177,9 +177,10 @@ if FRONTEND_DIR.exists():
 
 
 class CalculateRequest(BaseModel):
-    schedule_type: Literal["A", "B", "C", "D", "E"]
+    schedule_type: str
     rows: list[dict[str, Any]]
-    depreciation_schedule: Literal["5", "8", "9", "12"]
+    depreciation_schedule: str
+    district_id: str | None = None
 
 
 class PdfRequest(BaseModel):
@@ -227,6 +228,53 @@ class DistrictSetupRequest(SignupRequest):
 class DistrictInviteRequest(SessionRequest):
     email: str
     role: Literal["admin", "member"] = "member"
+
+
+class CadDistrictInfoRequest(BaseModel):
+    cad_name: str
+    display_name: str = ""
+    email: str = ""
+    phone: str = ""
+    address: str = ""
+    website: str = ""
+
+
+class CadUserRequest(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    email: str
+    role_title: str = ""
+
+
+class CadAdminRequest(CadUserRequest):
+    pass
+
+
+class CadScheduleRowRequest(BaseModel):
+    year_number: int
+    depreciation_percent: float
+
+
+class CadScheduleRequest(BaseModel):
+    schedule_name: str
+    schedule_type: str = ""
+    schedule_years: int
+    rows: list[CadScheduleRowRequest]
+
+
+class CadOnboardingRequest(BaseModel):
+    district: CadDistrictInfoRequest
+    admin: CadAdminRequest
+    users: list[CadUserRequest] = Field(default_factory=list)
+    schedules: list[CadScheduleRequest]
+    admin_password: str = ""
+    admin_confirm_password: str = ""
+    district_slug: str = ""
+
+
+class CadScheduleSaveRequest(BaseModel):
+    access_token: str
+    schedule: CadScheduleRequest
 
 
 class ARBAuthRequest(BaseModel):
@@ -554,6 +602,225 @@ def app_access_request(method: str, path: str, *, params: dict[str, Any] | None 
     return data
 
 
+def cad_data_request(method: str, path: str, *, params: dict[str, Any] | None = None, payload: Any = None) -> Any:
+    supabase_url, _anon_key = get_supabase_config()
+    service_role_key = get_supabase_service_role_key()
+    if not service_role_key:
+        raise HTTPException(status_code=500, detail="SUPABASE_SERVICE_ROLE_KEY is required for CAD onboarding.")
+    prefer = None
+    if method.upper() == "POST":
+        prefer = "return=representation"
+    elif method.upper() == "PATCH":
+        prefer = "return=representation"
+    response = requests.request(
+        method,
+        f"{supabase_url.rstrip('/')}/rest/v1/{path.lstrip('/')}",
+        headers={
+            "apikey": service_role_key,
+            "Authorization": f"Bearer {service_role_key}",
+            "Content-Type": "application/json",
+            **({"Prefer": prefer} if prefer else {}),
+        },
+        params=params,
+        json=payload,
+        timeout=20,
+    )
+    try:
+        data = response.json()
+    except ValueError:
+        data = response.text
+    if response.status_code >= 400:
+        message = data.get("message") if isinstance(data, dict) else str(data)
+        if "cad_" in str(message) and ("does not exist" in str(message).lower() or "schema cache" in str(message).lower()):
+            message = "CAD onboarding tables are missing. Run supabase/migrations/20260501_cad_onboarding.sql in Supabase."
+        raise HTTPException(status_code=response.status_code, detail=message or "CAD onboarding request failed.")
+    return data
+
+
+def normalize_depreciation_factor(value: Any) -> float:
+    amount = float(value)
+    if amount > 1:
+        return round(amount / 100, 6)
+    return round(amount, 6)
+
+
+def validate_cad_schedule_payload(schedule: CadScheduleRequest) -> None:
+    if not schedule.schedule_name.strip():
+        raise HTTPException(status_code=400, detail="Schedule name is required.")
+    if int(schedule.schedule_years or 0) <= 0:
+        raise HTTPException(status_code=400, detail="Schedule years must be a positive integer.")
+    if not schedule.rows:
+        raise HTTPException(status_code=400, detail="Each schedule must have at least one year row.")
+    seen_years: set[int] = set()
+    for row in schedule.rows:
+        if int(row.year_number or 0) <= 0:
+            raise HTTPException(status_code=400, detail="Year numbers must be positive integers.")
+        if row.year_number in seen_years:
+            raise HTTPException(status_code=400, detail="Schedule year rows cannot contain duplicate year numbers.")
+        seen_years.add(row.year_number)
+        try:
+            float(row.depreciation_percent)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Depreciation percentages must be numbers.") from exc
+        if float(row.depreciation_percent) < 0:
+            raise HTTPException(status_code=400, detail="Depreciation percentages cannot be negative.")
+
+
+def validate_cad_onboarding_payload(request: CadOnboardingRequest) -> None:
+    if not request.district.cad_name.strip():
+        raise HTTPException(status_code=400, detail="CAD Name is required.")
+    if "@" not in normalize_email(request.admin.email):
+        raise HTTPException(status_code=400, detail="Admin email is required.")
+    if not request.schedules:
+        raise HTTPException(status_code=400, detail="Add at least one depreciation schedule.")
+    for schedule in request.schedules:
+        validate_cad_schedule_payload(schedule)
+    if request.admin_password or request.admin_confirm_password:
+        if len(request.admin_password) < 8:
+            raise HTTPException(status_code=400, detail="Admin password must be at least 8 characters.")
+        if request.admin_password != request.admin_confirm_password:
+            raise HTTPException(status_code=400, detail="Admin passwords do not match.")
+
+
+def fetch_cad_profile_by_district_id(district_id: str) -> dict[str, Any] | None:
+    rows = cad_data_request(
+        "GET",
+        "cad_districts",
+        params={
+            "select": "*",
+            "district_id": f"eq.{district_id}",
+            "limit": "1",
+        },
+    )
+    return rows[0] if rows else None
+
+
+def fetch_cad_schedule(schedule_id: str) -> dict[str, Any] | None:
+    rows = cad_data_request(
+        "GET",
+        "cad_depreciation_schedules",
+        params={"select": "*", "id": f"eq.{schedule_id}", "limit": "1"},
+    )
+    return rows[0] if rows else None
+
+
+def fetch_cad_schedules_for_district(district_id: str) -> list[dict[str, Any]]:
+    cad_profile = fetch_cad_profile_by_district_id(district_id)
+    if not cad_profile:
+        return []
+    schedules = cad_data_request(
+        "GET",
+        "cad_depreciation_schedules",
+        params={
+            "select": "*",
+            "district_id": f"eq.{cad_profile['id']}",
+            "is_active": "eq.true",
+            "order": "created_at.asc",
+        },
+    )
+    if not schedules:
+        return []
+    schedule_ids = ",".join(str(item["id"]) for item in schedules)
+    rows = cad_data_request(
+        "GET",
+        "cad_depreciation_schedule_rows",
+        params={
+            "select": "*",
+            "schedule_id": f"in.({schedule_ids})",
+            "order": "year_number.asc",
+        },
+    )
+    rows_by_schedule: dict[str, list[dict[str, Any]]] = {}
+    for row in rows or []:
+        rows_by_schedule.setdefault(str(row.get("schedule_id")), []).append(row)
+    return [
+        {
+            **schedule,
+            "cad_district_id": cad_profile["id"],
+            "district_id": cad_profile.get("district_id"),
+            "rows": rows_by_schedule.get(str(schedule.get("id")), []),
+            "factors": [
+                normalize_depreciation_factor(row.get("depreciation_percent"))
+                for row in rows_by_schedule.get(str(schedule.get("id")), [])
+            ],
+        }
+        for schedule in schedules
+    ]
+
+
+def create_cad_schedule(cad_district_id: str, schedule: CadScheduleRequest) -> dict[str, Any]:
+    validate_cad_schedule_payload(schedule)
+    created = cad_data_request(
+        "POST",
+        "cad_depreciation_schedules",
+        payload={
+            "district_id": cad_district_id,
+            "schedule_name": schedule.schedule_name.strip(),
+            "schedule_type": schedule.schedule_type.strip() or schedule.schedule_name.strip(),
+            "schedule_years": int(schedule.schedule_years),
+            "is_active": True,
+        },
+    )
+    schedule_row = created[0] if isinstance(created, list) else created
+    schedule_id = schedule_row["id"]
+    row_payload = [
+        {
+            "schedule_id": schedule_id,
+            "year_number": int(row.year_number),
+            "depreciation_percent": float(row.depreciation_percent),
+        }
+        for row in sorted(schedule.rows, key=lambda item: item.year_number)
+    ]
+    if row_payload:
+        cad_data_request("POST", "cad_depreciation_schedule_rows", payload=row_payload)
+    return {**schedule_row, "rows": row_payload, "factors": [normalize_depreciation_factor(row["depreciation_percent"]) for row in row_payload]}
+
+
+def replace_cad_schedule(schedule_id: str, schedule: CadScheduleRequest) -> dict[str, Any]:
+    validate_cad_schedule_payload(schedule)
+    updated = cad_data_request(
+        "PATCH",
+        "cad_depreciation_schedules",
+        params={"id": f"eq.{schedule_id}"},
+        payload={
+            "schedule_name": schedule.schedule_name.strip(),
+            "schedule_type": schedule.schedule_type.strip() or schedule.schedule_name.strip(),
+            "schedule_years": int(schedule.schedule_years),
+            "is_active": True,
+        },
+    )
+    cad_data_request("DELETE", "cad_depreciation_schedule_rows", params={"schedule_id": f"eq.{schedule_id}"})
+    row_payload = [
+        {
+            "schedule_id": schedule_id,
+            "year_number": int(row.year_number),
+            "depreciation_percent": float(row.depreciation_percent),
+        }
+        for row in sorted(schedule.rows, key=lambda item: item.year_number)
+    ]
+    if row_payload:
+        cad_data_request("POST", "cad_depreciation_schedule_rows", payload=row_payload)
+    schedule_row = updated[0] if isinstance(updated, list) and updated else fetch_cad_schedule(schedule_id) or {}
+    return {**schedule_row, "rows": row_payload, "factors": [normalize_depreciation_factor(row["depreciation_percent"]) for row in row_payload]}
+
+
+def seed_arb_access_for_district_user(email: str, user_id: str | None = None, role: str = "member") -> None:
+    try:
+        app_access_request(
+            "POST",
+            "app_access",
+            params={"on_conflict": "email,app_name"},
+            payload={
+                "email": normalize_email(email),
+                "app_name": "arb_pilot",
+                "user_id": user_id,
+                "role": "admin" if role == "admin" else "member",
+            },
+        )
+    except HTTPException:
+        return
+
+
 def get_app_access(email: str, app_name: str) -> dict[str, Any] | None:
     normalized_email = normalize_email(email)
     rows = app_access_request(
@@ -622,7 +889,20 @@ def require_arb_access(access_token: str) -> dict[str, Any]:
     user_id = str(user.get("id") or "").strip() or None
     access = get_app_access(email, "arb_pilot")
     if not access:
-        raise HTTPException(status_code=403, detail=ARB_UNAUTHORIZED_MESSAGE)
+        district = build_district_context(user, access_token)
+        if not district:
+            raise HTTPException(status_code=403, detail=ARB_UNAUTHORIZED_MESSAGE)
+        return {
+            "access_token": access_token,
+            "user": to_jsonable(user),
+            "app_access": {
+                "email": email,
+                "app_name": "arb_pilot",
+                "user_id": user_id,
+                "role": district.role,
+                "district_id": district.district_id,
+            },
+        }
     if user_id and access.get("user_id") != user_id:
         link_app_access_user(email, "arb_pilot", user_id)
         access = {**access, "user_id": user_id}
@@ -756,7 +1036,12 @@ def _extract_flat_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return flat_rows
 
 
-def _factor_sequence(table_key: str) -> list[float]:
+def _factor_sequence(table_key: str, custom_factors: list[float] | None = None) -> list[float]:
+    if custom_factors:
+        factors = [round(float(value), 6) for value in custom_factors]
+        while len(factors) < 15:
+            factors.append(factors[-1])
+        return factors
     sequences = {
         "5_year": [0.75, 0.45, 0.20, 0.15, 0.10],
         "8_year": [0.75, 0.60, 0.45, 0.35, 0.25, 0.20, 0.10, 0.05],
@@ -775,6 +1060,7 @@ def _build_depreciation_rows(
     costs: dict[str, float],
     *,
     good_faith_value: float | None = None,
+    custom_factors: list[float] | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     if good_faith_value is not None:
@@ -790,7 +1076,7 @@ def _build_depreciation_rows(
             }
         )
 
-    factors = _factor_sequence(table_key)
+    factors = _factor_sequence(table_key, custom_factors)
     base_year = int(tax_year) - 1
     for offset, factor in enumerate(factors):
         year = base_year - offset
@@ -832,7 +1118,18 @@ def _calculate_breakdown(request: CalculateRequest) -> list[dict[str, Any]]:
     for index, row in enumerate(request.rows):
         if not isinstance(row, dict):
             raise HTTPException(status_code=400, detail=f"rows[{index}] must be an object.")
-    depreciation_table = DEPRECIATION_SCHEDULE_MAP[request.depreciation_schedule]
+    depreciation_table = DEPRECIATION_SCHEDULE_MAP.get(request.depreciation_schedule, request.depreciation_schedule)
+    custom_factors = None
+    if str(request.depreciation_schedule).startswith("cad_") and request.district_id:
+        schedule_id = str(request.depreciation_schedule).removeprefix("cad_")
+        custom_schedule = next(
+            (item for item in fetch_cad_schedules_for_district(request.district_id) if str(item.get("id")) == schedule_id),
+            None,
+        )
+        if custom_schedule:
+            custom_factors = [float(value) for value in custom_schedule.get("factors", [])]
+        else:
+            depreciation_table = "9_year"
     if request.schedule_type == "B":
         amount = round(sum(_to_float(row.get("cost", row.get("value"))) for row in request.rows), 2)
         return [{
@@ -859,10 +1156,10 @@ def _calculate_breakdown(request: CalculateRequest) -> list[dict[str, Any]]:
     costs = _extract_costs(request.rows)
     good_faith_value = _extract_good_faith_value(request.rows)
     if request.schedule_type == "A":
-        return _build_depreciation_rows(tax_year, depreciation_table, costs, good_faith_value=good_faith_value)
+        return _build_depreciation_rows(tax_year, depreciation_table, costs, good_faith_value=good_faith_value, custom_factors=custom_factors)
     if request.schedule_type == "D":
-        return _extract_flat_rows(request.rows) + _build_depreciation_rows(tax_year, depreciation_table, costs, good_faith_value=good_faith_value)
-    return _build_depreciation_rows(tax_year, depreciation_table, costs)
+        return _extract_flat_rows(request.rows) + _build_depreciation_rows(tax_year, depreciation_table, costs, good_faith_value=good_faith_value, custom_factors=custom_factors)
+    return _build_depreciation_rows(tax_year, depreciation_table, costs, custom_factors=custom_factors)
 
 
 @app.get("/health")
@@ -891,6 +1188,19 @@ def arb_root() -> FileResponse:
 @app.get("/arb")
 def arb_root_lowercase() -> FileResponse:
     return arb_root()
+
+
+@app.get("/cad-onboarding")
+def cad_onboarding_root() -> FileResponse:
+    page_path = FRONTEND_DIR / "cad-onboarding.html"
+    if not page_path.exists():
+        raise HTTPException(status_code=404, detail="frontend/cad-onboarding.html was not found.")
+    return FileResponse(page_path)
+
+
+@app.get("/onboarding/cad")
+def cad_onboarding_alias() -> FileResponse:
+    return cad_onboarding_root()
 
 
 @app.get("/api/bootstrap")
@@ -1003,7 +1313,20 @@ def arb_auth_login(request: LoginRequest) -> dict[str, Any]:
     user_id = str(user.get("id") or "").strip() or None
     access = get_app_access(email, "arb_pilot")
     if not access:
-        raise HTTPException(status_code=403, detail=ARB_UNAUTHORIZED_MESSAGE)
+        district = build_district_context(user, access_token)
+        if not district:
+            raise HTTPException(status_code=403, detail=ARB_UNAUTHORIZED_MESSAGE)
+        return {
+            "access_token": access_token,
+            "user": to_jsonable(user),
+            "app_access": {
+                "email": email,
+                "app_name": "arb_pilot",
+                "user_id": user_id,
+                "role": district.role,
+                "district_id": district.district_id,
+            },
+        }
     if user_id and access.get("user_id") != user_id:
         link_app_access_user(email, "arb_pilot", user_id)
         access = {**access, "user_id": user_id}
@@ -1080,6 +1403,194 @@ def auth_district_setup(request: DistrictSetupRequest) -> dict[str, Any]:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
     backfill_legacy_outputs(linked_district.district_slug)
     return {"access_token": access_token, "user": to_jsonable(user), "district": _district_to_dict(linked_district)}
+
+
+@app.post("/api/cad-onboarding")
+def cad_onboarding(request: CadOnboardingRequest) -> dict[str, Any]:
+    validate_cad_onboarding_payload(request)
+    service_role_key = get_supabase_service_role_key()
+    supabase_url, _anon_key = get_supabase_config()
+    if not service_role_key:
+        raise HTTPException(status_code=500, detail="SUPABASE_SERVICE_ROLE_KEY is required for CAD onboarding.")
+    verify_supabase_district_setup(supabase_url=supabase_url, service_role_key=service_role_key)
+
+    admin_email = normalize_email(request.admin.email)
+    district_slug = slugify_district_slug(request.district_slug) or slugify_district_name(request.district.cad_name)
+    district_domain = infer_domain_from_email(admin_email)
+    district = create_or_update_district(
+        supabase_url=supabase_url,
+        service_role_key=service_role_key,
+        name=request.district.display_name.strip() or request.district.cad_name.strip(),
+        slug=district_slug,
+        domain=district_domain,
+    )
+
+    cad_profile_payload = {
+        "district_id": district.district_id,
+        "cad_name": request.district.cad_name.strip(),
+        "display_name": request.district.display_name.strip() or request.district.cad_name.strip(),
+        "email": normalize_email(request.district.email),
+        "phone": request.district.phone.strip(),
+        "address": request.district.address.strip(),
+        "website": request.district.website.strip() or None,
+        "onboarding_completed": True,
+    }
+    existing_profile = fetch_cad_profile_by_district_id(district.district_id)
+    if existing_profile:
+        cad_profile = cad_data_request(
+            "PATCH",
+            "cad_districts",
+            params={"id": f"eq.{existing_profile['id']}"},
+            payload=cad_profile_payload,
+        )
+        cad_profile = cad_profile[0] if isinstance(cad_profile, list) and cad_profile else {**existing_profile, **cad_profile_payload}
+    else:
+        created_profile = cad_data_request("POST", "cad_districts", payload=cad_profile_payload)
+        cad_profile = created_profile[0] if isinstance(created_profile, list) else created_profile
+
+    access_token = None
+    user: dict[str, Any] | None = None
+    if request.admin_password:
+        try:
+            signup_result = create_supabase_account(admin_email, request.admin_password)
+            access_token = signup_result.get("access_token") or (signup_result.get("session") or {}).get("access_token")
+            user = signup_result.get("user")
+            if access_token and not user:
+                user = get_supabase_user(access_token)
+        except HTTPException:
+            user = None
+            access_token = None
+    user_id = str((user or {}).get("id") or "").strip() or None
+
+    all_users: list[tuple[CadUserRequest, bool]] = [(request.admin, True)]
+    seen_emails = {admin_email}
+    for item in request.users:
+        email = normalize_email(item.email)
+        if not email or email in seen_emails:
+            continue
+        seen_emails.add(email)
+        all_users.append((item, False))
+
+    linked_users: list[dict[str, Any]] = []
+    for item, is_admin in all_users:
+        email = normalize_email(item.email)
+        if "@" not in email:
+            raise HTTPException(status_code=400, detail=f"Enter a valid email address for {item.email or 'CAD user'}.")
+        link_user_to_district(
+            supabase_url=supabase_url,
+            service_role_key=service_role_key,
+            district_id=district.district_id,
+            email=email,
+            user_id=user_id if is_admin else None,
+            role="admin" if is_admin else "member",
+        )
+        seed_arb_access_for_district_user(email, user_id if is_admin else None, role="admin" if is_admin else "member")
+
+    district_users = list_district_users(
+        supabase_url=supabase_url,
+        service_role_key=service_role_key,
+        district_id=district.district_id,
+    )
+    district_user_by_email = {normalize_email(row.get("email", "")): row for row in district_users}
+    for item, is_admin in all_users:
+        email = normalize_email(item.email)
+        district_user = district_user_by_email.get(email) or {}
+        cad_user_payload = {
+            "district_id": cad_profile["id"],
+            "district_user_id": district_user.get("id"),
+            "first_name": item.first_name.strip(),
+            "last_name": item.last_name.strip(),
+            "email": email,
+            "role_title": item.role_title.strip(),
+            "is_admin": is_admin,
+        }
+        existing = cad_data_request(
+            "GET",
+            "cad_users",
+            params={"select": "*", "district_id": f"eq.{cad_profile['id']}", "email": f"eq.{email}", "limit": "1"},
+        )
+        if existing:
+            saved = cad_data_request("PATCH", "cad_users", params={"id": f"eq.{existing[0]['id']}"}, payload=cad_user_payload)
+            linked_users.append(saved[0] if isinstance(saved, list) and saved else {**existing[0], **cad_user_payload})
+        else:
+            saved = cad_data_request("POST", "cad_users", payload=cad_user_payload)
+            linked_users.append(saved[0] if isinstance(saved, list) else saved)
+
+    existing_schedules = fetch_cad_schedules_for_district(district.district_id)
+    if not existing_schedules:
+        for schedule in request.schedules:
+            create_cad_schedule(cad_profile["id"], schedule)
+
+    schedules = fetch_cad_schedules_for_district(district.district_id)
+    response = {
+        "district": _district_to_dict(district),
+        "cad_profile": to_jsonable(cad_profile),
+        "users": to_jsonable(linked_users),
+        "schedules": to_jsonable(schedules),
+        "message": "CAD onboarding completed.",
+    }
+    if access_token:
+        linked_district = build_district_context(user or {"email": admin_email}, access_token)
+        if linked_district:
+            response.update({"access_token": access_token, "user": to_jsonable(user), "district": _district_to_dict(linked_district)})
+    return response
+
+
+@app.get("/api/cad-profile/{district_id}")
+def cad_profile(district_id: str) -> dict[str, Any]:
+    profile = fetch_cad_profile_by_district_id(district_id)
+    if not profile:
+        return {"cad_profile": None, "users": [], "schedules": []}
+    users = cad_data_request(
+        "GET",
+        "cad_users",
+        params={"select": "*", "district_id": f"eq.{profile['id']}", "order": "created_at.asc"},
+    )
+    return {
+        "cad_profile": to_jsonable(profile),
+        "users": to_jsonable(users if isinstance(users, list) else []),
+        "schedules": to_jsonable(fetch_cad_schedules_for_district(district_id)),
+    }
+
+
+@app.get("/api/cad-schedules/{district_id}")
+def cad_schedules(district_id: str) -> dict[str, Any]:
+    return {"schedules": to_jsonable(fetch_cad_schedules_for_district(district_id))}
+
+
+@app.post("/api/cad-schedules/{district_id}")
+def cad_schedule_create(district_id: str, request: CadScheduleSaveRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    if district.district_id != district_id:
+        raise HTTPException(status_code=403, detail="Cannot manage schedules for another district.")
+    profile = fetch_cad_profile_by_district_id(district_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="CAD onboarding profile was not found for this district.")
+    schedule = create_cad_schedule(profile["id"], request.schedule)
+    return {"schedule": to_jsonable(schedule), "schedules": to_jsonable(fetch_cad_schedules_for_district(district_id))}
+
+
+@app.put("/api/cad-schedules/{schedule_id}")
+def cad_schedule_update(schedule_id: str, schedule: CadScheduleRequest) -> dict[str, Any]:
+    existing = fetch_cad_schedule(schedule_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="CAD schedule was not found.")
+    updated = replace_cad_schedule(schedule_id, schedule)
+    return {"schedule": to_jsonable(updated)}
+
+
+@app.delete("/api/cad-schedules/{schedule_id}")
+def cad_schedule_delete(schedule_id: str) -> dict[str, Any]:
+    existing = fetch_cad_schedule(schedule_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="CAD schedule was not found.")
+    updated = cad_data_request(
+        "PATCH",
+        "cad_depreciation_schedules",
+        params={"id": f"eq.{schedule_id}"},
+        payload={"is_active": False},
+    )
+    return {"schedule": to_jsonable(updated[0] if isinstance(updated, list) and updated else {**existing, "is_active": False})}
 
 
 @app.post("/api/district/users")

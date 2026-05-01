@@ -265,6 +265,7 @@
 
       <div id="auth-cad" class="auth-view login-grid hidden">
         <div class="subtle">Creates the district, links the admin user, and opens the full review workspace.</div>
+        <div><a href="/cad-onboarding" style="color:var(--gold);font-weight:700;">Open full CAD onboarding setup</a></div>
         <div class="field">
           <label for="cad-name">District Name</label>
           <input id="cad-name" type="text" placeholder="Example County Appraisal District">
@@ -776,7 +777,8 @@
       },
       admin: {
         users: [],
-      }
+      },
+      cadSchedules: []
     };
 
     const $ = (id) => document.getElementById(id);
@@ -885,11 +887,19 @@
       appState.auth = session;
       localStorage.setItem(AUTH_KEY, JSON.stringify(session));
       renderAuthState();
+      refreshCadSchedules().catch(() => {});
     }
 
     function clearAuthSession() {
       appState.auth = null;
+      appState.cadSchedules = [];
       localStorage.removeItem(AUTH_KEY);
+      if (appState.bootstrap) {
+        Object.keys(appState.bootstrap.table_metadata || {}).forEach((key) => {
+          if (key.startsWith("cad_")) delete appState.bootstrap.table_metadata[key];
+        });
+        populateCalcOptions();
+      }
       renderAuthState();
     }
 
@@ -1135,6 +1145,26 @@
       updateCalculatorPreset();
     }
 
+    async function refreshCadSchedules() {
+      const districtId = appState.auth?.district?.district_id;
+      if (!districtId || !appState.bootstrap) return;
+      const data = await fetchJson(`/api/cad-schedules/${encodeURIComponent(districtId)}`);
+      appState.cadSchedules = data.schedules || [];
+      Object.keys(appState.bootstrap.table_metadata || {}).forEach((key) => {
+        if (key.startsWith("cad_")) delete appState.bootstrap.table_metadata[key];
+      });
+      appState.cadSchedules.forEach((schedule) => {
+        const key = `cad_${schedule.id}`;
+        appState.bootstrap.table_metadata[key] = {
+          label: schedule.schedule_name,
+          life_years: Number(schedule.schedule_years || schedule.factors?.length || 1),
+          factors: schedule.factors || [],
+          schedule_type: schedule.schedule_type || ""
+        };
+      });
+      populateCalcOptions();
+    }
+
     function getCurrentPreset() {
       return appState.bootstrap.section_presets[$("calc-section").value];
     }
@@ -1174,13 +1204,16 @@
     function buildDepreciationYears(tableKey, taxYear) {
       const table = appState.bootstrap.table_metadata[tableKey];
       const rows = [];
-      const rowCount = table.life_years === 5 ? 15 : 15;
-      const factors = {
+      const defaultFactors = {
         "5_year": [0.75, 0.45, 0.20, 0.15, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10],
         "8_year": [0.75, 0.60, 0.45, 0.35, 0.25, 0.20, 0.10, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
         "9_year": [0.90, 0.80, 0.70, 0.60, 0.50, 0.40, 0.30, 0.20, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10],
         "12_year": [0.90, 0.80, 0.70, 0.65, 0.60, 0.55, 0.50, 0.45, 0.40, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35]
       }[tableKey];
+      const factors = [...(table?.factors?.length ? table.factors : defaultFactors || [])];
+      if (!factors.length) factors.push(0);
+      while (factors.length < 15) factors.push(factors[factors.length - 1]);
+      const rowCount = factors.length;
       const baseYear = Number(taxYear) - 1;
       for (let offset = 0; offset < rowCount; offset += 1) {
         const year = baseYear - offset;

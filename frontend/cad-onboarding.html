@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CAD Onboarding | Appraisal Pilot</title>
+  <style>
+    :root {
+      --bg: #08111f;
+      --panel: #101b2c;
+      --panel-2: #142238;
+      --line: rgba(255,255,255,0.12);
+      --text: #eef4fb;
+      --muted: #aab8c8;
+      --gold: #ffd24d;
+      --accent: #3fa7ff;
+      --danger: #ff6b6b;
+      --ok: #43d17a;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: var(--bg); color: var(--text); }
+    .topbar { border-bottom: 1px solid var(--line); background: #0b1728; padding: 18px 24px; }
+    .brand { color: var(--gold); font-weight: 800; font-size: 1.15rem; }
+    .subtitle { color: var(--muted); margin-top: 4px; font-size: 0.92rem; }
+    main { max-width: 1120px; margin: 0 auto; padding: 24px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+    .stepper { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
+    .step { border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); padding: 10px; border-radius: 8px; font-weight: 700; text-align: center; }
+    .step.active { color: var(--bg); background: var(--gold); }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    label { color: var(--muted); font-size: 0.84rem; font-weight: 700; }
+    input, select, textarea {
+      width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #091525; color: var(--text);
+      padding: 10px 11px; font-size: 0.95rem;
+    }
+    textarea { min-height: 76px; resize: vertical; }
+    button {
+      border: 0; border-radius: 8px; background: var(--gold); color: #111827; padding: 10px 14px;
+      font-weight: 800; cursor: pointer;
+    }
+    button.secondary { background: transparent; color: var(--text); border: 1px solid var(--line); }
+    button.danger { background: transparent; color: var(--danger); border: 1px solid rgba(255,107,107,0.45); }
+    .button-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .hidden { display: none !important; }
+    .muted { color: var(--muted); font-size: 0.9rem; }
+    .status { border-radius: 8px; padding: 10px 12px; margin: 12px 0; border: 1px solid var(--line); }
+    .status.error { color: #ffd0d0; border-color: rgba(255,107,107,0.5); background: rgba(255,107,107,0.1); }
+    .status.success { color: #d9ffe8; border-color: rgba(67,209,122,0.5); background: rgba(67,209,122,0.1); }
+    .item { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 10px; }
+    .item-title { color: var(--gold); font-weight: 800; margin-bottom: 6px; }
+    .rows { display: grid; gap: 8px; }
+    .year-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
+    .review-list { display: grid; gap: 10px; }
+    .review-line { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+    @media (max-width: 780px) {
+      .stepper, .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      main { padding: 14px; }
+      .year-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Appraisal Pilot CAD Onboarding</div>
+    <div class="subtitle">Configure district access and rendition depreciation schedules.</div>
+  </header>
+  <main>
+    <div id="flash" class="status hidden"></div>
+    <div class="stepper">
+      <div class="step active" data-step-label="0">1. CAD Info</div>
+      <div class="step" data-step-label="1">2. Admin + Users</div>
+      <div class="step" data-step-label="2">3. Schedules</div>
+      <div class="step" data-step-label="3">4. Review</div>
+    </div>
+
+    <section class="card step-panel" data-step="0">
+      <h2>CAD / District Info</h2>
+      <div class="grid-2">
+        <div class="field"><label for="cad-name">CAD Name</label><input id="cad-name" placeholder="Example Central Appraisal District"></div>
+        <div class="field"><label for="display-name">County / District Display Name</label><input id="display-name" placeholder="Example CAD"></div>
+        <div class="field"><label for="office-email">Main Office Email</label><input id="office-email" type="email" placeholder="info@examplecad.org"></div>
+        <div class="field"><label for="phone">Main Phone Number</label><input id="phone" placeholder="806-555-0100"></div>
+        <div class="field"><label for="website">Website</label><input id="website" placeholder="https://www.examplecad.org"></div>
+        <div class="field"><label for="district-slug">District Slug</label><input id="district-slug" placeholder="example-cad"></div>
+      </div>
+      <div class="field" style="margin-top:12px;"><label for="address">Address</label><textarea id="address" placeholder="Street, city, state, ZIP"></textarea></div>
+    </section>
+
+    <section class="card step-panel hidden" data-step="1">
+      <h2>CAD Admin Setup</h2>
+      <div class="grid-2">
+        <div class="field"><label for="admin-first">Admin First Name</label><input id="admin-first"></div>
+        <div class="field"><label for="admin-last">Admin Last Name</label><input id="admin-last"></div>
+        <div class="field"><label for="admin-email">Admin Email</label><input id="admin-email" type="email"></div>
+        <div class="field"><label for="admin-role">Admin Role / Title</label><input id="admin-role" placeholder="Chief Appraiser"></div>
+        <div class="field"><label for="admin-password">Admin Login Password</label><input id="admin-password" type="password"></div>
+        <div class="field"><label for="admin-confirm">Confirm Password</label><input id="admin-confirm" type="password"></div>
+      </div>
+      <h3>CAD Users</h3>
+      <div class="grid-2">
+        <div class="field"><label for="user-first">First Name</label><input id="user-first"></div>
+        <div class="field"><label for="user-last">Last Name</label><input id="user-last"></div>
+        <div class="field"><label for="user-email">Email</label><input id="user-email" type="email"></div>
+        <div class="field"><label for="user-role">Role / Title</label><input id="user-role"></div>
+      </div>
+      <div class="button-row" style="margin-top:12px;"><button id="add-user" class="secondary" type="button">Add User</button></div>
+      <div id="users-list"></div>
+    </section>
+
+    <section class="card step-panel hidden" data-step="2">
+      <h2>Depreciation Schedule Setup</h2>
+      <div class="button-row">
+        <button id="template-lcad" class="secondary" type="button">Use Default LCAD Schedule as Starting Template</button>
+        <button id="add-schedule" type="button">Add Schedule</button>
+      </div>
+      <div id="schedule-editor" class="item hidden">
+        <div class="grid-3">
+          <div class="field"><label for="schedule-name">Schedule Name / Type</label><input id="schedule-name" placeholder="9 Year BPP Schedule"></div>
+          <div class="field"><label for="schedule-type">Category</label><input id="schedule-type" placeholder="Machinery & Equipment"></div>
+          <div class="field"><label for="schedule-years">Number of Years</label><input id="schedule-years" type="number" min="1" step="1" value="9"></div>
+        </div>
+        <div class="button-row" style="margin-top:12px;"><button id="add-year-row" class="secondary" type="button">Add Year Row</button></div>
+        <div id="year-rows" class="rows" style="margin-top:10px;"></div>
+        <div class="button-row" style="margin-top:12px;">
+          <button id="save-schedule" type="button">Save Schedule</button>
+          <button id="cancel-schedule" class="secondary" type="button">Cancel</button>
+        </div>
+      </div>
+      <div id="schedules-list"></div>
+    </section>
+
+    <section class="card step-panel hidden" data-step="3">
+      <h2>Review & Finish</h2>
+      <div id="review-list" class="review-list"></div>
+    </section>
+
+    <section id="success-panel" class="card hidden">
+      <h2>CAD Onboarding Complete</h2>
+      <p class="muted">The district profile, users, and depreciation schedules were saved. Rendition Pilot will use these schedules for this CAD when available.</p>
+      <div class="button-row"><button id="go-dashboard" type="button">Open Rendition Pilot</button></div>
+    </section>
+
+    <div class="button-row">
+      <button id="prev-step" class="secondary" type="button">Back</button>
+      <button id="next-step" type="button">Next</button>
+      <button id="finish" class="hidden" type="button">Save CAD Onboarding</button>
+    </div>
+  </main>
+
+  <script>
+    const API_BASE = window.location.protocol.startsWith("http") ? window.location.origin : "http://127.0.0.1:8000";
+    const AUTH_KEY = "appraisalpilot_auth";
+    let step = 0;
+    let editingScheduleIndex = null;
+    const users = [];
+    const schedules = [];
+
+    const $ = (id) => document.getElementById(id);
+    const defaults = [
+      { schedule_name: "5 Year BPP Schedule", schedule_type: "Computers", schedule_years: 5, rows: [[1,75],[2,45],[3,20],[4,15],[5,10]] },
+      { schedule_name: "8 Year BPP Schedule", schedule_type: "Furniture & Fixtures", schedule_years: 8, rows: [[1,75],[2,60],[3,45],[4,35],[5,25],[6,20],[7,10],[8,5]] },
+      { schedule_name: "9 Year BPP Schedule", schedule_type: "Machinery & Equipment", schedule_years: 9, rows: [[1,90],[2,80],[3,70],[4,60],[5,50],[6,40],[7,30],[8,20],[9,10]] },
+      { schedule_name: "12 Year BPP Schedule", schedule_type: "Vehicles / Long Life", schedule_years: 12, rows: [[1,90],[2,80],[3,70],[4,65],[5,60],[6,55],[7,50],[8,45],[9,40],[10,35],[11,35],[12,35]] }
+    ];
+
+    function showFlash(message, type = "error") {
+      $("flash").textContent = message;
+      $("flash").className = `status ${type}`;
+      $("flash").classList.remove("hidden");
+    }
+
+    function clearFlash() {
+      $("flash").classList.add("hidden");
+    }
+
+    async function fetchJson(path, options = {}) {
+      const response = await fetch(`${API_BASE}${path}`, options);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || data.message || "Request failed.");
+      return data;
+    }
+
+    function setStep(next) {
+      clearFlash();
+      step = Math.max(0, Math.min(3, next));
+      document.querySelectorAll(".step-panel").forEach((panel) => panel.classList.toggle("hidden", Number(panel.dataset.step) !== step));
+      document.querySelectorAll("[data-step-label]").forEach((label) => label.classList.toggle("active", Number(label.dataset.stepLabel) === step));
+      $("prev-step").classList.toggle("hidden", step === 0);
+      $("next-step").classList.toggle("hidden", step === 3);
+      $("finish").classList.toggle("hidden", step !== 3);
+      if (step === 3) renderReview();
+    }
+
+    function collectPayload() {
+      return {
+        district_slug: $("district-slug").value.trim(),
+        admin_password: $("admin-password").value,
+        admin_confirm_password: $("admin-confirm").value,
+        district: {
+          cad_name: $("cad-name").value.trim(),
+          display_name: $("display-name").value.trim(),
+          email: $("office-email").value.trim(),
+          phone: $("phone").value.trim(),
+          address: $("address").value.trim(),
+          website: $("website").value.trim()
+        },
+        admin: {
+          first_name: $("admin-first").value.trim(),
+          last_name: $("admin-last").value.trim(),
+          email: $("admin-email").value.trim(),
+          role_title: $("admin-role").value.trim()
+        },
+        users,
+        schedules
+      };
+    }
+
+    function validateCurrentStep() {
+      const payload = collectPayload();
+      if (step === 0 && !payload.district.cad_name) return "CAD Name is required.";
+      if (step === 1 && !payload.admin.email) return "Admin email is required.";
+      if (step === 1 && payload.admin_password !== payload.admin_confirm_password) return "Admin passwords do not match.";
+      if (step === 2 && schedules.length === 0) return "Add at least one depreciation schedule.";
+      return "";
+    }
+
+    function renderUsers() {
+      $("users-list").innerHTML = users.map((user, index) => `
+        <div class="item">
+          <div class="item-title">${user.first_name || ""} ${user.last_name || ""} ${user.email}</div>
+          <div class="muted">${user.role_title || "CAD User"}</div>
+          <div class="button-row" style="margin-top:8px;"><button class="danger" type="button" data-delete-user="${index}">Delete</button></div>
+        </div>
+      `).join("");
+      document.querySelectorAll("[data-delete-user]").forEach((button) => {
+        button.addEventListener("click", () => {
+          users.splice(Number(button.dataset.deleteUser), 1);
+          renderUsers();
+        });
+      });
+    }
+
+    function blankScheduleRows(years = 9) {
+      $("year-rows").innerHTML = "";
+      for (let i = 1; i <= years; i += 1) addYearRow(i, "");
+    }
+
+    function addYearRow(yearNumber = "", percent = "") {
+      const row = document.createElement("div");
+      row.className = "year-row";
+      row.innerHTML = `
+        <div class="field"><label>Year Number</label><input type="number" min="1" step="1" value="${yearNumber}" data-year-number></div>
+        <div class="field"><label>Depreciation Percent</label><input type="number" min="0" step="0.01" value="${percent}" data-percent></div>
+        <button class="danger" type="button">Delete</button>
+      `;
+      row.querySelector("button").addEventListener("click", () => row.remove());
+      $("year-rows").appendChild(row);
+    }
+
+    function openScheduleEditor(index = null) {
+      editingScheduleIndex = index;
+      const schedule = index === null ? null : schedules[index];
+      $("schedule-editor").classList.remove("hidden");
+      $("schedule-name").value = schedule?.schedule_name || "";
+      $("schedule-type").value = schedule?.schedule_type || "";
+      $("schedule-years").value = schedule?.schedule_years || 9;
+      $("year-rows").innerHTML = "";
+      if (schedule) schedule.rows.forEach((row) => addYearRow(row.year_number, row.depreciation_percent));
+      else blankScheduleRows(9);
+    }
+
+    function readScheduleEditor() {
+      const rows = Array.from(document.querySelectorAll("#year-rows .year-row")).map((row) => ({
+        year_number: Number(row.querySelector("[data-year-number]").value),
+        depreciation_percent: Number(row.querySelector("[data-percent]").value)
+      }));
+      return {
+        schedule_name: $("schedule-name").value.trim(),
+        schedule_type: $("schedule-type").value.trim(),
+        schedule_years: Number($("schedule-years").value || rows.length),
+        rows
+      };
+    }
+
+    function validateSchedule(schedule) {
+      if (!schedule.schedule_name) return "Schedule name is required.";
+      if (!Number.isInteger(schedule.schedule_years) || schedule.schedule_years <= 0) return "Schedule years must be a positive integer.";
+      if (!schedule.rows.length) return "Schedule must have at least one year row.";
+      for (const row of schedule.rows) {
+        if (!Number.isInteger(row.year_number) || row.year_number <= 0) return "Year numbers must be positive integers.";
+        if (Number.isNaN(row.depreciation_percent)) return "Depreciation percentages must be numbers.";
+      }
+      return "";
+    }
+
+    function renderSchedules() {
+      $("schedules-list").innerHTML = schedules.map((schedule, index) => `
+        <div class="item">
+          <div class="item-title">${schedule.schedule_name}</div>
+          <div class="muted">${schedule.schedule_type || "Custom Schedule"} | ${schedule.schedule_years} years | ${schedule.rows.length} rows</div>
+          <div class="button-row" style="margin-top:8px;">
+            <button class="secondary" type="button" data-edit-schedule="${index}">Edit</button>
+            <button class="danger" type="button" data-delete-schedule="${index}">Delete</button>
+          </div>
+        </div>
+      `).join("");
+      document.querySelectorAll("[data-edit-schedule]").forEach((button) => button.addEventListener("click", () => openScheduleEditor(Number(button.dataset.editSchedule))));
+      document.querySelectorAll("[data-delete-schedule]").forEach((button) => button.addEventListener("click", () => {
+        schedules.splice(Number(button.dataset.deleteSchedule), 1);
+        renderSchedules();
+      }));
+    }
+
+    function renderReview() {
+      const payload = collectPayload();
+      $("review-list").innerHTML = `
+        <div class="review-line"><strong>CAD</strong><span>${payload.district.cad_name}</span></div>
+        <div class="review-line"><strong>Display Name</strong><span>${payload.district.display_name || payload.district.cad_name}</span></div>
+        <div class="review-line"><strong>Admin</strong><span>${payload.admin.first_name} ${payload.admin.last_name} ${payload.admin.email}</span></div>
+        <div class="review-line"><strong>Additional Users</strong><span>${users.length}</span></div>
+        <div class="review-line"><strong>Depreciation Schedules</strong><span>${schedules.length}</span></div>
+      `;
+    }
+
+    $("add-user").addEventListener("click", () => {
+      const user = {
+        first_name: $("user-first").value.trim(),
+        last_name: $("user-last").value.trim(),
+        email: $("user-email").value.trim(),
+        role_title: $("user-role").value.trim()
+      };
+      if (!user.email) return showFlash("User email is required.");
+      users.push(user);
+      ["user-first", "user-last", "user-email", "user-role"].forEach((id) => $(id).value = "");
+      renderUsers();
+    });
+
+    $("template-lcad").addEventListener("click", () => {
+      schedules.splice(0, schedules.length, ...defaults.map((item) => ({
+        schedule_name: item.schedule_name,
+        schedule_type: item.schedule_type,
+        schedule_years: item.schedule_years,
+        rows: item.rows.map(([year_number, depreciation_percent]) => ({ year_number, depreciation_percent }))
+      })));
+      renderSchedules();
+    });
+
+    $("add-schedule").addEventListener("click", () => openScheduleEditor(null));
+    $("add-year-row").addEventListener("click", () => addYearRow());
+    $("cancel-schedule").addEventListener("click", () => $("schedule-editor").classList.add("hidden"));
+    $("schedule-years").addEventListener("change", () => blankScheduleRows(Math.max(1, Number($("schedule-years").value || 1))));
+    $("save-schedule").addEventListener("click", () => {
+      const schedule = readScheduleEditor();
+      const error = validateSchedule(schedule);
+      if (error) return showFlash(error);
+      if (editingScheduleIndex === null) schedules.push(schedule);
+      else schedules[editingScheduleIndex] = schedule;
+      $("schedule-editor").classList.add("hidden");
+      renderSchedules();
+    });
+
+    $("prev-step").addEventListener("click", () => setStep(step - 1));
+    $("next-step").addEventListener("click", () => {
+      const error = validateCurrentStep();
+      if (error) return showFlash(error);
+      setStep(step + 1);
+    });
+    $("finish").addEventListener("click", async () => {
+      const error = validateCurrentStep();
+      if (error) return showFlash(error);
+      try {
+        const data = await fetchJson("/api/cad-onboarding", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(collectPayload())
+        });
+        if (data.access_token) localStorage.setItem(AUTH_KEY, JSON.stringify(data));
+        document.querySelectorAll(".step-panel, .stepper, #prev-step, #finish").forEach((el) => el.classList.add("hidden"));
+        $("success-panel").classList.remove("hidden");
+        showFlash("CAD onboarding completed.", "success");
+      } catch (error) {
+        showFlash(error.message);
+      }
+    });
+    $("go-dashboard").addEventListener("click", () => window.location.href = "/");
+    setStep(0);
+  </script>
+</body>
+</html>
