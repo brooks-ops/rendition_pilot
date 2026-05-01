@@ -327,7 +327,8 @@ def process_uploaded_rendition(file: str | os.PathLike[str]) -> dict[str, Any]:
     missing_schedules = quality_details.get("missing_schedules") or []
 
     schema: dict[str, Any]
-    if should_use_document_ai(extracted_text, quality_details):
+    fast_review = os.getenv("RENDITION_FAST_REVIEW", "").strip().lower() in {"1", "true", "yes"}
+    if should_use_document_ai(extracted_text, quality_details) and not fast_review:
         try:
             document_ai_result = run_google_document_ai(file)
             schema = parse_document_ai_to_rendition_schema(document_ai_result)
@@ -340,6 +341,9 @@ def process_uploaded_rendition(file: str | os.PathLike[str]) -> dict[str, Any]:
             schema["review_flags"] = sorted(set(list(schema.get("review_flags") or []) + ["document_ai_failed_fallback_used"]))
     else:
         schema = parse_text_to_rendition_schema(extracted_text, pages=extraction.get("pages") or [])
+        if fast_review and should_use_document_ai(extracted_text, quality_details):
+            extraction_provider = "fallback_text"
+            schema["review_flags"] = sorted(set(list(schema.get("review_flags") or []) + ["fast_review_document_ai_skipped"]))
 
     valuation = apply_rendition_valuation_rules(schema)
     low_confidence_sections = [

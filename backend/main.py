@@ -199,6 +199,8 @@ class ManualOverrideRequest(BaseModel):
 
 class ReviewRunRequest(PdfRequest):
     manual_override: ManualOverrideRequest | None = None
+    include_pdf_pages: bool = False
+    fast_review: bool = True
 
 
 class BatchItem(BaseModel):
@@ -913,10 +915,19 @@ def require_arb_access(access_token: str) -> dict[str, Any]:
     }
 
 
-def run_pipeline_from_upload(file_name: str, file_bytes: bytes, manual_override: dict[str, Any] | None = None) -> dict[str, Any]:
+def run_pipeline_from_upload(
+    file_name: str,
+    file_bytes: bytes,
+    manual_override: dict[str, Any] | None = None,
+    *,
+    fast_review: bool = False,
+) -> dict[str, Any]:
     from app.pipeline import run_rendition_pipeline
 
     hydrate_analysis_env()
+    previous_fast_review = os.environ.get("RENDITION_FAST_REVIEW")
+    if fast_review:
+        os.environ["RENDITION_FAST_REVIEW"] = "1"
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(file_bytes)
         temp_pdf_path = Path(tmp.name)
@@ -924,6 +935,11 @@ def run_pipeline_from_upload(file_name: str, file_bytes: bytes, manual_override:
         result = run_rendition_pipeline(pdf_path=str(temp_pdf_path), manual_override=manual_override)
         return to_jsonable(result)
     finally:
+        if fast_review:
+            if previous_fast_review is None:
+                os.environ.pop("RENDITION_FAST_REVIEW", None)
+            else:
+                os.environ["RENDITION_FAST_REVIEW"] = previous_fast_review
         try:
             temp_pdf_path.unlink(missing_ok=True)
         except Exception:
@@ -1707,13 +1723,20 @@ def review_run(request: ReviewRunRequest) -> dict[str, Any]:
 
     file_bytes = _decode_pdf(request.file_base64)
     manual_override = to_jsonable(request.manual_override.model_dump()) if request.manual_override else None
-    result = run_pipeline_from_upload(request.file_name, file_bytes, manual_override=manual_override)
-    return {
+    result = run_pipeline_from_upload(
+        request.file_name,
+        file_bytes,
+        manual_override=manual_override,
+        fast_review=bool(request.fast_review),
+    )
+    payload = {
         "file_name": request.file_name,
         "result": result,
         "summary": build_cli_summary(result=result, source_path=request.file_name),
-        "pdf_pages": render_pdf_pages(file_bytes),
     }
+    if request.include_pdf_pages:
+        payload["pdf_pages"] = render_pdf_pages(file_bytes)
+    return payload
 
 
 @app.post("/api/batch/run")

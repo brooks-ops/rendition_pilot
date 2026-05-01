@@ -1429,13 +1429,39 @@ def _extract_pdf_bundle(pdf_path: str) -> Dict[str, Any]:
         page["ocr_blocks"] = normalized_words
         page.setdefault("text_source", "embedded_pdf_text")
 
-    if embedded_pages and not _needs_ocr_fallback(embedded_pages):
+    fast_review = os.getenv("RENDITION_FAST_REVIEW", "").strip().lower() in {"1", "true", "yes"}
+    if embedded_pages and (fast_review or not _needs_ocr_fallback(embedded_pages)):
         reconciliation = _reconcile_ocr_providers(embedded_pages, {}, "embedded_pdf_text")
         for page in embedded_pages:
             page["extraction_provider"] = "embedded_pdf_text"
             page["extraction_seconds"] = round(time.perf_counter() - started_at, 2)
+            if fast_review and _needs_ocr_fallback(embedded_pages):
+                page["ocr_unavailable"] = True
+                page["ocr_error"] = "Fast web review used embedded PDF text and skipped slow OCR fallback."
         return {
             "pages": embedded_pages,
+            "ocr_reconciliation": reconciliation,
+        }
+
+    if fast_review:
+        fallback_pages = embedded_pages or [
+            {
+                "page_number": 1,
+                "text": "",
+                "ocr_blocks": [],
+                "text_source": "embedded_pdf_text",
+                "ocr_unavailable": True,
+                "ocr_error": "Fast web review skipped slow OCR fallback and no embedded PDF text was available.",
+            }
+        ]
+        reconciliation = _reconcile_ocr_providers(fallback_pages, {}, "embedded_pdf_text")
+        for page in fallback_pages:
+            page["extraction_provider"] = "embedded_pdf_text"
+            page["extraction_seconds"] = round(time.perf_counter() - started_at, 2)
+            page["ocr_unavailable"] = True
+            page.setdefault("ocr_error", "Fast web review skipped slow OCR fallback.")
+        return {
+            "pages": fallback_pages,
             "ocr_reconciliation": reconciliation,
         }
 

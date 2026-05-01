@@ -1875,15 +1875,27 @@
       }
       hideFlash();
       showFlash("Running review...", "warn");
+      const previewPromise = fetchJson("/api/pdf/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_name: appState.single.file.name,
+          file_base64: appState.single.fileBase64
+        })
+      }).catch(() => null);
       const payload = await fetchJson("/api/review/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           file_name: appState.single.file.name,
           file_base64: appState.single.fileBase64,
-          manual_override: manualOverride ?? buildManualOverrideFromMode()
+          manual_override: manualOverride ?? buildManualOverrideFromMode(),
+          fast_review: true,
+          include_pdf_pages: false
         })
       });
+      const previewPayload = await previewPromise;
+      if (previewPayload?.pages) payload.pdf_pages = previewPayload.pages;
       renderSingleResult(payload);
       showFlash("Review completed.", "success");
     }
