@@ -20,7 +20,7 @@ from app.candidate_extractor import CandidateExtractor
 from app.extractor import PDFExtractor
 from app.rendition_schema import process_uploaded_rendition
 from app.rendition_value_engine import calculate_rendition_value
-from app.targeted_parser import TargetedRenditionParser
+from app.targeted_parser import TargetedRenditionParser, normalize_money_text
 
 try:
     from app.agent_reviewer import review_parse_result
@@ -139,9 +139,9 @@ MONEY_RE = re.compile(
     (?<![\w])
     \(?\$?\s*
     (?:
-        \d{1,3}(?:[\s,]\d{3})+(?:\.\d{1,2})?
+        (?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[\s,.][0-9OoIl|!SsB]{3})+(?:[.,][0-9OoIl|!SsB]{1,2})?
         |
-        \d{2,9}(?:\.\d{1,2})?
+        [0-9OoIl|!SsB]{2,9}(?:[.,][0-9OoIl|!SsB]{1,2})?
     )
     \)?
     (?![\w])
@@ -236,36 +236,7 @@ def _parse_money(raw: str) -> Optional[float]:
 
 
 def _normalize_money_text(raw: str) -> str:
-    text = (
-        str(raw or "")
-        .replace("$", "")
-        .replace("O", "0")
-        .replace("o", "0")
-        .strip("() ")
-    )
-    text = re.sub(r"\s+", " ", text)
-
-    # OCR sometimes splits a leading digit off a comma-grouped amount:
-    # "$ 1 84,724.43" should be "184,724.43".
-    # Only repair the common OCR split for leading "1" values like "1 84,724.43".
-    # Broad digit-merge rules create nonsense like "6 45,442" -> "645,442".
-    text = re.sub(r"\b1\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"1\1", text)
-    # If OCR leaves a stray leading digit before a valid amount, prefer the valid amount.
-    text = re.sub(r"\b[2-9]\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"\1", text)
-    text = text.replace(" ", "")
-
-    if "," in text and "." in text:
-        return text.replace(",", "")
-
-    if "," in text:
-        if re.fullmatch(r"\d{1,3}(?:,\d{3})+", text):
-            return text.replace(",", "")
-        return text.replace(",", ".")
-
-    if text.count(".") > 1:
-        return text.replace(".", "")
-
-    return text
+    return normalize_money_text(raw)
 
 
 def _money_candidates_with_spans(text: str) -> List[Dict[str, Any]]:
@@ -2883,7 +2854,7 @@ def _find_schedule_sections(text: str) -> Dict[str, str]:
 
 def _find_explicit_dollar_values(text: str) -> List[float]:
     values: List[float] = []
-    for match in re.finditer(r"\$\s*([0-9Ool]{1,3}(?:[,\s.][0-9Ool]{3})*|[0-9Ool]{2,9})(?:\.\d{1,2})?", text or ""):
+    for match in re.finditer(r"\$\s*((?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[,\s.][0-9OoIl|!SsB]{3})*|[0-9OoIl|!SsB]{2,9})(?:[.,][0-9OoIl|!SsB]{1,2})?", text or ""):
         value = _parse_money(match.group(0))
         if value is None or not _is_plausible_money(value):
             continue

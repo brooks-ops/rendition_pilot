@@ -416,6 +416,57 @@
               <label for="calc-auto-roll">Auto Roll Value</label>
               <input id="calc-auto-roll" type="number" min="0" step="0.01" value="0">
             </div>
+            <div id="calc-allocation-wrap" class="hidden">
+              <div class="layout-3">
+                <div class="field">
+                  <label for="calc-tx-miles">TX Miles</label>
+                  <input id="calc-tx-miles" type="number" min="0" step="0.01" value="0">
+                </div>
+                <div class="field">
+                  <label for="calc-total-miles">Total Miles</label>
+                  <input id="calc-total-miles" type="number" min="0" step="0.01" value="0">
+                </div>
+                <div class="field">
+                  <label for="calc-original-cost">Original Cost</label>
+                  <input id="calc-original-cost" type="number" min="0" step="0.01" value="0">
+                </div>
+              </div>
+              <div class="calc-row">
+                <div>Allocated Value</div>
+                <div id="calc-allocation-ratio">0.00%</div>
+                <div><span class="calc-factor">TX / Total</span></div>
+                <div id="calc-allocation-value" style="text-align:right;">$0.00</div>
+              </div>
+            </div>
+            <div id="calc-freeport-wrap" class="hidden">
+              <div class="layout-3">
+                <div class="field">
+                  <label for="calc-freeport-prior-total">Prior Year Total Inventory Value</label>
+                  <input id="calc-freeport-prior-total" type="number" min="0" step="0.01" value="0">
+                </div>
+                <div class="field">
+                  <label for="calc-freeport-eligible">Prior Year Freeport-Eligible Inventory Shipped Out of Texas Within 175 Days</label>
+                  <input id="calc-freeport-eligible" type="number" min="0" step="0.01" value="0">
+                </div>
+                <div class="field">
+                  <label for="calc-freeport-current">Current Year Inventory Value</label>
+                  <input id="calc-freeport-current" type="number" min="0" step="0.01" value="0">
+                </div>
+              </div>
+              <div id="calc-freeport-error" class="status warn hidden"></div>
+              <div class="calc-row">
+                <div>Freeport Percentage</div>
+                <div id="calc-freeport-percent">0.00%</div>
+                <div><span class="calc-factor">Eligible / Total</span></div>
+                <div id="calc-freeport-exempt" style="text-align:right;">$0.00</div>
+              </div>
+              <div class="calc-row">
+                <div>Remaining Taxable Inventory Value</div>
+                <div></div>
+                <div><span class="calc-factor">Current - Exempt</span></div>
+                <div id="calc-freeport-taxable" style="text-align:right;">$0.00</div>
+              </div>
+            </div>
             <div id="calc-depreciation-wrap">
               <div class="calc-table-head">
                 <div>GFE</div>
@@ -741,6 +792,11 @@
       $("flash").classList.add("hidden");
     }
 
+    function scrollToPageTop() {
+      window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+      document.querySelector(".topbar")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
+
     function formatMoney(value) {
       if (value === null || value === undefined || value === "") return "-";
       const amount = Number(value);
@@ -760,6 +816,14 @@
       if (Array.isArray(value)) return value.length ? value.join(" | ") : "-";
       if (typeof value === "object") return JSON.stringify(value);
       return String(value);
+    }
+
+    function createClientId(prefix = "calc") {
+      if (window.crypto && typeof window.crypto.randomUUID === "function") {
+        return window.crypto.randomUUID();
+      }
+      const randomPart = Math.random().toString(36).slice(2, 10);
+      return `${prefix}-${Date.now().toString(36)}-${randomPart}`;
     }
 
     function parseMoneyInput(value) {
@@ -1076,6 +1140,7 @@
     }
 
     function getDefaultCalculatorName(schedule, category) {
+      if (String(schedule).toLowerCase() === "freeport") return "Freeport Exemption";
       if (String(schedule).toUpperCase() !== "CUSTOM") return `Schedule ${schedule} - ${category}`;
       return category || "Custom Calculator";
     }
@@ -1085,13 +1150,21 @@
       $("calc-custom-wrap").classList.toggle("hidden", $("calc-section").value !== "custom");
       $("calc-table-wrap").classList.toggle("hidden", preset.entry_mode !== "depreciation");
       $("calc-flat-wrap").classList.toggle("hidden", preset.entry_mode !== "flat");
+      $("calc-allocation-wrap").classList.toggle("hidden", preset.entry_mode !== "allocation");
+      $("calc-freeport-wrap").classList.toggle("hidden", preset.entry_mode !== "freeport");
       $("calc-auto-roll-wrap").classList.toggle("hidden", !preset.supplemental_flat_label);
       $("calc-depreciation-wrap").classList.toggle("hidden", preset.entry_mode !== "depreciation");
-      $("calc-table").value = preset.default_table === "flat" ? "9_year" : preset.default_table;
+      $("calc-table").value = ["flat", "allocation", "freeport"].includes(preset.default_table) ? "9_year" : preset.default_table;
       if (!appState.single.editingCalculatorId) {
         $("calc-name").value = "";
         $("calc-custom-name").value = "";
         $("calc-flat-value").value = "0";
+        $("calc-tx-miles").value = "0";
+        $("calc-total-miles").value = "0";
+        $("calc-original-cost").value = "0";
+        $("calc-freeport-prior-total").value = "0";
+        $("calc-freeport-eligible").value = "0";
+        $("calc-freeport-current").value = "0";
         $("calc-auto-roll").value = "0";
         $("calc-good-faith-row").value = "0";
       }
@@ -1121,7 +1194,7 @@
       const taxYear = Number($("calc-tax-year").value || new Date().getFullYear());
       const rowsEl = $("calc-rows");
       rowsEl.innerHTML = "";
-      if (preset.entry_mode === "flat") {
+      if (["flat", "allocation", "freeport"].includes(preset.entry_mode)) {
         $("calc-good-faith-row").value = "0";
         updateCalculatorTotal();
         return;
@@ -1151,6 +1224,7 @@
       let rows = [];
       let gfeTotal = 0;
       let depreciatedTotal = 0;
+      let freeport = null;
       if (preset.entry_mode === "flat") {
         const amount = Number($("calc-flat-value").value || 0);
         depreciatedTotal = amount;
@@ -1162,6 +1236,28 @@
           factor: 1,
           value: amount
         }];
+      } else if (preset.entry_mode === "allocation") {
+        const txMiles = Number($("calc-tx-miles").value || 0);
+        const totalMiles = Number($("calc-total-miles").value || 0);
+        const originalCost = Number($("calc-original-cost").value || 0);
+        const ratio = totalMiles > 0 ? txMiles / totalMiles : 0;
+        const allocatedValue = Number((ratio * originalCost).toFixed(2));
+        depreciatedTotal = allocatedValue;
+        rows = [{
+          bucket: "allocation_value",
+          display_year: "TX Miles / Total Miles x Original Cost",
+          year_acquired: null,
+          cost: originalCost,
+          factor: ratio,
+          value: allocatedValue,
+          tx_miles: txMiles,
+          total_miles: totalMiles,
+          original_cost: originalCost
+        }];
+      } else if (preset.entry_mode === "freeport") {
+        freeport = getFreeportCalculation();
+        depreciatedTotal = freeport.taxable_inventory_value;
+        rows = buildFreeportRows(freeport);
       } else {
         gfeTotal = Number($("calc-good-faith-row").value || 0);
         rows = Array.from($("calc-rows").querySelectorAll("input")).map((input) => {
@@ -1205,19 +1301,90 @@
           });
         }
       }
-      const sectionTotal = rows.reduce((sum, row) => sum + Number(row.value || 0), 0);
+      const sectionTotal = Number(rows.reduce((sum, row) => {
+        if (row.include_in_total === false) return sum;
+        return sum + Number(row.value || 0);
+      }, 0).toFixed(2));
       return {
         id: appState.single.editingCalculatorId,
         name,
         schedule,
         category,
-        depreciation_table: preset.entry_mode === "depreciation" ? $("calc-table").value : "flat",
+        depreciation_table: preset.entry_mode === "depreciation" ? $("calc-table").value : preset.entry_mode,
         tax_year: Number($("calc-tax-year").value || new Date().getFullYear()),
         rows,
+        freeport,
         good_faith_total: gfeTotal,
         depreciated_total: depreciatedTotal,
         section_total: sectionTotal
       };
+    }
+
+    function getFreeportCalculation() {
+      const priorTotal = Number($("calc-freeport-prior-total").value || 0);
+      const eligible = Number($("calc-freeport-eligible").value || 0);
+      const current = Number($("calc-freeport-current").value || 0);
+      if ([priorTotal, eligible, current].some((value) => Number.isNaN(value))) {
+        return { error: "Enter valid Freeport inventory values." };
+      }
+      if ([priorTotal, eligible, current].some((value) => value < 0)) {
+        return { error: "Freeport values cannot be negative." };
+      }
+      if (priorTotal <= 0) {
+        return { error: "Enter a valid prior year total inventory value greater than zero." };
+      }
+      const percentage = eligible / priorTotal;
+      const exemptAmount = Number((current * percentage).toFixed(2));
+      const taxableValue = Number((current - exemptAmount).toFixed(2));
+      return {
+        prior_year_total_inventory: priorTotal,
+        prior_year_freeport_eligible_inventory: eligible,
+        current_year_inventory: current,
+        freeport_percentage: percentage,
+        freeport_exempt_amount: exemptAmount,
+        taxable_inventory_value: taxableValue
+      };
+    }
+
+    function buildFreeportRows(freeport) {
+      return [
+        {
+          bucket: "prior_year_total_inventory",
+          display_year: "Prior Year Total Inventory Value",
+          year_acquired: null,
+          cost: freeport.prior_year_total_inventory,
+          factor: 1,
+          value: freeport.prior_year_total_inventory,
+          include_in_total: false
+        },
+        {
+          bucket: "prior_year_freeport_eligible_inventory",
+          display_year: "Prior Year Freeport-Eligible Inventory Shipped Out of Texas Within 175 Days",
+          year_acquired: null,
+          cost: freeport.prior_year_freeport_eligible_inventory,
+          factor: freeport.freeport_percentage,
+          value: freeport.freeport_exempt_amount,
+          include_in_total: false
+        },
+        {
+          bucket: "current_year_inventory",
+          display_year: "Current Year Inventory Value",
+          year_acquired: null,
+          cost: freeport.current_year_inventory,
+          factor: freeport.freeport_percentage,
+          value: freeport.freeport_exempt_amount,
+          include_in_total: false
+        },
+        {
+          bucket: "taxable_inventory_value",
+          display_year: "Remaining Taxable Inventory Value",
+          year_acquired: null,
+          cost: freeport.current_year_inventory,
+          factor: 1 - freeport.freeport_percentage,
+          value: freeport.taxable_inventory_value,
+          include_in_total: true
+        }
+      ];
     }
 
     function updateCalculatorTotal() {
@@ -1228,6 +1395,33 @@
       if (preset.entry_mode === "flat") {
         total = Number($("calc-flat-value").value || 0);
         depreciatedTotal = total;
+      } else if (preset.entry_mode === "allocation") {
+        const txMiles = Number($("calc-tx-miles").value || 0);
+        const totalMiles = Number($("calc-total-miles").value || 0);
+        const originalCost = Number($("calc-original-cost").value || 0);
+        const ratio = totalMiles > 0 ? txMiles / totalMiles : 0;
+        total = Number((ratio * originalCost).toFixed(2));
+        depreciatedTotal = total;
+        $("calc-allocation-ratio").textContent = `${(ratio * 100).toFixed(2)}%`;
+        $("calc-allocation-value").textContent = formatMoney(total);
+      } else if (preset.entry_mode === "freeport") {
+        const freeport = getFreeportCalculation();
+        const errorEl = $("calc-freeport-error");
+        if (freeport.error) {
+          errorEl.textContent = freeport.error;
+          errorEl.classList.remove("hidden");
+          $("calc-freeport-percent").textContent = "0.00%";
+          $("calc-freeport-exempt").textContent = formatMoney(0);
+          $("calc-freeport-taxable").textContent = formatMoney(0);
+          total = 0;
+        } else {
+          errorEl.classList.add("hidden");
+          $("calc-freeport-percent").textContent = `${(freeport.freeport_percentage * 100).toFixed(2)}%`;
+          $("calc-freeport-exempt").textContent = formatMoney(freeport.freeport_exempt_amount);
+          $("calc-freeport-taxable").textContent = formatMoney(freeport.taxable_inventory_value);
+          total = freeport.taxable_inventory_value;
+          depreciatedTotal = total;
+        }
       } else {
         gfeTotal = Number($("calc-good-faith-row").value || 0);
         $("calc-good-faith-value").textContent = formatMoney(gfeTotal);
@@ -1254,8 +1448,8 @@
         wrap.innerHTML = appState.single.savedCalculators.map((item) => `
           <div class="saved-section">
             <div class="saved-title">${item.name} | ${formatMoney(item.section_total)}</div>
-            <div class="subtle">Schedule ${item.schedule} | Tax Year ${item.tax_year} | ${item.depreciation_table}</div>
-            <div class="subtle">GFE ${formatMoney(item.good_faith_total || 0)} | Depreciated ${formatMoney(item.depreciated_total || 0)} | Section Total ${formatMoney(item.section_total || 0)}</div>
+            <div class="subtle">${formatSavedCalculatorMeta(item)}</div>
+            <div class="subtle">${formatSavedCalculatorBreakdown(item)}</div>
             <div class="button-row" style="margin-top:10px;">
               <button class="secondary" type="button" data-edit-calc="${item.id}">Edit</button>
               <button class="secondary" type="button" data-delete-calc="${item.id}">Delete</button>
@@ -1276,9 +1470,50 @@
       wrap.querySelectorAll("[data-delete-calc]").forEach((button) => {
         button.addEventListener("click", () => {
           appState.single.savedCalculators = appState.single.savedCalculators.filter((item) => item.id !== button.dataset.deleteCalc);
+          markFinalReviewDirty();
           renderSavedCalculators();
         });
       });
+    }
+
+    function formatSavedCalculatorMeta(item) {
+      if (item.depreciation_table === "allocation") return `Allocation Calculator | Tax Year ${item.tax_year}`;
+      if (item.depreciation_table === "freeport") return `Freeport Exemption | Tax Year ${item.tax_year}`;
+      return `Schedule ${item.schedule} | Tax Year ${item.tax_year} | ${item.depreciation_table}`;
+    }
+
+    function formatSavedCalculatorBreakdown(item) {
+      if (item.depreciation_table === "allocation") {
+        const row = item.rows?.[0] || {};
+        const ratio = Number(row.factor || 0);
+        return `TX Miles ${Number(row.tx_miles || 0).toLocaleString("en-US")} / Total Miles ${Number(row.total_miles || 0).toLocaleString("en-US")} | Original Cost ${formatMoney(row.original_cost || row.cost || 0)} | Allocation ${(ratio * 100).toFixed(2)}%`;
+      }
+      if (item.depreciation_table === "freeport") {
+        const freeport = item.freeport || {};
+        return `Freeport ${(Number(freeport.freeport_percentage || 0) * 100).toFixed(2)}% | Exempt ${formatMoney(freeport.freeport_exempt_amount || 0)} | Taxable ${formatMoney(freeport.taxable_inventory_value || item.section_total || 0)}`;
+      }
+      return `GFE ${formatMoney(item.good_faith_total || 0)} | Depreciated ${formatMoney(item.depreciated_total || 0)} | Section Total ${formatMoney(item.section_total || 0)}`;
+    }
+
+    function markFinalReviewDirty() {
+      appState.single.stamped = null;
+      $("saved-status").classList.add("hidden");
+      $("download-stamped").classList.add("hidden");
+      $("next-account").classList.add("hidden");
+      if (!appState.single.lockedRecord) return;
+      appState.single.lockedRecord = null;
+      $("locked-status").textContent = "Calculator sections changed. Lock the final value again before saving the rendition.";
+      $("locked-status").className = "status warn";
+      $("locked-status").classList.remove("hidden");
+    }
+
+    function saveCalculatorPayload(payload) {
+      if (!payload.id) payload.id = createClientId();
+      const index = appState.single.savedCalculators.findIndex((item) => item.id === payload.id);
+      if (index >= 0) appState.single.savedCalculators[index] = payload;
+      else appState.single.savedCalculators.push(payload);
+      markFinalReviewDirty();
+      resetCalculatorEditor();
     }
 
     function resetCalculatorEditor() {
@@ -1288,6 +1523,12 @@
       $("calc-name").value = "";
       $("calc-custom-name").value = "";
       $("calc-flat-value").value = "0";
+      $("calc-tx-miles").value = "0";
+      $("calc-total-miles").value = "0";
+      $("calc-original-cost").value = "0";
+      $("calc-freeport-prior-total").value = "0";
+      $("calc-freeport-eligible").value = "0";
+      $("calc-freeport-current").value = "0";
       $("calc-auto-roll").value = "0";
       $("calc-good-faith-row").value = "0";
       updateCalculatorPreset();
@@ -1310,6 +1551,19 @@
       }
       if (getCurrentPreset().entry_mode === "flat") {
         $("calc-flat-value").value = String(item.rows?.[0]?.cost || 0);
+        updateCalculatorTotal();
+      } else if (getCurrentPreset().entry_mode === "allocation") {
+        const row = item.rows?.[0] || {};
+        $("calc-tx-miles").value = String(row.tx_miles || 0);
+        $("calc-total-miles").value = String(row.total_miles || 0);
+        $("calc-original-cost").value = String(row.original_cost || row.cost || 0);
+        updateCalculatorTotal();
+      } else if (getCurrentPreset().entry_mode === "freeport") {
+        const freeport = item.freeport || {};
+        $("calc-freeport-prior-total").value = String(freeport.prior_year_total_inventory || 0);
+        $("calc-freeport-eligible").value = String(freeport.prior_year_freeport_eligible_inventory || 0);
+        $("calc-freeport-current").value = String(freeport.current_year_inventory || 0);
+        updateCalculatorTotal();
       } else {
         item.rows.forEach((row) => {
           if (row.bucket === "good_faith_value") {
@@ -1729,19 +1983,32 @@
       $("calc-tax-year").addEventListener("change", renderCalculatorRows);
       $("calc-table").addEventListener("change", renderCalculatorRows);
       $("calc-flat-value").addEventListener("input", updateCalculatorTotal);
+      $("calc-tx-miles").addEventListener("input", updateCalculatorTotal);
+      $("calc-total-miles").addEventListener("input", updateCalculatorTotal);
+      $("calc-original-cost").addEventListener("input", updateCalculatorTotal);
+      $("calc-freeport-prior-total").addEventListener("input", updateCalculatorTotal);
+      $("calc-freeport-eligible").addEventListener("input", updateCalculatorTotal);
+      $("calc-freeport-current").addEventListener("input", updateCalculatorTotal);
       $("calc-auto-roll").addEventListener("input", updateCalculatorTotal);
       $("calc-good-faith-row").addEventListener("input", updateCalculatorTotal);
       $("calc-save-section").addEventListener("click", () => {
-        const payload = buildCalculatorPayload();
-        if ($("calc-section").value === "custom" && !payload.name.trim()) {
+        if ($("calc-section").value === "custom" && !$("calc-custom-name").value.trim() && !$("calc-name").value.trim()) {
           showFlash("Enter a custom section name before saving this calculator.", "error");
           return;
         }
-        if (!payload.id) payload.id = crypto.randomUUID();
-        const index = appState.single.savedCalculators.findIndex((item) => item.id === payload.id);
-        if (index >= 0) appState.single.savedCalculators[index] = payload;
-        else appState.single.savedCalculators.push(payload);
-        resetCalculatorEditor();
+        if (getCurrentPreset().entry_mode === "allocation" && Number($("calc-total-miles").value || 0) <= 0) {
+          showFlash("Enter total miles greater than zero before saving this allocation.", "error");
+          return;
+        }
+        if (getCurrentPreset().entry_mode === "freeport") {
+          const freeport = getFreeportCalculation();
+          if (freeport.error) {
+            showFlash(freeport.error, "error");
+            return;
+          }
+        }
+        const payload = buildCalculatorPayload();
+        saveCalculatorPayload(payload);
         showFlash(`Saved ${payload.name}.`, "success");
       });
       $("calc-new-section").addEventListener("click", resetCalculatorEditor);
@@ -1850,6 +2117,7 @@
       });
       $("next-account").addEventListener("click", () => {
         resetSingleState();
+        scrollToPageTop();
         showFlash("Single review state cleared.", "success");
       });
 

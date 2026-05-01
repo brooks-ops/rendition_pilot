@@ -32,6 +32,13 @@ SECTION_PRESETS = {
         "default_table": "flat",
         "entry_mode": "flat",
     },
+    "freeport_exemption": {
+        "label": "Freeport",
+        "schedule": "Freeport",
+        "category": "Freeport Exemption",
+        "default_table": "freeport",
+        "entry_mode": "freeport",
+    },
     "schedule_c_supplies": {
         "label": "Schedule C - Supplies",
         "schedule": "C",
@@ -118,7 +125,14 @@ def build_calculator_rows(
 
 
 def calculate_section_total(rows: list[dict[str, Any]]) -> float:
-    return round(sum(float(row.get("value", 0.0) or 0.0) for row in rows), 2)
+    return round(
+        sum(
+            float(row.get("value", 0.0) or 0.0)
+            for row in rows
+            if row.get("include_in_total", True)
+        ),
+        2,
+    )
 
 
 def build_flat_value_rows(label: str, value: Any) -> list[dict[str, Any]]:
@@ -135,7 +149,90 @@ def build_flat_value_rows(label: str, value: Any) -> list[dict[str, Any]]:
     ]
 
 
+def calculate_freeport_exemption(
+    prior_year_total_inventory: Any,
+    prior_year_freeport_eligible_inventory: Any,
+    current_year_inventory: Any,
+) -> dict[str, float]:
+    try:
+        prior_total = round(float(prior_year_total_inventory), 2)
+        eligible = round(float(prior_year_freeport_eligible_inventory or 0.0), 2)
+        current = round(float(current_year_inventory or 0.0), 2)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Enter a valid prior year total inventory value greater than zero.") from exc
+
+    if prior_total <= 0:
+        raise ValueError("Enter a valid prior year total inventory value greater than zero.")
+    if eligible < 0 or current < 0:
+        raise ValueError("Freeport values cannot be negative.")
+
+    percentage = eligible / prior_total
+    exempt_amount = round(current * percentage, 2)
+    taxable_value = round(current - exempt_amount, 2)
+    return {
+        "prior_year_total_inventory": prior_total,
+        "prior_year_freeport_eligible_inventory": eligible,
+        "current_year_inventory": current,
+        "freeport_percentage": percentage,
+        "freeport_exempt_amount": exempt_amount,
+        "taxable_inventory_value": taxable_value,
+    }
+
+
+def build_freeport_rows(
+    prior_year_total_inventory: Any,
+    prior_year_freeport_eligible_inventory: Any,
+    current_year_inventory: Any,
+) -> list[dict[str, Any]]:
+    result = calculate_freeport_exemption(
+        prior_year_total_inventory,
+        prior_year_freeport_eligible_inventory,
+        current_year_inventory,
+    )
+    percentage = result["freeport_percentage"]
+    return [
+        {
+            "bucket": "prior_year_total_inventory",
+            "display_year": "Prior Year Total Inventory Value",
+            "year_acquired": None,
+            "cost": result["prior_year_total_inventory"],
+            "factor": 1.0,
+            "value": result["prior_year_total_inventory"],
+            "include_in_total": False,
+        },
+        {
+            "bucket": "prior_year_freeport_eligible_inventory",
+            "display_year": "Prior Year Freeport-Eligible Inventory Shipped Out of Texas Within 175 Days",
+            "year_acquired": None,
+            "cost": result["prior_year_freeport_eligible_inventory"],
+            "factor": percentage,
+            "value": result["freeport_exempt_amount"],
+            "include_in_total": False,
+        },
+        {
+            "bucket": "current_year_inventory",
+            "display_year": "Current Year Inventory Value",
+            "year_acquired": None,
+            "cost": result["current_year_inventory"],
+            "factor": percentage,
+            "value": result["freeport_exempt_amount"],
+            "include_in_total": False,
+        },
+        {
+            "bucket": "taxable_inventory_value",
+            "display_year": "Remaining Taxable Inventory Value",
+            "year_acquired": None,
+            "cost": result["current_year_inventory"],
+            "factor": 1 - percentage,
+            "value": result["taxable_inventory_value"],
+            "include_in_total": True,
+        },
+    ]
+
+
 def generate_calculator_name(schedule: str, category: str) -> str:
+    if str(schedule).strip().lower() == "freeport":
+        return "Freeport Exemption"
     schedule_text = str(schedule).strip().upper()
     category_text = str(category).strip()
     if schedule_text and schedule_text != "CUSTOM":
@@ -151,6 +248,7 @@ def build_saved_calculator(
     depreciation_table: str,
     tax_year: int,
     rows: list[dict[str, Any]],
+    freeport: dict[str, Any] | None = None,
     calculator_id: str | None = None,
     created_at: str | None = None,
 ) -> dict[str, Any]:
@@ -172,9 +270,11 @@ def build_saved_calculator(
                 "cost": round(float(row["cost"]), 2),
                 "factor": round(float(row["factor"]), 2),
                 "value": round(float(row["value"]), 2),
+                "include_in_total": bool(row.get("include_in_total", True)),
             }
             for row in rows
         ],
+        "freeport": freeport,
         "section_total": section_total,
         "created_at": created_at or timestamp,
         "updated_at": timestamp,

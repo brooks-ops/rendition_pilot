@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ARB Pilot</title>
+  <style>
+    :root {
+      --bg: #0b1f3a;
+      --surface: #102948;
+      --surface-2: #0f2a44;
+      --surface-3: #112f4e;
+      --text: #ffffff;
+      --muted: #d7dfea;
+      --line: rgba(255, 215, 0, 0.2);
+      --accent: #ffd700;
+      --accent-2: #e6c200;
+      --danger: #e74c3c;
+      --success: #2ecc71;
+      --warn-bg: rgba(255, 215, 0, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", Tahoma, sans-serif;
+    }
+    .page { max-width: 1480px; margin: 0 auto; padding: 28px 20px 44px; }
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 18px;
+      margin-bottom: 18px;
+    }
+    h1 { margin: 0 0 4px; font-size: 2rem; color: var(--accent); }
+    h2, h3 { margin: 0 0 10px; color: var(--accent); }
+    .subtitle { color: var(--muted); font-size: 1rem; }
+    a { color: var(--accent); font-weight: 700; text-decoration: none; }
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .field { margin-bottom: 10px; }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    input, select, textarea {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #112b4a;
+      color: var(--text);
+      padding: 9px 10px;
+      font: inherit;
+    }
+    input[type="file"] { padding: 7px; background: var(--surface-2); }
+    textarea { min-height: 150px; resize: vertical; }
+    button {
+      min-height: 40px;
+      border: 0;
+      border-radius: 6px;
+      background: var(--accent);
+      color: var(--bg);
+      font-weight: 800;
+      padding: 0 15px;
+      cursor: pointer;
+    }
+    button:hover { background: var(--accent-2); }
+    button.secondary {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--line);
+    }
+    button:disabled { opacity: 0.55; cursor: default; }
+    .button-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .status {
+      border: 1px solid var(--line);
+      background: var(--warn-bg);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 14px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .status.error { color: white; background: rgba(231, 76, 60, 0.15); border-color: var(--danger); }
+    .status.success { color: white; background: rgba(46, 204, 113, 0.15); border-color: var(--success); }
+    .hidden { display: none !important; }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .tab {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--line);
+      min-height: 36px;
+      padding: 0 12px;
+    }
+    .tab.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .result-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    ul { margin: 8px 0 0; padding-left: 20px; }
+    li { margin-bottom: 7px; line-height: 1.4; }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 10px;
+    }
+    .pill {
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 8px;
+    }
+    details {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      margin-bottom: 10px;
+    }
+    summary {
+      cursor: pointer;
+      padding: 12px 14px;
+      font-weight: 800;
+    }
+    pre {
+      margin: 0;
+      padding: 0 14px 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--text);
+      max-height: 360px;
+      overflow: auto;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.88rem;
+    }
+    .summary-text {
+      line-height: 1.5;
+      color: var(--text);
+    }
+    .selection-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .select-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      color: var(--text);
+      font-weight: 700;
+    }
+    .select-item input {
+      width: auto;
+      min-height: auto;
+    }
+    @media (max-width: 1000px) {
+      .grid-2, .grid-4, .selection-list { grid-template-columns: 1fr; }
+      .topbar { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="topbar">
+      <div>
+        <h1>ARB Pilot</h1>
+        <div class="subtitle">Side-by-side evidence review for appraisal protests.</div>
+      </div>
+      <div>
+        <div><a href="/">Back to Rendition Pilot</a></div>
+        <div id="user-box" class="meta hidden" style="justify-content:flex-end;margin-top:10px;"></div>
+      </div>
+    </div>
+
+    <div id="flash" class="status hidden"></div>
+
+    <section id="auth-shell" class="section">
+      <h2>ARB Pilot Login</h2>
+      <div class="tabs">
+        <button class="tab active" data-auth-panel="login" type="button">Login</button>
+        <button class="tab" data-auth-panel="signup" type="button">Create Login</button>
+      </div>
+      <div id="auth-login" class="auth-panel">
+        <div class="grid-2">
+          <div class="field">
+            <label for="login-email">Email</label>
+            <input id="login-email" type="email" placeholder="name@lubbockcad.org">
+          </div>
+          <div class="field">
+            <label for="login-password">Password</label>
+            <input id="login-password" type="password">
+          </div>
+        </div>
+        <button id="login-submit" type="button">Login</button>
+      </div>
+      <div id="auth-signup" class="auth-panel hidden">
+        <div class="grid-2">
+          <div class="field">
+            <label for="signup-email">Email</label>
+            <input id="signup-email" type="email" placeholder="name@lubbockcad.org">
+          </div>
+          <div class="field">
+            <label for="signup-password">Password</label>
+            <input id="signup-password" type="password">
+          </div>
+          <div class="field">
+            <label for="signup-confirm">Confirm Password</label>
+            <input id="signup-confirm" type="password">
+          </div>
+        </div>
+        <button id="signup-submit" type="button">Create Login</button>
+      </div>
+    </section>
+
+    <div id="app-shell" class="hidden">
+    <section class="section">
+      <h2>Evidence Packets</h2>
+      <div id="provider-status" class="meta"></div>
+      <div class="grid-2">
+        <div class="field">
+          <label for="cad-file">Upload CAD Evidence Packet</label>
+          <input id="cad-file" type="file" accept="application/pdf,image/*">
+        </div>
+        <div class="field">
+          <label for="taxpayer-file">Upload Agent / Taxpayer Evidence Packet</label>
+          <input id="taxpayer-file" type="file" accept="application/pdf,image/*">
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Case Inputs</h2>
+      <div class="grid-4">
+        <div class="field"><label for="account-number">Account number</label><input id="account-number" type="text"></div>
+        <div class="field"><label for="property-owner">Property owner</label><input id="property-owner" type="text"></div>
+        <div class="field"><label for="property-address">Property address</label><input id="property-address" type="text"></div>
+        <div class="field"><label for="property-type">Property type</label><input id="property-type" type="text"></div>
+        <div class="field"><label for="tax-year">Tax year</label><input id="tax-year" type="number" min="2000" max="2100"></div>
+        <div class="field"><label for="noticed-value">Current noticed value</label><input id="noticed-value" type="text" placeholder="$"></div>
+        <div class="field"><label for="agent-value">Agent requested value</label><input id="agent-value" type="text" placeholder="$"></div>
+        <div class="field"><label for="cad-value">CAD proposed value</label><input id="cad-value" type="text" placeholder="$"></div>
+      </div>
+      <div class="button-row">
+        <button id="run-review" type="button">Run ARB Review</button>
+        <button id="download-summary" class="secondary hidden" type="button">Download ARB Review Summary</button>
+      </div>
+    </section>
+
+    <section id="results" class="hidden">
+      <div class="grid-2">
+        <div>
+          <details open>
+            <summary>CAD Extracted Text Preview</summary>
+            <pre id="cad-preview"></pre>
+          </details>
+        </div>
+        <div>
+          <details open>
+            <summary>Agent / Taxpayer Extracted Text Preview</summary>
+            <pre id="taxpayer-preview"></pre>
+          </details>
+        </div>
+      </div>
+
+      <section class="section">
+        <div class="tabs">
+          <button class="tab active" data-panel="cad-summary" type="button">CAD Evidence Summary</button>
+          <button class="tab" data-panel="taxpayer-summary" type="button">Agent / Taxpayer Evidence Summary</button>
+          <button class="tab" data-panel="strongest" type="button">Strongest Arguments</button>
+          <button class="tab" data-panel="weakest" type="button">Weakest Arguments</button>
+          <button class="tab" data-panel="rebuttal" type="button">Rebuttal Points</button>
+          <button class="tab" data-panel="value" type="button">Suggested Value / Settlement Range</button>
+          <button class="tab" data-panel="final" type="button">Final Recommendation</button>
+        </div>
+
+        <div id="panel-cad-summary" class="panel active result-card"></div>
+        <div id="panel-taxpayer-summary" class="panel result-card"></div>
+        <div id="panel-strongest" class="panel result-card"></div>
+        <div id="panel-weakest" class="panel result-card"></div>
+        <div id="panel-rebuttal" class="panel result-card"></div>
+        <div id="panel-value" class="panel result-card"></div>
+        <div id="panel-final" class="panel result-card"></div>
+      </section>
+
+      <section class="section">
+        <h2>ARB Hearing Prep</h2>
+        <div id="hearing-prep"></div>
+      </section>
+
+      <section class="section">
+        <h2>Copy-Ready Rebuttal Notes</h2>
+        <textarea id="copy-rebuttal" readonly></textarea>
+      </section>
+
+      <section class="section">
+        <h2>Build Updated CAD Evidence Packet</h2>
+        <div class="selection-list">
+          <label class="select-item"><input class="packet-section" type="checkbox" value="cad_summary" checked> CAD Evidence Summary</label>
+          <label class="select-item"><input class="packet-section" type="checkbox" value="taxpayer_summary" checked> Agent / Taxpayer Evidence Summary</label>
+          <label class="select-item"><input class="packet-section" type="checkbox" value="strongest_arguments" checked> Strongest Arguments</label>
+          <label class="select-item"><input class="packet-section" type="checkbox" value="weakest_arguments"> Weakest Arguments</label>
+          <label class="select-item"><input class="packet-section" type="checkbox" value="rebuttal_points" checked> Rebuttal Points</label>
+          <label class="select-item"><input class="packet-section" type="checkbox" value="suggested_value" checked> Suggested Value</label>
+          <label class="select-item"><input class="packet-section" type="checkbox" value="final_recommendation" checked> Final Recommendation</label>
+        </div>
+        <div class="field">
+          <label for="built-rebuttal">Built Rebuttal Argument</label>
+          <textarea id="built-rebuttal"></textarea>
+        </div>
+        <div class="button-row">
+          <button id="refresh-rebuttal" class="secondary" type="button">Refresh Rebuttal Argument</button>
+          <button id="update-evidence-packet" type="button">UPDATE EVIDENCE PACKET</button>
+        </div>
+      </section>
+    </section>
+    </div>
+  </main>
+
+  <script>
+    const API_BASE = window.location.protocol.startsWith("http") ? window.location.origin : "http://127.0.0.1:8000";
+    const AUTH_KEY = "arbpilot_auth";
+    const state = { cadFile: null, cadFileBase64: "", taxpayerFile: null, taxpayerFileBase64: "", result: null, auth: null };
+    const $ = (id) => document.getElementById(id);
+
+    function showFlash(message, type = "") {
+      const flash = $("flash");
+      flash.textContent = message;
+      flash.className = `status ${type}`.trim();
+      flash.classList.remove("hidden");
+    }
+
+    function hideFlash() { $("flash").classList.add("hidden"); }
+
+    async function fetchJson(path, options = {}) {
+      const response = await fetch(`${API_BASE}${path}`, options);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || data.message || "Request failed.");
+      return data;
+    }
+
+    async function toBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function esc(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
+      }[char]));
+    }
+
+    function list(items) {
+      const safe = (items || []).filter(Boolean);
+      if (!safe.length) return "<div class='summary-text'>-</div>";
+      return `<ul>${safe.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>`;
+    }
+
+    function textBlock(value) {
+      if (Array.isArray(value)) return value.filter(Boolean).map((item) => `- ${item}`).join("\n");
+      return String(value || "").trim();
+    }
+
+    function selectedPacketSections() {
+      const summary = state.result?.summary || {};
+      const sectionMap = {
+        cad_summary: ["CAD Evidence Summary", summary.cad_summary],
+        taxpayer_summary: ["Agent / Taxpayer Evidence Summary", summary.taxpayer_summary],
+        strongest_arguments: [
+          "Strongest Arguments",
+          [
+            "CAD Strong Points:",
+            textBlock(summary.cad_strong_points),
+            "",
+            "Agent / Taxpayer Strong Points:",
+            textBlock(summary.taxpayer_strong_points)
+          ].join("\n")
+        ],
+        weakest_arguments: [
+          "Weakest Arguments",
+          [
+            "CAD Weak Points:",
+            textBlock(summary.cad_weak_points),
+            "",
+            "Agent / Taxpayer Weak Points:",
+            textBlock(summary.taxpayer_weak_points)
+          ].join("\n")
+        ],
+        rebuttal_points: ["Rebuttal Points", textBlock(summary.rebuttal_points)],
+        suggested_value: [
+          "Suggested Value / Settlement Range",
+          [`Suggested value: ${summary.suggested_value || "-"}`, `Settlement range: ${summary.settlement_range || "-"}`].join("\n")
+        ],
+        final_recommendation: ["Final Recommendation", summary.final_recommendation]
+      };
+      const selected = {};
+      document.querySelectorAll(".packet-section:checked").forEach((checkbox) => {
+        const entry = sectionMap[checkbox.value];
+        if (entry && String(entry[1] || "").trim()) selected[entry[0]] = entry[1];
+      });
+      return selected;
+    }
+
+    function buildRebuttalArgumentText() {
+      const sections = selectedPacketSections();
+      const parts = [];
+      Object.entries(sections).forEach(([title, content]) => {
+        parts.push(`${title}\n${content}`);
+      });
+      const hearingPrep = state.result?.summary?.hearing_strategy || [];
+      const copyReady = $("copy-rebuttal")?.value || "";
+      if (hearingPrep.length) parts.push(`ARB Hearing Prep\n${textBlock(hearingPrep)}`);
+      if (copyReady.trim()) parts.push(`Copy-Ready Rebuttal Notes\n${copyReady.trim()}`);
+      return parts.join("\n\n");
+    }
+
+    function renderProviderStatus(status) {
+      const provider = status || {};
+      $("provider-status").innerHTML = [
+        `Document AI: ${provider.google_document_ai?.configured ? "configured" : "not configured"}`,
+        `Google Vision: ${provider.google_cloud_vision?.configured ? "configured" : "not configured"}`,
+        `OpenAI OCR: ${provider.openai_vision_ocr?.configured ? "configured" : "not configured"}`,
+        `OpenAI Review: ${provider.openai_review?.configured ? "configured" : "not configured"}`
+      ].map((text) => `<span class="pill">${esc(text)}</span>`).join("");
+    }
+
+    function setAuthSession(session) {
+      state.auth = session;
+      localStorage.setItem(AUTH_KEY, JSON.stringify(session));
+      renderAuthState();
+    }
+
+    function clearAuthSession() {
+      state.auth = null;
+      localStorage.removeItem(AUTH_KEY);
+      renderAuthState();
+    }
+
+    async function restoreAuthSession() {
+      const raw = localStorage.getItem(AUTH_KEY);
+      if (!raw) return;
+      try {
+        const stored = JSON.parse(raw);
+        if (!stored?.access_token) return;
+        const restored = await fetchJson("/api/arb/auth/restore", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: stored.access_token })
+        });
+        setAuthSession(restored);
+      } catch (error) {
+        localStorage.removeItem(AUTH_KEY);
+        renderAuthState();
+      }
+    }
+
+    function renderAuthState() {
+      const authed = !!state.auth?.access_token;
+      $("auth-shell").classList.toggle("hidden", authed);
+      $("app-shell").classList.toggle("hidden", !authed);
+      $("user-box").classList.toggle("hidden", !authed);
+      if (authed) {
+        const email = state.auth?.app_access?.email || state.auth?.user?.email || "";
+        const role = state.auth?.app_access?.role || "member";
+        $("user-box").innerHTML = `<span class="pill">Signed in as ${esc(email)}</span><span class="pill">ARB ${esc(role)}</span><button id="sign-out" class="secondary" type="button">Sign Out</button>`;
+        $("sign-out").addEventListener("click", () => {
+          clearAuthSession();
+          showFlash("Signed out.", "success");
+        });
+      } else {
+        $("user-box").innerHTML = "";
+      }
+    }
+
+    async function loginARB() {
+      const data = await fetchJson("/api/arb/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: $("login-email").value,
+          password: $("login-password").value
+        })
+      });
+      setAuthSession(data);
+      showFlash("ARB Pilot login successful.", "success");
+    }
+
+    async function signupARB() {
+      const data = await fetchJson("/api/arb/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: $("signup-email").value,
+          password: $("signup-password").value,
+          confirm_password: $("signup-confirm").value
+        })
+      });
+      if (data.access_token) {
+        setAuthSession(data);
+        showFlash("ARB Pilot login created.", "success");
+      } else {
+        showFlash(data.message || "Login created. Confirm the email if required, then sign in.", "success");
+      }
+    }
+
+    function caseInfo() {
+      return {
+        account_number: $("account-number").value,
+        property_owner: $("property-owner").value,
+        property_address: $("property-address").value,
+        current_noticed_value: $("noticed-value").value,
+        agent_requested_value: $("agent-value").value,
+        cad_proposed_value: $("cad-value").value,
+        property_type: $("property-type").value,
+        tax_year: $("tax-year").value
+      };
+    }
+
+    function applyCaseInfo(info) {
+      const fieldMap = {
+        account_number: "account-number",
+        property_owner: "property-owner",
+        property_address: "property-address",
+        current_noticed_value: "noticed-value",
+        agent_requested_value: "agent-value",
+        cad_proposed_value: "cad-value",
+        property_type: "property-type",
+        tax_year: "tax-year"
+      };
+      Object.entries(fieldMap).forEach(([key, id]) => {
+        const input = $(id);
+        const value = (info && info[key]) || "";
+        if (input && !input.value.trim() && value) input.value = value;
+      });
+    }
+
+    function resolvedCaseInfo() {
+      return { ...(state.result?.case_info || {}), ...caseInfo() };
+    }
+
+    async function runReview() {
+      if (!state.cadFile || !state.taxpayerFile) {
+        showFlash("Upload both CAD and Agent / Taxpayer evidence packets.", "error");
+        return;
+      }
+      hideFlash();
+      $("run-review").disabled = true;
+      showFlash("Running ARB evidence review...", "");
+      try {
+        const cadBase64 = state.cadFileBase64 || await toBase64(state.cadFile);
+        const taxpayerBase64 = state.taxpayerFileBase64 || await toBase64(state.taxpayerFile);
+        state.cadFileBase64 = cadBase64;
+        state.taxpayerFileBase64 = taxpayerBase64;
+        const payload = {
+          access_token: state.auth?.access_token || "",
+          cad_packet: { file_name: state.cadFile.name, file_base64: cadBase64 },
+          taxpayer_packet: { file_name: state.taxpayerFile.name, file_base64: taxpayerBase64 },
+          case_info: caseInfo()
+        };
+        state.result = await fetchJson("/api/arb/review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        renderResults(state.result);
+        showFlash("ARB review completed.", "success");
+      } catch (error) {
+        showFlash(error.message, "error");
+      } finally {
+        $("run-review").disabled = false;
+      }
+    }
+
+    function renderResults(data) {
+      const cad = data.cad_packet || {};
+      const taxpayer = data.taxpayer_packet || {};
+      const summary = data.summary || {};
+      applyCaseInfo(data.case_info || {});
+      $("results").classList.remove("hidden");
+      $("download-summary").classList.remove("hidden");
+      $("cad-preview").textContent = cad.text || "No extracted text available.";
+      $("taxpayer-preview").textContent = taxpayer.text || "No extracted text available.";
+
+      $("panel-cad-summary").innerHTML = `<div class="meta"><span class="pill">Provider: ${esc(cad.extraction_provider)}</span></div><div class="summary-text">${esc(summary.cad_summary)}</div>${list(cad.warnings)}`;
+      $("panel-taxpayer-summary").innerHTML = `<div class="meta"><span class="pill">Provider: ${esc(taxpayer.extraction_provider)}</span></div><div class="summary-text">${esc(summary.taxpayer_summary)}</div>${list(taxpayer.warnings)}`;
+      $("panel-strongest").innerHTML = `<h3>CAD Strong Points</h3>${list(summary.cad_strong_points)}<h3>Agent / Taxpayer Strong Points</h3>${list(summary.taxpayer_strong_points)}`;
+      $("panel-weakest").innerHTML = `<h3>CAD Weak Points</h3>${list(summary.cad_weak_points)}<h3>Agent / Taxpayer Weak Points</h3>${list(summary.taxpayer_weak_points)}`;
+      $("panel-rebuttal").innerHTML = list(summary.rebuttal_points);
+      $("panel-value").innerHTML = `<h3>Suggested Value</h3><div class="summary-text">${esc(summary.suggested_value)}</div><h3>Settlement Range</h3><div class="summary-text">${esc(summary.settlement_range)}</div>`;
+      $("panel-final").innerHTML = `<h3>Final Recommendation</h3><div class="summary-text">${esc(summary.final_recommendation)}</div><h3>Missing Evidence / Follow-Up</h3>${list(summary.missing_evidence)}<h3>Warnings</h3>${list(summary.warnings)}`;
+      $("hearing-prep").innerHTML = list(summary.hearing_strategy);
+      $("copy-rebuttal").value = (summary.rebuttal_points || []).map((item) => `- ${item}`).join("\n");
+      $("built-rebuttal").value = buildRebuttalArgumentText();
+    }
+
+    async function updateEvidencePacket() {
+      if (!state.result) return showFlash("Run ARB Review before updating the evidence packet.", "error");
+      if (!state.cadFile || !state.cadFileBase64) return showFlash("CAD evidence packet is not available.", "error");
+      $("update-evidence-packet").disabled = true;
+      showFlash("Building updated ARB evidence packet...", "");
+      try {
+        const payload = {
+          access_token: state.auth?.access_token || "",
+          cad_packet: { file_name: state.cadFile.name, file_base64: state.cadFileBase64 },
+          case_info: resolvedCaseInfo(),
+          selected_sections: selectedPacketSections(),
+          rebuttal_argument: $("built-rebuttal").value,
+          hearing_prep: state.result?.summary?.hearing_strategy || [],
+          copy_ready_rebuttal: $("copy-rebuttal").value
+        };
+        const data = await fetchJson("/api/arb/evidence-packet", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        downloadBase64Pdf(data.pdf_base64, data.file_name || "ARB_PACKET.pdf");
+        showFlash("Updated evidence packet created.", "success");
+      } catch (error) {
+        showFlash(error.message, "error");
+      } finally {
+        $("update-evidence-packet").disabled = false;
+      }
+    }
+
+    function downloadBase64Pdf(pdfBase64, fileName) {
+      const binary = atob(pdfBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = fileName;
+      link.click();
+    }
+
+    function setupTabs() {
+      document.querySelectorAll("[data-panel]").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll("[data-panel]").forEach((item) => item.classList.remove("active"));
+          document.querySelectorAll(".panel").forEach((item) => item.classList.remove("active"));
+          button.classList.add("active");
+          $(`panel-${button.dataset.panel}`).classList.add("active");
+        });
+      });
+    }
+
+    function setupAuthTabs() {
+      document.querySelectorAll("[data-auth-panel]").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll("[data-auth-panel]").forEach((item) => item.classList.remove("active"));
+          document.querySelectorAll(".auth-panel").forEach((item) => item.classList.add("hidden"));
+          button.classList.add("active");
+          $(`auth-${button.dataset.authPanel}`).classList.remove("hidden");
+        });
+      });
+    }
+
+    function downloadSummary() {
+      if (!state.result?.summary_text) return;
+      const blob = new Blob([state.result.summary_text], { type: "text/plain" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "arb_review_summary.txt";
+      link.click();
+    }
+
+    async function initialize() {
+      setupTabs();
+      setupAuthTabs();
+      try {
+        const bootstrap = await fetchJson("/api/bootstrap");
+        renderProviderStatus(bootstrap.provider_status || {});
+      } catch (error) {
+        showFlash(`Could not load provider status: ${error.message}`, "error");
+      }
+      await restoreAuthSession();
+      renderAuthState();
+      $("cad-file").addEventListener("change", (event) => { state.cadFile = event.target.files[0] || null; state.cadFileBase64 = ""; });
+      $("taxpayer-file").addEventListener("change", (event) => { state.taxpayerFile = event.target.files[0] || null; state.taxpayerFileBase64 = ""; });
+      $("run-review").addEventListener("click", runReview);
+      $("download-summary").addEventListener("click", downloadSummary);
+      $("refresh-rebuttal").addEventListener("click", () => { $("built-rebuttal").value = buildRebuttalArgumentText(); });
+      $("update-evidence-packet").addEventListener("click", updateEvidencePacket);
+      document.querySelectorAll(".packet-section").forEach((checkbox) => {
+        checkbox.addEventListener("change", () => { if (state.result) $("built-rebuttal").value = buildRebuttalArgumentText(); });
+      });
+      $("login-submit").addEventListener("click", async () => {
+        try { await loginARB(); } catch (error) { showFlash(error.message, "error"); }
+      });
+      $("signup-submit").addEventListener("click", async () => {
+        try { await signupARB(); } catch (error) { showFlash(error.message, "error"); }
+      });
+    }
+
+    initialize();
+  </script>
+</body>
+</html>

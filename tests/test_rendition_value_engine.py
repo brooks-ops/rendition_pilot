@@ -72,6 +72,12 @@ def test_parse_money_tokens_rejects_merged_year_strings_but_keeps_real_amounts()
     assert _parse_money_tokens("10,424") == [{"raw": "10,424", "value": 10424.0, "start": 0}]
 
 
+def test_parse_money_tokens_repairs_ocr_digit_confusions():
+    assert _parse_money_tokens("l6,656")[0]["value"] == 16656.0
+    assert _parse_money_tokens("S1,533")[0]["value"] == 51533.0
+    assert _parse_money_tokens("10.424")[0]["value"] == 10424.0
+
+
 def test_schedule_e_furniture_uses_9_year_table():
     expected_value, _expected_factor = get_depreciated_value(12000.0, 2024, 9)
     result = calculate_schedule_e(

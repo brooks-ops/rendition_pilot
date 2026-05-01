@@ -6,4 +6,5 @@ app/data/
 app/page_texts_ocr/
 Output/
 .idea/
+.server-logs/
 write_test.txt

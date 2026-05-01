@@ -18,6 +18,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.arb.arb_analyzer import analyze_arb_evidence, build_summary_text, infer_case_info
+from app.arb.arb_models import ARBPacketUpdateRequest, ARBReviewRequest
+from app.arb.arb_packet import build_updated_evidence_packet
+from app.arb.arb_parser import decode_upload_base64, parse_evidence_packet
+from app.arb.arb_ui import arb_page_path
 from app.district_service import (
     DistrictContext,
     DistrictServiceError,
@@ -45,10 +50,20 @@ from app.review_workflow import (
 )
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
-load_dotenv(PROJECT_ROOT / "app" / ".env")
+load_dotenv(PROJECT_ROOT / "app" / ".env", override=True)
 DEFAULT_SUPABASE_URL = "https://pzawjgckzcgnfsfuylqy.supabase.co"
 DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_q6lNn59Y-kz8lG0cYfJkYw_lL7xElsA"
 UNLINKED_DISTRICT_MESSAGE = "Your account is not currently linked to an appraisal district. Please contact an administrator."
+ARB_UNAUTHORIZED_MESSAGE = "This email is not authorized for ARB Pilot. Contact the ARB Pilot administrator."
+ARB_ALLOWED_EMAILS = {
+    "bbarrett@lubbockcar.org",
+    "bbarrett@lubbockcad.org",
+    "hstewart@lubbockcad.org",
+    "evaldez@lubbockcad.org",
+    "lcantrell@lubbockcad.org",
+    "lsloan@lubbockcad.org",
+    "bmilner@lubbockcad.org",
+}
 TABLE_METADATA = {
     "5_year": {"label": "5 year", "life_years": 5},
     "8_year": {"label": "8 year", "life_years": 8},
@@ -77,6 +92,13 @@ SECTION_PRESETS = {
         "default_table": "flat",
         "entry_mode": "flat",
     },
+    "freeport_exemption": {
+        "label": "Freeport",
+        "schedule": "Freeport",
+        "category": "Freeport Exemption",
+        "default_table": "freeport",
+        "entry_mode": "freeport",
+    },
     "schedule_c_supplies": {
         "label": "Schedule C - Supplies",
         "schedule": "C",
@@ -98,6 +120,13 @@ SECTION_PRESETS = {
         "category": "Computers",
         "default_table": "5_year",
         "entry_mode": "depreciation",
+    },
+    "allocation_calculator": {
+        "label": "Allocation Calculator",
+        "schedule": "Allocation",
+        "category": "Allocated Value",
+        "default_table": "allocation",
+        "entry_mode": "allocation",
     },
     "custom": {
         "label": "Custom",
@@ -198,6 +227,14 @@ class DistrictSetupRequest(SignupRequest):
 class DistrictInviteRequest(SessionRequest):
     email: str
     role: Literal["admin", "member"] = "member"
+
+
+class ARBAuthRequest(BaseModel):
+    access_token: str
+
+
+class ARBReviewRunRequest(ARBReviewRequest):
+    access_token: str
 
 
 class LockReviewRequest(BaseModel):
@@ -447,6 +484,18 @@ def create_supabase_account(email: str, password: str) -> dict[str, Any]:
     return supabase_auth_request("signup", payload)
 
 
+def create_supabase_account_for_app(email: str, password: str, app_name: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "email": email,
+        "password": password,
+        "data": {"role": "appraiser", "allowed_app": app_name},
+    }
+    redirect_url = get_supabase_email_redirect_url()
+    if redirect_url:
+        payload["email_redirect_to"] = redirect_url
+    return supabase_auth_request("signup", payload)
+
+
 def get_supabase_user(access_token: str) -> dict[str, Any]:
     supabase_url, anon_key = get_supabase_config()
     response = requests.get(
@@ -462,6 +511,126 @@ def get_supabase_user(access_token: str) -> dict[str, Any]:
         message = data.get("msg") or data.get("message") or "Could not restore Supabase session."
         raise HTTPException(status_code=response.status_code, detail=str(message))
     return data
+
+
+def app_access_headers(prefer: str | None = None) -> dict[str, str]:
+    service_role_key = get_supabase_service_role_key()
+    if not service_role_key:
+        raise HTTPException(status_code=500, detail="SUPABASE_SERVICE_ROLE_KEY is required for ARB Pilot access control.")
+    headers = {
+        "apikey": service_role_key,
+        "Authorization": f"Bearer {service_role_key}",
+        "Content-Type": "application/json",
+    }
+    if prefer:
+        headers["Prefer"] = prefer
+    return headers
+
+
+def app_access_request(method: str, path: str, *, params: dict[str, Any] | None = None, payload: Any = None) -> Any:
+    supabase_url, _anon_key = get_supabase_config()
+    prefer = None
+    if method.upper() == "POST":
+        prefer = "resolution=merge-duplicates,return=representation"
+    elif method.upper() == "PATCH":
+        prefer = "return=representation"
+    response = requests.request(
+        method,
+        f"{supabase_url.rstrip('/')}/rest/v1/{path.lstrip('/')}",
+        headers=app_access_headers(prefer),
+        params=params,
+        json=payload,
+        timeout=20,
+    )
+    try:
+        data = response.json()
+    except ValueError:
+        data = response.text
+    if response.status_code >= 400:
+        message = data.get("message") if isinstance(data, dict) else str(data)
+        if "app_access" in str(message) and ("does not exist" in str(message).lower() or "schema cache" in str(message).lower()):
+            message = "ARB Pilot access table is missing. Run supabase/migrations/20260430_arb_pilot_access.sql in Supabase."
+        raise HTTPException(status_code=response.status_code, detail=message or "App access request failed.")
+    return data
+
+
+def get_app_access(email: str, app_name: str) -> dict[str, Any] | None:
+    normalized_email = normalize_email(email)
+    rows = app_access_request(
+        "GET",
+        "app_access",
+        params={
+            "select": "id,app_name,email,user_id,role,created_at",
+            "email": f"eq.{normalized_email}",
+            "app_name": f"eq.{app_name}",
+            "limit": "1",
+        },
+    )
+    if rows:
+        return rows[0]
+    if app_name == "arb_pilot" and normalized_email in ARB_ALLOWED_EMAILS:
+        seed_arb_access_email(normalized_email)
+        rows = app_access_request(
+            "GET",
+            "app_access",
+            params={
+                "select": "id,app_name,email,user_id,role,created_at",
+                "email": f"eq.{normalized_email}",
+                "app_name": "eq.arb_pilot",
+                "limit": "1",
+            },
+        )
+        return rows[0] if rows else None
+    return None
+
+
+def seed_arb_access_email(email: str, user_id: str | None = None) -> None:
+    normalized_email = normalize_email(email)
+    if normalized_email not in ARB_ALLOWED_EMAILS:
+        return
+    role = "admin" if normalized_email == "bbarrett@lubbockcar.org" else "member"
+    app_access_request(
+        "POST",
+        "app_access",
+        params={"on_conflict": "email,app_name"},
+        payload={
+            "email": normalized_email,
+            "app_name": "arb_pilot",
+            "user_id": user_id,
+            "role": role,
+        },
+    )
+
+
+def link_app_access_user(email: str, app_name: str, user_id: str | None) -> None:
+    if not user_id:
+        return
+    access = get_app_access(email, app_name)
+    if not access:
+        raise HTTPException(status_code=403, detail=ARB_UNAUTHORIZED_MESSAGE)
+    app_access_request(
+        "PATCH",
+        "app_access",
+        params={"id": f"eq.{access['id']}"},
+        payload={"user_id": user_id},
+    )
+
+
+def require_arb_access(access_token: str) -> dict[str, Any]:
+    user = get_supabase_user(access_token)
+    email = normalize_email(str(user.get("email") or ""))
+    user_id = str(user.get("id") or "").strip() or None
+    access = get_app_access(email, "arb_pilot")
+    if not access:
+        raise HTTPException(status_code=403, detail=ARB_UNAUTHORIZED_MESSAGE)
+    if user_id and access.get("user_id") != user_id:
+        link_app_access_user(email, "arb_pilot", user_id)
+        access = {**access, "user_id": user_id}
+    return {
+        "access_token": access_token,
+        "user": to_jsonable(user),
+        "app_access": to_jsonable(access),
+    }
 
 
 def run_pipeline_from_upload(file_name: str, file_bytes: bytes, manual_override: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -702,11 +871,26 @@ def health() -> dict[str, str]:
 
 
 @app.get("/")
-def root() -> FileResponse:
+def root(page: str | None = None) -> FileResponse:
+    if str(page or "").strip().lower() == "arb":
+        return arb_root()
     index_path = FRONTEND_DIR / "index.html"
     if not index_path.exists():
         raise HTTPException(status_code=404, detail="frontend/index.html was not found.")
     return FileResponse(index_path)
+
+
+@app.get("/ARB")
+def arb_root() -> FileResponse:
+    page_path = arb_page_path(PROJECT_ROOT)
+    if not page_path.exists():
+        raise HTTPException(status_code=404, detail="frontend/arb.html was not found.")
+    return FileResponse(page_path)
+
+
+@app.get("/arb")
+def arb_root_lowercase() -> FileResponse:
+    return arb_root()
 
 
 @app.get("/api/bootstrap")
@@ -808,6 +992,53 @@ def auth_signup(request: SignupRequest) -> dict[str, Any]:
     return {"message": "Login created. Confirm the email if Supabase requires confirmation, then sign in."}
 
 
+@app.post("/api/arb/auth/login")
+def arb_auth_login(request: LoginRequest) -> dict[str, Any]:
+    auth_result = sign_in_with_supabase(request.email.strip().lower(), request.password)
+    access_token = auth_result.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=400, detail="Login did not return a session.")
+    user = auth_result.get("user") or get_supabase_user(access_token)
+    email = normalize_email(str(user.get("email") or request.email))
+    user_id = str(user.get("id") or "").strip() or None
+    access = get_app_access(email, "arb_pilot")
+    if not access:
+        raise HTTPException(status_code=403, detail=ARB_UNAUTHORIZED_MESSAGE)
+    if user_id and access.get("user_id") != user_id:
+        link_app_access_user(email, "arb_pilot", user_id)
+        access = {**access, "user_id": user_id}
+    return {"access_token": access_token, "user": to_jsonable(user), "app_access": to_jsonable(access)}
+
+
+@app.post("/api/arb/auth/restore")
+def arb_auth_restore(request: ARBAuthRequest) -> dict[str, Any]:
+    return require_arb_access(request.access_token)
+
+
+@app.post("/api/arb/auth/signup")
+def arb_auth_signup(request: SignupRequest) -> dict[str, Any]:
+    email = request.email.strip().lower()
+    if len(request.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    if request.password != request.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match.")
+    access = get_app_access(email, "arb_pilot")
+    if not access:
+        raise HTTPException(status_code=403, detail=ARB_UNAUTHORIZED_MESSAGE)
+    signup_result = create_supabase_account_for_app(email, request.password, "arb_pilot")
+    access_token = signup_result.get("access_token") or (signup_result.get("session") or {}).get("access_token")
+    user = signup_result.get("user")
+    if access_token and not user:
+        user = get_supabase_user(access_token)
+    user_id = str((user or {}).get("id") or "").strip() or None
+    if user_id:
+        link_app_access_user(email, "arb_pilot", user_id)
+        access = {**access, "user_id": user_id}
+    if access_token:
+        return {"access_token": access_token, "user": to_jsonable(user), "app_access": to_jsonable(access)}
+    return {"message": "Login created. Confirm the email if Supabase requires confirmation, then sign in."}
+
+
 @app.post("/api/auth/district-setup")
 def auth_district_setup(request: DistrictSetupRequest) -> dict[str, Any]:
     service_role_key = get_supabase_service_role_key()
@@ -901,6 +1132,62 @@ def district_user_invite(request: DistrictInviteRequest) -> dict[str, Any]:
 def pdf_render(request: PdfRequest) -> dict[str, Any]:
     file_bytes = _decode_pdf(request.file_base64)
     return {"pages": render_pdf_pages(file_bytes)}
+
+
+@app.post("/api/arb/review")
+def arb_review(request: ARBReviewRunRequest) -> dict[str, Any]:
+    hydrate_analysis_env()
+    require_arb_access(request.access_token)
+    try:
+        cad_bytes = decode_upload_base64(request.cad_packet.file_base64)
+        taxpayer_bytes = decode_upload_base64(request.taxpayer_packet.file_base64)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid evidence upload payload: {exc}") from exc
+
+    cad_packet = parse_evidence_packet(
+        request.cad_packet.file_name,
+        cad_bytes,
+        "CAD Evidence Packet",
+    )
+    taxpayer_packet = parse_evidence_packet(
+        request.taxpayer_packet.file_name,
+        taxpayer_bytes,
+        "Agent / Taxpayer Evidence Packet",
+    )
+    resolved_case_info = infer_case_info(cad_packet, taxpayer_packet, request.case_info)
+    summary = analyze_arb_evidence(cad_packet, taxpayer_packet, resolved_case_info)
+    return {
+        "case_info": to_jsonable(resolved_case_info.model_dump()),
+        "cad_packet": to_jsonable(cad_packet.model_dump()),
+        "taxpayer_packet": to_jsonable(taxpayer_packet.model_dump()),
+        "summary": to_jsonable(summary.model_dump()),
+        "summary_text": build_summary_text(summary, resolved_case_info),
+        "provider_status": provider_status_snapshot(),
+    }
+
+
+@app.post("/api/arb/evidence-packet")
+def arb_evidence_packet(request: ARBPacketUpdateRequest) -> dict[str, Any]:
+    require_arb_access(request.access_token)
+    try:
+        cad_bytes = decode_upload_base64(request.cad_packet.file_base64)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid CAD evidence packet payload: {exc}") from exc
+    try:
+        file_name, packet_bytes = build_updated_evidence_packet(
+            cad_pdf_bytes=cad_bytes,
+            case_info=request.case_info,
+            selected_sections=request.selected_sections,
+            rebuttal_argument=request.rebuttal_argument,
+            hearing_prep=request.hearing_prep,
+            copy_ready_rebuttal=request.copy_ready_rebuttal,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "file_name": file_name,
+        "pdf_base64": _encode_bytes(packet_bytes),
+    }
 
 
 @app.post("/api/review/run")

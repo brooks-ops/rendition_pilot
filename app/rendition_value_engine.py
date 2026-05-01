@@ -30,7 +30,7 @@ SCHEDULE_E_BREAKDOWN_KEYS = [
 MAX_TRUSTED_EXTRACTED_VALUE = 20_000_000.0
 
 MONEY_TOKEN_RE = re.compile(
-    r"\$?\s*[0-9Oo][0-9Oo,\s.]{0,20}(?:\.\d{1,2})?"
+    r"\$?\s*[0-9OoIl|!SsB][0-9OoIl|!SsB,\s.]{0,20}(?:[.,][0-9OoIl|!SsB]{1,2})?"
 )
 YEAR_RE = re.compile(r"\b(19[5-9]\d|20[0-4]\d)\b")
 

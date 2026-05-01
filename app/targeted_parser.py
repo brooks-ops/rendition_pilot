@@ -1,32 +1,70 @@
 import re
 
 
-def parse_money_text(raw: str) -> float | None:
+OCR_MONEY_CHAR_TRANSLATION = str.maketrans(
+    {
+        "O": "0",
+        "o": "0",
+        "I": "1",
+        "l": "1",
+        "|": "1",
+        "!": "1",
+        "S": "5",
+        "s": "5",
+        "B": "8",
+        "—": "-",
+        "–": "-",
+        "−": "-",
+    }
+)
+
+
+def normalize_money_text(raw: str) -> str:
+    text = str(raw or "").translate(OCR_MONEY_CHAR_TRANSLATION)
     text = (
-        str(raw or "")
-        .replace("$", "")
-        .replace("O", "0")
-        .replace("o", "0")
+        text.replace("$", "")
+        .replace(",", ",")
         .strip("() ")
     )
     text = re.sub(r"\s+", " ", text)
-    # Only repair the common OCR split for leading "1" values like "1 84,724.43".
-    # Broad digit-merge rules create nonsense like "6 45,442" -> "645,442".
-    text = re.sub(r"\b1\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"1\1", text)
+
+    # OCR sometimes splits a leading digit off a comma-grouped amount:
+    # "$ 1 84,724.43" should be "184,724.43".
+    # Only repair leading "1" splits; broad merging creates bad values such as
+    # "6 45,442" -> "645,442".
+    text = re.sub(r"\b1\s+(\d{2,3},\d{3}(?:[.,]\d{1,2})?)\b", r"1\1", text)
     # If OCR leaves a stray leading digit before a valid amount, prefer the valid amount.
-    text = re.sub(r"\b[2-9]\s+(\d{2,3},\d{3}(?:\.\d{1,2})?)\b", r"\1", text)
+    text = re.sub(r"\b[2-9]\s+(\d{2,3},\d{3}(?:[.,]\d{1,2})?)\b", r"\1", text)
     text = text.replace(" ", "")
 
     if "," in text and "." in text:
-        text = text.replace(",", "")
-    elif "," in text:
-        if re.fullmatch(r"\d{1,3}(?:,\d{3})+", text):
-            text = text.replace(",", "")
-        else:
-            text = text.replace(",", ".")
-    elif text.count(".") > 1:
-        text = text.replace(".", "")
+        # Treat the rightmost separator as cents when it has one or two digits after it.
+        last_comma = text.rfind(",")
+        last_dot = text.rfind(".")
+        decimal_pos = max(last_comma, last_dot)
+        if re.fullmatch(r"\d{1,2}", text[decimal_pos + 1:]):
+            whole = re.sub(r"[,.]", "", text[:decimal_pos])
+            return f"{whole}.{text[decimal_pos + 1:]}"
+        return re.sub(r"[,.]", "", text)
 
+    if "," in text:
+        if re.fullmatch(r"\d{1,3}(?:,\d{3})+", text):
+            return text.replace(",", "")
+        if text.count(",") > 1:
+            return text.replace(",", "")
+        return text.replace(",", ".")
+
+    if "." in text:
+        if re.fullmatch(r"\d{1,3}(?:\.\d{3})+", text):
+            return text.replace(".", "")
+        if text.count(".") > 1:
+            return text.replace(".", "")
+
+    return text
+
+
+def parse_money_text(raw: str) -> float | None:
+    text = normalize_money_text(raw)
     try:
         return float(text)
     except ValueError:
@@ -185,7 +223,7 @@ class TargetedRenditionParser:
         if not text:
             return None
 
-        if not re.fullmatch(r"[$]?\d[\d,.\s]{2,}", text):
+        if not re.fullmatch(r"[$]?[0-9OoIl|!SsB][0-9OoIl|!SsB,.\s]{2,}", text):
             return None
 
         value = parse_money_text(text)
@@ -352,8 +390,8 @@ class TargetedRenditionParser:
 
         labeled_candidates = []
         total_patterns = [
-            r"TOTAL(?:\s+[A-Z ]+)?[: ]+.*?(\$?\s*\d(?:\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?|\$?\s*\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?)",
-            r"GRAND\s+TOTAL(?:\s+[A-Z ]+)?[: ]+.*?(\$?\s*\d(?:\s+)?\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?|\$?\s*\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?)",
+            r"TOTAL(?:\s+[A-Z ]+)?[: ]+.*?(\$?\s*(?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[,.][0-9OoIl|!SsB]{3})+(?:[,.][0-9OoIl|!SsB]{1,2})?)",
+            r"GRAND\s+TOTAL(?:\s+[A-Z ]+)?[: ]+.*?(\$?\s*(?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[,.][0-9OoIl|!SsB]{3})+(?:[,.][0-9OoIl|!SsB]{1,2})?)",
         ]
         for pattern in total_patterns:
             for match in re.finditer(pattern, normalized):
@@ -365,7 +403,7 @@ class TargetedRenditionParser:
             result["schedule_e_total"] = max(labeled_candidates)
             return result
 
-        matches = re.findall(r"\b\d{1,3}(?:[,.]\d{3})+(?:\.\d{1,2})?\b", normalized)
+        matches = re.findall(r"\b(?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[,.][0-9OoIl|!SsB]{3})+(?:[,.][0-9OoIl|!SsB]{1,2})?\b", normalized)
         candidates = []
         for m in matches:
             value = parse_money_text(m)
@@ -722,7 +760,7 @@ class TargetedRenditionParser:
             result["rendered_value_detected"] = True
 
         money_matches = re.findall(
-            r"\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?\b",
+            r"\$?\s*(?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[,.][0-9OoIl|!SsB]{3})+(?:[,.][0-9OoIl|!SsB]{1,2})?\b",
             combined,
         )
 
@@ -736,10 +774,10 @@ class TargetedRenditionParser:
             candidates.append(value)
 
         total_patterns = [
-            r"TOTAL\s+FIXED\s+ASSETS\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
-            r"GRAND\s+TOTAL\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
-            r"TOTAL\s+ASSETS\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
-            r"TOTAL\s+MARKET\s+VALUE\s*(\$?\s*(?:\d\s+)?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",
+            r"TOTAL\s+FIXED\s+ASSETS\s*(\$?\s*(?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[,.][0-9OoIl|!SsB]{3})+(?:[,.][0-9OoIl|!SsB]{1,2})?)",
+            r"GRAND\s+TOTAL\s*(\$?\s*(?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[,.][0-9OoIl|!SsB]{3})+(?:[,.][0-9OoIl|!SsB]{1,2})?)",
+            r"TOTAL\s+ASSETS\s*(\$?\s*(?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[,.][0-9OoIl|!SsB]{3})+(?:[,.][0-9OoIl|!SsB]{1,2})?)",
+            r"TOTAL\s+MARKET\s+VALUE\s*(\$?\s*(?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[,.][0-9OoIl|!SsB]{3})+(?:[,.][0-9OoIl|!SsB]{1,2})?)",
         ]
         labeled_totals = []
         for pattern in total_patterns:

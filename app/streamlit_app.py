@@ -41,7 +41,9 @@ from app.rendition_calculator import (
     SECTION_PRESETS,
     build_calculator_rows,
     build_flat_value_rows,
+    build_freeport_rows,
     build_saved_calculator,
+    calculate_freeport_exemption,
     calculate_combined_total,
     calculate_section_total,
     generate_calculator_name,
@@ -1966,7 +1968,10 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
         )
     else:
         st.markdown('<div class="ap-calc-label">Value Entry</div>', unsafe_allow_html=True)
-        st.caption("Flat value only for this schedule.")
+        if entry_mode == "freeport":
+            st.caption("Freeport exemption calculator.")
+        else:
+            st.caption("Flat value only for this schedule.")
         st.session_state[table_key] = str(selected_preset["default_table"])
 
     editor["section_key"] = selected_section_key
@@ -1978,6 +1983,7 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
     editor["tax_year"] = int(selected_tax_year)
 
     rows: list[dict[str, Any]]
+    freeport_result: dict[str, Any] | None = None
     if entry_mode == "flat":
         flat_value_key = get_calculator_cost_key(file_name, int(editor["nonce"]), "flat_value")
         if flat_value_key not in st.session_state:
@@ -1998,6 +2004,49 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
             rows = build_schedule_c_rows(editor["costs"]["flat_value"])
         else:
             rows = build_flat_value_rows(selected_preset["label"], editor["costs"]["flat_value"])
+    elif entry_mode == "freeport":
+        freeport_fields = [
+            ("prior_year_total_inventory", "Prior Year Total Inventory Value"),
+            (
+                "prior_year_freeport_eligible_inventory",
+                "Prior Year Freeport-Eligible Inventory Shipped Out of Texas Within 175 Days",
+            ),
+            ("current_year_inventory", "Current Year Inventory Value"),
+        ]
+        freeport_cols = st.columns(3, gap="small")
+        for index, (bucket, label) in enumerate(freeport_fields):
+            input_key = get_calculator_cost_key(file_name, int(editor["nonce"]), bucket)
+            if input_key not in st.session_state:
+                st.session_state[input_key] = float(editor["costs"].get(bucket, 0.0) or 0.0)
+            freeport_cols[index].markdown(f'<div class="ap-calc-label">{label}</div>', unsafe_allow_html=True)
+            value = freeport_cols[index].number_input(
+                label,
+                min_value=0.0,
+                step=100.0,
+                format="%.2f",
+                key=input_key,
+                label_visibility="collapsed",
+            )
+            editor["costs"][bucket] = round(float(value), 2)
+
+        try:
+            freeport_result = calculate_freeport_exemption(
+                editor["costs"].get("prior_year_total_inventory"),
+                editor["costs"].get("prior_year_freeport_eligible_inventory"),
+                editor["costs"].get("current_year_inventory"),
+            )
+            rows = build_freeport_rows(
+                freeport_result["prior_year_total_inventory"],
+                freeport_result["prior_year_freeport_eligible_inventory"],
+                freeport_result["current_year_inventory"],
+            )
+            result_cols = st.columns(3, gap="small")
+            result_cols[0].metric("Freeport Percentage", format_percent(freeport_result["freeport_percentage"]))
+            result_cols[1].metric("Freeport Exempt Amount", format_money(freeport_result["freeport_exempt_amount"]))
+            result_cols[2].metric("Remaining Taxable Inventory Value", format_money(freeport_result["taxable_inventory_value"]))
+        except ValueError as exc:
+            rows = []
+            st.warning(str(exc))
     else:
         supplemental_rows: list[dict[str, Any]] = []
         if supplemental_flat_label:
@@ -2096,6 +2145,8 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
         if st.button("Save Section", type="primary", key=f"save_calculator_{file_name}", use_container_width=True):
             if selected_section_key == "custom" and not (custom_name or calculator_name):
                 st.error("Enter a custom section name before saving this calculator.")
+            elif entry_mode == "freeport" and freeport_result is None:
+                st.error("Enter a valid prior year total inventory value greater than zero before saving this Freeport exemption.")
             else:
                 saved_calculators = get_saved_calculators(file_name)
                 saved_name = calculator_name or generated_name
@@ -2106,6 +2157,7 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
                     depreciation_table=depreciation_table,
                     tax_year=int(selected_tax_year),
                     rows=rows,
+                    freeport=freeport_result,
                     calculator_id=editor.get("editing_id"),
                     created_at=editor.get("created_at"),
                 )
@@ -2161,18 +2213,36 @@ def render_rendition_calculator(file_name: str, result: dict) -> None:
                 )
                 with st.expander(label, expanded=False):
                     st.caption(
-                        f"Schedule {calculator.get('schedule')} | Tax Year {calculator.get('tax_year')} | "
-                        f"{TABLE_METADATA.get(calculator.get('depreciation_table'), {}).get('label', calculator.get('depreciation_table') or 'flat')}"
+                        (
+                            f"Freeport Exemption | Tax Year {calculator.get('tax_year')}"
+                            if calculator.get("depreciation_table") == "freeport"
+                            else f"Schedule {calculator.get('schedule')} | Tax Year {calculator.get('tax_year')} | "
+                            f"{TABLE_METADATA.get(calculator.get('depreciation_table'), {}).get('label', calculator.get('depreciation_table') or 'flat')}"
+                        )
                     )
-                    review_rows = [
-                        {
-                            "Year": row.get("display_year"),
-                            "Cost": format_money(row.get("cost")),
-                            "Factor": f"{float(row.get('factor', 0.0)):.2f}",
-                            "Value": format_money(row.get("value")),
-                        }
-                        for row in calculator.get("rows", []) or []
-                    ]
+                    if calculator.get("depreciation_table") == "freeport":
+                        freeport = calculator.get("freeport", {}) or {}
+                        review_rows = [
+                            {"Field": "Prior Year Total Inventory Value", "Value": format_money(freeport.get("prior_year_total_inventory"))},
+                            {
+                                "Field": "Prior Year Freeport-Eligible Inventory Shipped Out of Texas Within 175 Days",
+                                "Value": format_money(freeport.get("prior_year_freeport_eligible_inventory")),
+                            },
+                            {"Field": "Current Year Inventory Value", "Value": format_money(freeport.get("current_year_inventory"))},
+                            {"Field": "Freeport Percentage", "Value": format_percent(freeport.get("freeport_percentage"))},
+                            {"Field": "Freeport Exempt Amount", "Value": format_money(freeport.get("freeport_exempt_amount"))},
+                            {"Field": "Remaining Taxable Inventory Value", "Value": format_money(freeport.get("taxable_inventory_value"))},
+                        ]
+                    else:
+                        review_rows = [
+                            {
+                                "Year": row.get("display_year"),
+                                "Cost": format_money(row.get("cost")),
+                                "Factor": f"{float(row.get('factor', 0.0)):.2f}",
+                                "Value": format_money(row.get("value")),
+                            }
+                            for row in calculator.get("rows", []) or []
+                        ]
                     st.dataframe(pd.DataFrame(review_rows), use_container_width=True, hide_index=True)
                     summary_cols = st.columns(2, gap="small")
                     with summary_cols[0]:

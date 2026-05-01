@@ -173,9 +173,10 @@ def append_calculator_summary_pages(doc, final_record: dict[str, Any]) -> None:
         except (TypeError, ValueError):
             section_total_text = str(section_total or "-")
 
+        calculator_type = "Freeport Exemption" if calculator.get("depreciation_table") == "freeport" else str(calculator.get("depreciation_table") or "-")
         heading = (
             f"{calculator.get('name') or 'Calculator'} | "
-            f"{calculator.get('depreciation_table') or '-'} | "
+            f"{calculator_type} | "
             f"Tax Year {calculator.get('tax_year') or '-'} | "
             f"Total {section_total_text}"
         )
@@ -189,6 +190,28 @@ def append_calculator_summary_pages(doc, final_record: dict[str, Any]) -> None:
             color=title_color,
         )
         y += 14
+        if calculator.get("depreciation_table") == "freeport":
+            freeport = calculator.get("freeport", {}) or {}
+            freeport_lines = [
+                ("Prior Year Total Inventory Value", f"${float(freeport.get('prior_year_total_inventory') or 0.0):,.2f}"),
+                (
+                    "Prior Year Freeport-Eligible Inventory Shipped Out of Texas Within 175 Days",
+                    f"${float(freeport.get('prior_year_freeport_eligible_inventory') or 0.0):,.2f}",
+                ),
+                ("Current Year Inventory Value", f"${float(freeport.get('current_year_inventory') or 0.0):,.2f}"),
+                ("Freeport Percentage", f"{float(freeport.get('freeport_percentage') or 0.0):.2%}"),
+                ("Freeport Exempt Amount", f"${float(freeport.get('freeport_exempt_amount') or 0.0):,.2f}"),
+                ("Remaining Taxable Inventory Value", f"${float(freeport.get('taxable_inventory_value') or 0.0):,.2f}"),
+            ]
+            for label, value in freeport_lines:
+                if y > page_height - 36:
+                    page, y = new_page()
+                page.insert_text(fitz.Point(margin, y), label[:82], fontsize=9, fontname="helv")
+                page.insert_text(fitz.Point(margin + 500, y), value, fontsize=9, fontname="helv")
+                y += row_height
+            y += 6
+            continue
+
         page.insert_text(
             fitz.Point(margin, y),
             "Year",

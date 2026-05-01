@@ -26,6 +26,13 @@ def test_parse_money_keeps_cents_and_repairs_split_leading_digit():
     assert _parse_money("6 45,442") == 45442.0
 
 
+def test_parse_money_repairs_common_ocr_digit_confusions():
+    assert _parse_money("l6,656") == 16656.0
+    assert _parse_money("S1,533") == 51533.0
+    assert _parse_money("10.424") == 10424.0
+    assert _parse_money("$ I 84,724.43") == 184724.43
+
+
 def test_attachment_summary_uses_labeled_total_not_largest_bad_parse():
     text = """
     Lubbock Office Good Faith Estimate of Market Value
@@ -44,6 +51,20 @@ def test_attachment_summary_uses_labeled_total_not_largest_bad_parse():
     assert result["attachment_summary_present"] is True
     assert result["best_attachment_total"] == 184724.43
     assert 9000000.0 not in result["attachment_total_candidates"]
+
+
+def test_attachment_summary_repairs_ocrish_labeled_total():
+    text = """
+    Lubbock Office Good Faith Estimate of Market Value
+    Computer equipment $ l6,656
+    Shop equipment $ S1,533
+    Total Fixed Assets $ I 84,724.43
+    """
+
+    result = TargetedRenditionParser().parse_attachment_summary([text])
+
+    assert result["attachment_summary_present"] is True
+    assert result["best_attachment_total"] == 184724.43
 
 
 

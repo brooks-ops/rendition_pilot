@@ -16,9 +16,11 @@ Priorities:
 1. Prefer explicit values over guesses.
 2. If the main form says "see attached" and the attachment appears to contain the detailed asset schedule or totals,
    attachment-based totals may be stronger than weak main-form candidates.
-3. If multiple candidates conflict, choose the strongest one and explain why.
-4. If confidence is low, return null for the field and add a review flag.
-5. Respect manual overrides if present. If a manual override exists, treat it as locked unless clearly marked otherwise.
+3. If multiple OCR providers agree on a value, treat that consensus as strong evidence.
+4. If OCR providers disagree, compare the disagreement against the candidate evidence and explain which provider(s) appear more reliable.
+5. If multiple candidates conflict, choose the strongest one and explain why.
+6. If confidence is low, return null for the field and add a review flag.
+7. Respect manual overrides if present. If a manual override exists, treat it as locked unless clearly marked otherwise.
 
 Return only valid JSON matching the requested schema.
 """.strip()
@@ -211,6 +213,8 @@ def _fallback_review(parse_result: Dict[str, Any], status: str, reason: str, fla
     agent_input = _build_agent_input(parse_result)
     candidates = agent_input.get("candidate_values", {}) or {}
     manual_override = agent_input.get("manual_override", {}) or {}
+    ocr_reconciliation = agent_input.get("ocr_reconciliation", {}) or {}
+    agreement_fields = (ocr_reconciliation.get("agreement_fields") or {}) if isinstance(ocr_reconciliation, dict) else {}
     recommended = {
         "historical_cost": None,
         "acquisition_year": None,
@@ -229,11 +233,26 @@ def _fallback_review(parse_result: Dict[str, Any], status: str, reason: str, fla
     review_flags = list(flags)
     selected_sources: Dict[str, str] = {}
 
+    attachment_consensus = ((agreement_fields.get("attachment_total") or {}).get("value"))
+    if attachment_consensus is not None:
+        recommended["attachment_total"] = str(attachment_consensus)
+        selected_sources["attachment_total"] = "ocr_provider_consensus"
+        review_flags.append("ocr_provider_consensus_attachment_total")
+
+    good_faith_consensus = ((agreement_fields.get("good_faith_total") or {}).get("value"))
+    if good_faith_consensus is not None:
+        recommended["good_faith_value"] = str(good_faith_consensus)
+        selected_sources["good_faith_value"] = "ocr_provider_consensus"
+        review_flags.append("ocr_provider_consensus_good_faith_total")
+
     for field in ["historical_cost", "acquisition_year", "rendered_value", "good_faith_value", "attachment_total"]:
         manual_value = _normalize_candidate(manual_override.get(field))
         if manual_value:
             recommended[field] = manual_value
             recommended["selected_source"] = "manual_override"
+            continue
+
+        if recommended.get(field) is not None:
             continue
 
         field_candidates = candidates.get(field, [])
@@ -300,6 +319,11 @@ def _build_agent_input(parse_result: Dict[str, Any]) -> Dict[str, Any]:
     manual_override = _safe_get(parse_result, "manual_override", {}) or {}
     page_summaries = _safe_get(parse_result, "page_summaries", []) or []
     page_texts = _safe_get(parse_result, "page_texts", []) or []
+    ocr_reconciliation = _safe_get(parse_result, "ocr_reconciliation", {}) or {}
+    structured_extraction = _safe_get(parse_result, "structured_extraction", {}) or {}
+    schedule_breakdown = _safe_get(parse_result, "schedule_breakdown", {}) or {}
+    metadata = _safe_get(parse_result, "metadata", {}) or {}
+    review_flags = _safe_get(parse_result, "review_flags", {}) or {}
 
     # Keep page payload light. We do not want to dump massive text blobs unless they already exist and are needed.
     trimmed_pages = []
@@ -319,9 +343,30 @@ def _build_agent_input(parse_result: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "processed_at": parse_result.get("processed_at"),
+        "metadata": {
+            "tax_year": metadata.get("tax_year"),
+            "owner_name": metadata.get("owner_name"),
+            "account_number": metadata.get("account_number"),
+        },
         "form_flags": form_flags,
         "attachments": attachments,
         "manual_override": manual_override,
+        "review_flags": review_flags,
+        "ocr_reconciliation": {
+            "chosen_provider": ocr_reconciliation.get("chosen_provider"),
+            "secondary_providers": ocr_reconciliation.get("secondary_providers", []),
+            "provider_agreement": bool(ocr_reconciliation.get("provider_agreement")),
+            "provider_disagreement": bool(ocr_reconciliation.get("provider_disagreement")),
+            "agreement_fields": ocr_reconciliation.get("agreement_fields", {}),
+            "disagreement_fields": ocr_reconciliation.get("disagreement_fields", {}),
+            "provider_summaries": ocr_reconciliation.get("provider_summaries", {}),
+        },
+        "structured_extraction": {
+            "extraction_provider": structured_extraction.get("extraction_provider"),
+            "document_confidence": structured_extraction.get("document_confidence"),
+            "review_flags": structured_extraction.get("review_flags", []),
+        },
+        "schedule_breakdown": schedule_breakdown,
         "page_context": trimmed_pages,
         "candidate_values": _collect_top_candidates(parse_result),
     }

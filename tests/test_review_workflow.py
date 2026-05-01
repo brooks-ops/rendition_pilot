@@ -96,6 +96,59 @@ def test_stamp_reviewed_pdf_appends_calculator_summary_pages(tmp_path, monkeypat
         stamped.close()
 
 
+def test_stamp_reviewed_pdf_labels_freeport_calculator_summary(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.review_workflow.APPRAISER_UPLOAD_DIR", tmp_path)
+    monkeypatch.setattr("app.review_workflow.OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr("app.review_workflow.COMPLETED_DIR", tmp_path)
+
+    doc = fitz.open()
+    doc.new_page(width=612, height=792)
+    source_bytes = doc.tobytes()
+    doc.close()
+
+    out_path = stamp_reviewed_pdf(
+        file_name="sample.pdf",
+        file_bytes=source_bytes,
+        final_record={
+            "account_number": "P12345",
+            "final_value": 4_800_000,
+            "final_source": "calculator_combined_total",
+            "appraiser_initials": "BB",
+            "decision": "accepted",
+            "locked_at": "2026-04-28T15:00:00",
+            "calculated_total_value": 4_800_000,
+            "saved_calculators": [
+                {
+                    "name": "Freeport Exemption",
+                    "depreciation_table": "freeport",
+                    "tax_year": 2026,
+                    "section_total": 4_800_000,
+                    "freeport": {
+                        "prior_year_total_inventory": 10_000_000,
+                        "prior_year_freeport_eligible_inventory": 6_000_000,
+                        "current_year_inventory": 12_000_000,
+                        "freeport_percentage": 0.6,
+                        "freeport_exempt_amount": 7_200_000,
+                        "taxable_inventory_value": 4_800_000,
+                    },
+                    "rows": [],
+                }
+            ],
+        },
+    )
+
+    stamped = fitz.open(out_path)
+    try:
+        full_text = "\n".join(page.get_text() for page in stamped)
+        assert "Freeport Exemption" in full_text
+        assert "Freeport Percentage" in full_text
+        assert "60.00%" in full_text
+        assert "$7,200,000.00" in full_text
+        assert "$4,800,000.00" in full_text
+    finally:
+        stamped.close()
+
+
 def test_stamp_reviewed_pdf_marks_closed_status_in_red_review_stamp(tmp_path, monkeypatch):
     monkeypatch.setattr("app.review_workflow.APPRAISER_UPLOAD_DIR", tmp_path)
     monkeypatch.setattr("app.review_workflow.OUTPUT_DIR", tmp_path)

@@ -1,7 +1,9 @@
 from app.rendition_calculator import (
     build_calculator_rows,
     build_flat_value_rows,
+    build_freeport_rows,
     build_saved_calculator,
+    calculate_freeport_exemption,
     calculate_combined_total,
     calculate_section_total,
     load_depreciation_tables,
@@ -89,6 +91,36 @@ def test_flat_value_rows_build_single_total_row():
         }
     ]
     assert calculate_section_total(rows) == 12500.0
+
+
+def test_freeport_exemption_calculates_percentage_exempt_and_taxable_values():
+    result = calculate_freeport_exemption(10_000_000, 6_000_000, 12_000_000)
+
+    assert result["freeport_percentage"] == 0.6
+    assert result["freeport_exempt_amount"] == 7_200_000
+    assert result["taxable_inventory_value"] == 4_800_000
+
+    rows = build_freeport_rows(10_000_000, 6_000_000, 12_000_000)
+    assert rows[-1]["display_year"] == "Remaining Taxable Inventory Value"
+    assert calculate_section_total(rows) == 4_800_000
+
+
+def test_freeport_exemption_requires_positive_prior_year_total():
+    try:
+        calculate_freeport_exemption(0, 6_000_000, 12_000_000)
+    except ValueError as exc:
+        assert "prior year total inventory" in str(exc)
+    else:
+        raise AssertionError("Expected invalid prior total to raise ValueError.")
+
+
+def test_freeport_exemption_rejects_negative_values():
+    try:
+        calculate_freeport_exemption(10_000_000, -1, 12_000_000)
+    except ValueError as exc:
+        assert "cannot be negative" in str(exc)
+    else:
+        raise AssertionError("Expected negative Freeport value to raise ValueError.")
 
 
 def test_schedule_b_rows_match_existing_flat_value_contract():
