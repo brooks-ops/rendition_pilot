@@ -205,7 +205,7 @@
     }
     .login-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
     .dynamic-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-    .batch-table-wrap, .queue-table-wrap { overflow: auto; }
+    .queue-table-wrap { overflow: auto; }
     @media (max-width: 1120px) {
       .layout-2, .layout-2-wide, .controls, .layout-3, .layout-4, .dynamic-grid-4, .calc-head { grid-template-columns: 1fr; }
       .userbox { text-align: left; }
@@ -293,8 +293,6 @@
     <section id="app-shell" class="hidden">
       <div class="tabs">
         <button class="tab-btn active" data-view="single" type="button">Single Review</button>
-        <button class="tab-btn" data-view="batch" type="button">Batch Review</button>
-        <button class="tab-btn" data-view="queue" type="button">Review Queue</button>
         <button id="admin-tab" class="tab-btn hidden" data-view="admin" type="button">Admin</button>
       </div>
 
@@ -651,63 +649,6 @@
         </details>
       </div>
 
-      <div id="view-batch" class="view">
-        <section class="card">
-          <h3>Batch Review Controls</h3>
-          <div class="field">
-            <label for="batch-files">Upload multiple rendition PDFs</label>
-            <input id="batch-files" type="file" accept="application/pdf" multiple>
-          </div>
-          <button id="batch-run" type="button">Run Batch Review</button>
-        </section>
-        <section class="card">
-          <h3>Batch Review</h3>
-          <div class="subtle">Upload multiple PDFs, run the pipeline on all of them, and use the table to spot outliers fast.</div>
-          <div id="batch-status" class="muted">Upload one or more PDFs to begin batch review.</div>
-          <div id="batch-results" class="hidden">
-            <div class="button-row" style="margin-bottom:12px;">
-              <button id="batch-download-json" class="secondary" type="button">Download Batch Results JSON</button>
-              <button id="batch-download-csv" class="secondary" type="button">Download Batch Results CSV</button>
-            </div>
-            <div class="batch-table-wrap">
-              <table>
-                <thead id="batch-head"></thead>
-                <tbody id="batch-body"></tbody>
-              </table>
-            </div>
-            <details style="margin-top:12px;">
-              <summary>Raw Batch JSON</summary>
-              <div><pre id="batch-json">-</pre></div>
-            </details>
-          </div>
-        </section>
-      </div>
-
-      <div id="view-queue" class="view">
-        <section class="card">
-          <h3>Review Queue</h3>
-          <div id="queue-root" class="muted"></div>
-          <div class="button-row" style="margin-top:10px;margin-bottom:12px;">
-            <button id="refresh-queue" class="secondary" type="button">Refresh Queue</button>
-          </div>
-          <div class="queue-table-wrap">
-            <table>
-              <thead id="queue-head"></thead>
-              <tbody id="queue-body"></tbody>
-            </table>
-          </div>
-        </section>
-        <section class="card">
-          <h3>Completed Reviews</h3>
-          <div class="queue-table-wrap">
-            <table>
-              <thead id="completed-head"></thead>
-              <tbody id="completed-body"></tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-
       <div id="view-admin" class="view">
         <section class="card">
           <h3>Authorized CAD Users</h3>
@@ -770,10 +711,6 @@
         editingCalculatorId: null,
         lockedRecord: null,
         stamped: null,
-      },
-      batch: {
-        rows: [],
-        results: null,
       },
       admin: {
         users: [],
@@ -928,9 +865,8 @@
         const isAdmin = appState.auth.district.role === "admin";
         $("signed-in-email").textContent = `Signed in as ${appState.auth.district.email || appState.auth.user?.email || ""}`;
         $("signed-in-district").textContent = `District: ${appState.auth.district.district_name} | Role: ${appState.auth.district.role || "member"}`;
-        $("app-subtitle").textContent = `${appState.auth.district.district_name} | Intelligent BPP rendition review with side-by-side document verification and batch triage.`;
+        $("app-subtitle").textContent = `${appState.auth.district.district_name} | Intelligent BPP rendition review with side-by-side document verification.`;
         $("admin-tab").classList.toggle("hidden", !isAdmin);
-        refreshQueue();
         if (isAdmin) refreshDistrictUsers();
       } else {
         $("app-subtitle").textContent = "Authorized rendition review access only.";
@@ -945,7 +881,6 @@
           document.querySelectorAll(".view").forEach((item) => item.classList.remove("active"));
           button.classList.add("active");
           $(`view-${button.dataset.view}`).classList.add("active");
-          if (button.dataset.view === "queue" && appState.auth?.district) refreshQueue();
           if (button.dataset.view === "admin" && appState.auth?.district?.role === "admin") refreshDistrictUsers();
         });
       });
@@ -1900,15 +1835,6 @@
       showFlash("Review completed.", "success");
     }
 
-    async function refreshQueue() {
-      if (!appState.auth?.district) return;
-      const districtSlug = encodeURIComponent(appState.auth.district.district_slug || "");
-      const data = await fetchJson(`/api/review-queue?district_slug=${districtSlug}`);
-      $("queue-root").textContent = `Saved outputs are written to ${data.root}`;
-      renderTable("queue-head", "queue-body", data.queue_rows);
-      renderTable("completed-head", "completed-body", data.completed_rows);
-    }
-
     async function refreshDistrictUsers() {
       if (!appState.auth?.access_token || appState.auth?.district?.role !== "admin") return;
       const data = await fetchJson("/api/district/users", {
@@ -2153,7 +2079,6 @@
           $("saved-status").classList.remove("hidden");
           $("download-stamped").classList.remove("hidden");
           $("next-account").classList.remove("hidden");
-          refreshQueue();
         } catch (error) { showFlash(error.message, "error"); }
       });
       $("download-stamped").addEventListener("click", () => {
@@ -2166,51 +2091,6 @@
         showFlash("Single review state cleared.", "success");
       });
 
-      $("batch-run").addEventListener("click", async () => {
-        const files = Array.from($("batch-files").files || []);
-        if (!files.length) return showFlash("Upload one or more PDFs to begin batch review.", "error");
-        try {
-          $("batch-status").textContent = `Processing ${files.length} file(s)...`;
-          const payloadFiles = await Promise.all(files.map(async (file) => ({
-            file_name: file.name,
-            file_base64: await toBase64(file)
-          })));
-          const data = await fetchJson("/api/batch/run", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ files: payloadFiles, district_context: appState.auth?.district || null })
-          });
-          appState.batch.rows = data.rows || [];
-          appState.batch.results = data.results || {};
-          $("batch-status").textContent = "Batch review completed.";
-          $("batch-results").classList.remove("hidden");
-          renderTable("batch-head", "batch-body", appState.batch.rows);
-          $("batch-json").textContent = JSON.stringify(appState.batch.results, null, 2);
-        } catch (error) { showFlash(error.message, "error"); }
-      });
-      $("batch-download-json").addEventListener("click", () => {
-        const blob = new Blob([JSON.stringify(appState.batch.results, null, 2)], { type: "application/json" });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = "batch_review_results.json";
-        link.click();
-      });
-      $("batch-download-csv").addEventListener("click", () => {
-        const rows = appState.batch.rows || [];
-        if (!rows.length) return;
-        const cols = Object.keys(rows[0]);
-        const csv = [
-          cols.join(","),
-          ...rows.map((row) => cols.map((col) => `"${String(row[col] ?? "").replaceAll('"', '""')}"`).join(","))
-        ].join("\n");
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-        link.download = "batch_review_results.csv";
-        link.click();
-      });
-      $("refresh-queue").addEventListener("click", async () => {
-        try { await refreshQueue(); } catch (error) { showFlash(error.message, "error"); }
-      });
       $("refresh-users").addEventListener("click", async () => {
         try { await refreshDistrictUsers(); } catch (error) { showFlash(error.message, "error"); }
       });

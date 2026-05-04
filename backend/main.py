@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import csv
 import json
 import os
 import tempfile
@@ -39,10 +38,7 @@ from app.district_service import (
     verify_supabase_district_setup,
 )
 from app.review_workflow import (
-    append_queue_row,
-    backfill_legacy_outputs,
     build_final_review_record,
-    ensure_output_dirs,
     get_decision_label,
     get_recommended_value,
     save_review_outputs,
@@ -203,11 +199,6 @@ class ReviewRunRequest(PdfRequest):
     fast_review: bool = True
 
 
-class BatchItem(BaseModel):
-    file_name: str
-    file_base64: str
-
-
 class SessionRequest(BaseModel):
     access_token: str
 
@@ -305,11 +296,6 @@ class SaveReviewRequest(BaseModel):
     file_base64: str
     result: dict[str, Any]
     final_record: dict[str, Any]
-    district_context: dict[str, Any] | None = None
-
-
-class BatchRunRequest(BaseModel):
-    files: list[BatchItem]
     district_context: dict[str, Any] | None = None
 
 
@@ -1258,7 +1244,6 @@ def auth_login(request: LoginRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not district:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
-    backfill_legacy_outputs(district.district_slug)
     return {"access_token": access_token, "user": to_jsonable(user), "district": _district_to_dict(district)}
 
 
@@ -1268,7 +1253,6 @@ def auth_restore(request: SessionRequest) -> dict[str, Any]:
     district = build_district_context(user, request.access_token)
     if not district:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
-    backfill_legacy_outputs(district.district_slug)
     return {"access_token": request.access_token, "user": to_jsonable(user), "district": _district_to_dict(district)}
 
 
@@ -1313,7 +1297,6 @@ def auth_signup(request: SignupRequest) -> dict[str, Any]:
         district = build_district_context(user or {"email": email}, access_token)
         if not district:
             raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
-        backfill_legacy_outputs(district.district_slug)
         return {"access_token": access_token, "user": to_jsonable(user), "district": _district_to_dict(district)}
     return {"message": "Login created. Confirm the email if Supabase requires confirmation, then sign in."}
 
@@ -1417,7 +1400,6 @@ def auth_district_setup(request: DistrictSetupRequest) -> dict[str, Any]:
     linked_district = build_district_context(user or {"email": request.admin_email}, access_token)
     if not linked_district:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
-    backfill_legacy_outputs(linked_district.district_slug)
     return {"access_token": access_token, "user": to_jsonable(user), "district": _district_to_dict(linked_district)}
 
 
@@ -1740,18 +1722,8 @@ def review_run(request: ReviewRunRequest) -> dict[str, Any]:
 
 
 @app.post("/api/batch/run")
-def batch_run(request: BatchRunRequest) -> dict[str, Any]:
-    rows: list[dict[str, Any]] = []
-    results_payload: dict[str, Any] = {}
-    district_context = request.district_context
-    for item in request.files:
-        file_bytes = _decode_pdf(item.file_base64)
-        result = run_pipeline_from_upload(item.file_name, file_bytes, manual_override=None)
-        rows.append(build_batch_row(item.file_name, result))
-        results_payload[item.file_name] = result
-        save_review_outputs(item.file_name, result, district_context=district_context)
-        append_queue_row(item.file_name, result, status=get_status_label(result), district_context=district_context)
-    return {"rows": rows, "results": results_payload}
+def batch_run_disabled() -> dict[str, Any]:
+    raise HTTPException(status_code=410, detail="Batch review is disabled. Process one rendition PDF at a time.")
 
 
 @app.post("/api/calculate")
@@ -1808,12 +1780,6 @@ def review_save(request: SaveReviewRequest) -> dict[str, Any]:
         final_record=request.final_record,
         district_context=request.district_context,
     )
-    append_queue_row(
-        file_name=request.file_name,
-        result={**request.result, "final_review": request.final_record},
-        status="Locked",
-        district_context=request.district_context,
-    )
     return {
         "stamped_pdf_name": stamped_pdf.name,
         "stamped_pdf_base64": _encode_bytes(stamped_pdf.read_bytes()),
@@ -1823,30 +1789,5 @@ def review_save(request: SaveReviewRequest) -> dict[str, Any]:
 
 
 @app.get("/api/review-queue")
-def review_queue(district_slug: str | None = None) -> dict[str, Any]:
-    backfill_legacy_outputs(district_slug)
-    paths = ensure_output_dirs(district_slug)
-    queue_rows: list[dict[str, Any]] = []
-    if paths["queue_csv"].exists():
-        with paths["queue_csv"].open("r", encoding="utf-8", newline="") as handle:
-            queue_rows = list(csv.DictReader(handle))
-    completed_rows: list[dict[str, Any]] = []
-    for path in sorted(paths["completed"].glob("*_final.json"), key=lambda item: item.stat().st_mtime, reverse=True):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-        completed_rows.append(
-            {
-                "file_name": data.get("file_name", path.name),
-                "final_value": data.get("final_value"),
-                "final_source": data.get("final_source", "-"),
-                "locked_at": data.get("locked_at", "-"),
-                "notes": data.get("appraiser_notes", ""),
-            }
-        )
-    return {
-        "root": str(paths["root"]),
-        "queue_rows": queue_rows,
-        "completed_rows": completed_rows,
-    }
+def review_queue_disabled() -> dict[str, Any]:
+    raise HTTPException(status_code=410, detail="Review queue is disabled.")
