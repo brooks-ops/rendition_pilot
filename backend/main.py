@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import gc
 import json
 import os
 import tempfile
@@ -13,7 +14,7 @@ import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -41,8 +42,8 @@ from app.review_workflow import (
     build_final_review_record,
     get_decision_label,
     get_recommended_value,
-    save_review_outputs,
-    stamp_reviewed_pdf,
+    safe_stem,
+    stamp_reviewed_pdf_bytes,
 )
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
@@ -165,6 +166,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
@@ -1765,27 +1767,24 @@ def review_lock(request: LockReviewRequest) -> dict[str, Any]:
 
 
 @app.post("/api/review/save")
-def review_save(request: SaveReviewRequest) -> dict[str, Any]:
+def review_save(request: SaveReviewRequest) -> Response:
     file_bytes = _decode_pdf(request.file_base64)
-    district_slug = str((request.district_context or {}).get("district_slug") or "").strip() or None
-    stamped_pdf = stamp_reviewed_pdf(
-        file_name=request.file_name,
-        file_bytes=file_bytes,
-        final_record=request.final_record,
-        district_slug=district_slug,
-    )
-    paths = save_review_outputs(
-        file_name=request.file_name,
-        result=request.result,
-        final_record=request.final_record,
-        district_context=request.district_context,
-    )
-    return {
-        "stamped_pdf_name": stamped_pdf.name,
-        "stamped_pdf_base64": _encode_bytes(stamped_pdf.read_bytes()),
-        "stamped_pdf_path": str(stamped_pdf),
-        "saved_outputs": [str(path) for path in {**paths, "stamped_pdf": stamped_pdf}.values()],
-    }
+    try:
+        stamped_pdf_bytes = stamp_reviewed_pdf_bytes(
+            file_name=request.file_name,
+            file_bytes=file_bytes,
+            final_record=request.final_record,
+        )
+        account_number = str(request.final_record.get("account_number") or "").strip()
+        stamped_pdf_name = f"{safe_stem(account_number or request.file_name)}_stamped.pdf"
+        return Response(
+            content=stamped_pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{stamped_pdf_name}"'},
+        )
+    finally:
+        del file_bytes
+        gc.collect()
 
 
 @app.get("/api/review-queue")

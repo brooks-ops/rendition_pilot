@@ -315,25 +315,20 @@ def build_final_review_record(
     return record
 
 
-def stamp_reviewed_pdf(
+def stamp_reviewed_pdf_bytes(
     file_name: str,
     file_bytes: bytes,
     final_record: dict[str, Any],
-    district_slug: str | None = None,
-) -> Path:
+) -> bytes:
     """
     Stamp page 1 with the locked value, appraiser initials, date, decision,
     and appraiser notes. Long notes are also appended as a final review page.
-    The original PDF is not modified.
+    The original PDF is not modified and no output is written to disk.
     """
-    paths = ensure_output_dirs(district_slug)
-
     import fitz  # PyMuPDF
 
     account_number = safe_account_number(final_record.get("account_number"))
-    stem = account_number or safe_stem(file_name)
     decision = str(final_record.get("decision") or "reviewed").lower()
-    out_path = paths["uploads"] / f"{stem}.pdf"
 
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     if len(doc) == 0:
@@ -444,8 +439,28 @@ def stamp_reviewed_pdf(
 
     append_calculator_summary_pages(doc, final_record)
 
-    doc.save(out_path, deflate=True, garbage=4)
-    doc.close()
+    try:
+        return doc.tobytes(deflate=True, garbage=4)
+    finally:
+        doc.close()
+
+
+def stamp_reviewed_pdf(
+    file_name: str,
+    file_bytes: bytes,
+    final_record: dict[str, Any],
+    district_slug: str | None = None,
+) -> Path:
+    """
+    Stamp page 1 with the locked value, appraiser initials, date, decision,
+    and appraiser notes, then write the stamped PDF to the appraiser upload
+    output directory. The original PDF is not modified.
+    """
+    paths = ensure_output_dirs(district_slug)
+    account_number = safe_account_number(final_record.get("account_number"))
+    stem = account_number or safe_stem(file_name)
+    out_path = paths["uploads"] / f"{stem}.pdf"
+    out_path.write_bytes(stamp_reviewed_pdf_bytes(file_name, file_bytes, final_record))
     return out_path
 
 

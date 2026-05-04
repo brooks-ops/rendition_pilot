@@ -620,8 +620,7 @@
             <div id="saved-status" class="status hidden"></div>
             <div class="button-row">
               <button id="lock-review" type="button">Lock Final Value</button>
-              <button id="save-review" class="secondary" type="button">Save Rendition</button>
-              <button id="download-stamped" class="secondary hidden" type="button">Download Stamped Rendition</button>
+              <button id="save-review" class="secondary" type="button">Download Stamped Rendition</button>
               <button id="next-account" class="secondary hidden" type="button">Next Account</button>
             </div>
           </section>
@@ -918,6 +917,30 @@
       link.click();
     }
 
+    function downloadBlob(blob, fileName) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+
+    function clearReviewDocumentMemory({ clearResult = false } = {}) {
+      if (appState.single.fileBytesUrl) URL.revokeObjectURL(appState.single.fileBytesUrl);
+      appState.single.file = null;
+      appState.single.fileBase64 = null;
+      appState.single.fileBytesUrl = null;
+      appState.single.pdfPages = [];
+      appState.single.pdfPageIndex = 0;
+      appState.single.stamped = null;
+      if (clearResult) {
+        appState.single.result = null;
+        appState.single.lockedRecord = null;
+        appState.single.savedCalculators = [];
+      }
+    }
+
     function extractMoneyValues(text) {
       return (String(text || "").match(MONEY_RE) || [])
         .map((match) => parseMoneyInput(match))
@@ -1002,6 +1025,7 @@
     }
 
     function resetSingleState() {
+      clearReviewDocumentMemory({ clearResult: true });
       appState.single = {
         file: null,
         fileBase64: null,
@@ -1028,7 +1052,6 @@
       $("technical-json").textContent = "-";
       $("locked-status").classList.add("hidden");
       $("saved-status").classList.add("hidden");
-      $("download-stamped").classList.add("hidden");
       $("next-account").classList.add("hidden");
       renderPdfPreview();
       resetCalculatorEditor();
@@ -1466,11 +1489,10 @@
     function markFinalReviewDirty() {
       appState.single.stamped = null;
       $("saved-status").classList.add("hidden");
-      $("download-stamped").classList.add("hidden");
       $("next-account").classList.add("hidden");
       if (!appState.single.lockedRecord) return;
       appState.single.lockedRecord = null;
-      $("locked-status").textContent = "Calculator sections changed. Lock the final value again before saving the rendition.";
+      $("locked-status").textContent = "Calculator sections changed. Lock the final value again before downloading the stamped rendition.";
       $("locked-status").className = "status warn";
       $("locked-status").classList.remove("hidden");
     }
@@ -1905,6 +1927,7 @@
       $("single-file").addEventListener("change", async (event) => {
         const file = event.target.files[0];
         if (!file) return;
+        clearReviewDocumentMemory();
         appState.single.file = file;
         appState.single.fileBase64 = await toBase64(file);
         appState.single.fileBytesUrl = URL.createObjectURL(file);
@@ -2056,13 +2079,14 @@
           $("locked-status").textContent = `Locked ${data.decision_label} for ${data.final_record.account_number} at ${formatMoney(data.final_record.final_value)}.`;
           $("locked-status").className = "status success";
           $("locked-status").classList.remove("hidden");
-          showFlash("Final value locked. Click Save Rendition to create the stamped upload PDF.", "success");
+          showFlash("Final value locked. Click Download Stamped Rendition to create the stamped PDF.", "success");
         } catch (error) { showFlash(error.message, "error"); }
       });
       $("save-review").addEventListener("click", async () => {
-        if (!appState.single.lockedRecord) return showFlash("Lock the final value before saving the rendition.", "error");
+        if (!appState.single.lockedRecord) return showFlash("Lock the final value before downloading the stamped rendition.", "error");
+        if (!appState.single.fileBase64 || !appState.single.file) return showFlash("Upload and review a rendition PDF before downloading the stamped rendition.", "error");
         try {
-          const data = await fetchJson("/api/review/save", {
+          const response = await fetch(`${API_BASE}/api/review/save`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -2073,17 +2097,22 @@
               district_context: appState.auth?.district || null
             })
           });
-          appState.single.stamped = data;
-          $("saved-status").innerHTML = `Stamped rendition saved to ${data.stamped_pdf_path}<br>${data.saved_outputs.join(" | ")}`;
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || errorData.message || "Could not create stamped rendition.");
+          }
+          const disposition = response.headers.get("Content-Disposition") || "";
+          const match = disposition.match(/filename="?([^"]+)"?/i);
+          const fileName = match?.[1] || "stamped_rendition.pdf";
+          const stampedPdf = await response.blob();
+          downloadBlob(stampedPdf, fileName);
+          clearReviewDocumentMemory({ clearResult: true });
+          $("saved-status").textContent = "Stamped rendition downloaded. No rendition PDF, OCR text, review JSON, or completed review was saved.";
           $("saved-status").className = "status success";
           $("saved-status").classList.remove("hidden");
-          $("download-stamped").classList.remove("hidden");
           $("next-account").classList.remove("hidden");
+          showFlash("Stamped rendition downloaded. Temporary review memory cleared.", "success");
         } catch (error) { showFlash(error.message, "error"); }
-      });
-      $("download-stamped").addEventListener("click", () => {
-        if (!appState.single.stamped) return;
-        downloadBase64(appState.single.stamped.stamped_pdf_base64, appState.single.stamped.stamped_pdf_name, "application/pdf");
       });
       $("next-account").addEventListener("click", () => {
         resetSingleState();
