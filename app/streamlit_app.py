@@ -2424,7 +2424,7 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
                     file_bytes=file_bytes,
                     final_record=locked_record,
                 )
-                st.session_state["single_download_stamped_name"] = preview_pdf.name
+                st.session_state["single_download_stamped_name"] = download_name
                 st.session_state["single_download_stamped_bytes"] = preview_pdf.read_bytes()
             except Exception as exc:
                 st.error(f"Could not create stamped PDF download: {exc}")
@@ -2446,7 +2446,7 @@ def finalize_review_panel(file_name: str, result: dict, file_bytes: bytes) -> No
         if saved_outputs:
             st.caption(saved_outputs)
         saved_bytes = st.session_state.get("single_saved_stamped_bytes")
-        saved_name = st.session_state.get("single_saved_stamped_name") or "stamped_rendition.pdf"
+        saved_name = st.session_state.get("single_saved_stamped_name") or download_name
         if saved_bytes:
             st.download_button(
                 "Download Stamped Rendition",

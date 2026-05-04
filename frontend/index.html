@@ -926,6 +926,12 @@
       setTimeout(() => URL.revokeObjectURL(url), 0);
     }
 
+    function pdfFileNameFromAccount(accountNumber, fallbackName) {
+      const source = String(accountNumber || fallbackName || "rendition").trim();
+      const stem = source.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
+      return `${stem || "rendition"}.pdf`;
+    }
+
     function clearReviewDocumentMemory({ clearResult = false } = {}) {
       if (appState.single.fileBytesUrl) URL.revokeObjectURL(appState.single.fileBytesUrl);
       appState.single.file = null;
@@ -2103,7 +2109,7 @@
           }
           const disposition = response.headers.get("Content-Disposition") || "";
           const match = disposition.match(/filename="?([^"]+)"?/i);
-          const fileName = match?.[1] || "stamped_rendition.pdf";
+          const fileName = match?.[1] || pdfFileNameFromAccount(appState.single.lockedRecord.account_number, appState.single.file.name);
           const stampedPdf = await response.blob();
           downloadBlob(stampedPdf, fileName);
           clearReviewDocumentMemory({ clearResult: true });

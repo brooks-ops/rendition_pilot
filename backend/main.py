@@ -1776,7 +1776,7 @@ def review_save(request: SaveReviewRequest) -> Response:
             final_record=request.final_record,
         )
         account_number = str(request.final_record.get("account_number") or "").strip()
-        stamped_pdf_name = f"{safe_stem(account_number or request.file_name)}_stamped.pdf"
+        stamped_pdf_name = f"{safe_stem(account_number or request.file_name)}.pdf"
         return Response(
             content=stamped_pdf_bytes,
             media_type="application/pdf",
