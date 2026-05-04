@@ -92,62 +92,8 @@ def analyze_arb_evidence(
     case_info: ARBCaseInfo,
 ) -> ARBReviewSummary:
     fallback = _fallback_analysis(cad_packet, taxpayer_packet, case_info)
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        fallback.warnings.append("OPENAI_API_KEY is not configured; deterministic ARB review was used.")
-        return fallback
-
-    try:
-        from openai import OpenAI
-    except Exception as exc:
-        fallback.warnings.append(f"OpenAI SDK unavailable; deterministic ARB review was used: {exc}")
-        return fallback
-
-    schema = _review_schema()
-    payload = {
-        "case_info": case_info.model_dump(),
-        "cad_packet": _packet_for_prompt(cad_packet),
-        "taxpayer_packet": _packet_for_prompt(taxpayer_packet),
-        "required_output": list(schema["properties"].keys()),
-        "value_rules": [
-            "Use current noticed value, CAD proposed value, and agent requested value when provided or extracted.",
-            "Extract and reference values found in evidence when possible.",
-            "If CAD evidence is stronger, recommend CAD proposed value/current noticed value.",
-            "If taxpayer evidence is much stronger and quantified, recommend taxpayer requested value or a value close to it.",
-            "If both sides have credible evidence, determine a reasoned value or settlement range between supported anchors.",
-            "Do not fabricate exact values.",
-            "If confidence is low, recommend requesting more evidence or defending the current value.",
-            "Always state that final value selection is up to appraiser review.",
-        ],
-    }
-    try:
-        client = OpenAI(
-            api_key=api_key,
-            timeout=float(os.getenv("OPENAI_REVIEW_TIMEOUT_SECONDS") or "30"),
-            max_retries=0,
-        )
-        response = client.responses.create(
-            model=os.getenv("OPENAI_MODEL") or "gpt-4.1-mini",
-            instructions=ARB_SYSTEM_PROMPT,
-            input=json.dumps(payload, indent=2),
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "arb_review_summary",
-                    "schema": schema,
-                    "strict": True,
-                }
-            },
-        )
-        data = json.loads(response.output_text)
-        summary = ARBReviewSummary(**data)
-        summary.analysis_status = "openai"
-        summary.warnings = _dedupe([*cad_packet.warnings, *taxpayer_packet.warnings, *summary.warnings])
-        return summary
-    except Exception as exc:
-        logger.exception("ARB OpenAI analysis failed")
-        fallback.warnings.append(f"OpenAI ARB analysis failed; deterministic review was used: {type(exc).__name__}: {exc}")
-        return fallback
+    fallback.warnings.append("OpenAI ARB analysis disabled on local-no-ai branch; deterministic ARB review was used.")
+    return fallback
 
 
 def build_summary_text(summary: ARBReviewSummary, case_info: ARBCaseInfo) -> str:

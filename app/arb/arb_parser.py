@@ -117,30 +117,16 @@ def _parse_image_packet(file_name: str, file_bytes: bytes, packet_label: str) ->
     warnings: list[str] = []
     text = ""
     provider = "none"
-    if _google_vision_configured():
-        text, warning = _ocr_image_with_google_vision(file_bytes)
-        provider = "google_cloud_vision"
-        if warning:
-            warnings.append(warning)
-    else:
-        warnings.append("google_cloud_vision is not configured.")
-
-    if not text and _openai_configured():
-        text, warning = _ocr_image_with_openai(file_name, file_bytes)
-        provider = "openai_vision_ocr"
-        if warning:
-            warnings.append(warning)
-    elif not text:
-        warnings.append("openai_vision_ocr is not configured.")
-
-    if not text:
-        warnings.append("No usable image text could be extracted. Configure Google Vision or OpenAI Vision OCR.")
+    warnings.append("Google Vision and OpenAI Vision OCR are disabled on local-no-ai branch.")
+    warnings.append("No usable image text could be extracted from image-only ARB evidence.")
 
     pages = [{"page_number": 1, "text": text, "ocr_blocks": [], "text_source": provider}]
     return _packet_from_pages(file_name, packet_label, pages, provider, warnings)
 
 
 def _ocr_image_with_google_vision(file_bytes: bytes) -> tuple[str, str]:
+    return "", "Google Vision OCR disabled on local-no-ai branch."
+
     api_key = os.getenv("GOOGLE_VISION_API_KEY") or os.getenv("GOOGLE_CLOUD_VISION_API_KEY")
     if not api_key:
         return "", "Google Vision API key is not configured."
@@ -171,6 +157,8 @@ def _ocr_image_with_google_vision(file_bytes: bytes) -> tuple[str, str]:
 
 
 def _ocr_image_with_openai(file_name: str, file_bytes: bytes) -> tuple[str, str]:
+    return "", "OpenAI vision OCR disabled on local-no-ai branch."
+
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return "", "OPENAI_API_KEY is not configured."
@@ -246,11 +234,11 @@ def _google_document_ai_configured() -> bool:
 
 
 def _google_vision_configured() -> bool:
-    return bool(os.getenv("GOOGLE_VISION_API_KEY") or os.getenv("GOOGLE_CLOUD_VISION_API_KEY"))
+    return False
 
 
 def _openai_configured() -> bool:
-    return bool(os.getenv("OPENAI_API_KEY"))
+    return False
 
 
 def _dedupe(items: list[str]) -> list[str]:
@@ -260,4 +248,3 @@ def _dedupe(items: list[str]) -> list[str]:
         if cleaned and cleaned not in result:
             result.append(cleaned)
     return result
-

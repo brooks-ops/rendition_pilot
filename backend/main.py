@@ -307,13 +307,6 @@ def get_secret(name: str, default: str = "") -> str:
 
 def hydrate_analysis_env() -> None:
     secret_names = [
-        "OPENAI_API_KEY",
-        "OPENAI_MODEL",
-        "OPENAI_VISION_OCR_MODEL",
-        "OPENAI_VISION_OCR_TIMEOUT_SECONDS",
-        "OPENAI_VISION_OCR_MAX_PAGES",
-        "OPENAI_REVIEW_ENABLED",
-        "OPENAI_REVIEW_TIMEOUT_SECONDS",
         "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT",
         "AZURE_DOCUMENT_INTELLIGENCE_KEY",
         "AZURE_DOCUMENT_INTELLIGENCE_API_VERSION",
@@ -328,8 +321,6 @@ def hydrate_analysis_env() -> None:
         "GOOGLE_DOCUMENT_AI_PROCESSOR_NAME",
         "GOOGLE_DOCUMENT_AI_API_KEY",
         "GOOGLE_DOCUMENT_AI_ACCESS_TOKEN",
-        "GOOGLE_VISION_API_KEY",
-        "GOOGLE_CLOUD_VISION_API_KEY",
         "GOOGLE_APPLICATION_CREDENTIALS",
         "APP_BASE_URL",
         "SUPABASE_EMAIL_REDIRECT_TO",
@@ -378,11 +369,12 @@ def provider_status_snapshot() -> dict[str, Any]:
             "has_access_token": bool(get_secret("GOOGLE_DOCUMENT_AI_ACCESS_TOKEN", "")),
         },
         "google_cloud_vision": {
-            "configured": bool(get_secret("GOOGLE_VISION_API_KEY", "") or get_secret("GOOGLE_CLOUD_VISION_API_KEY", "")),
+            "configured": False,
+            "disabled": "disabled on local-no-ai branch",
         },
         "openai_vision_ocr": {
-            "configured": bool(get_secret("OPENAI_API_KEY", "")),
-            "model": get_secret("OPENAI_VISION_OCR_MODEL", "") or get_secret("OPENAI_MODEL", "") or "gpt-4.1-mini",
+            "configured": False,
+            "disabled": "disabled on local-no-ai branch",
         },
         "azure_document_intelligence": {
             "configured": bool(
@@ -391,9 +383,9 @@ def provider_status_snapshot() -> dict[str, Any]:
             ),
         },
         "openai_review": {
-            "configured": bool(get_secret("OPENAI_API_KEY", "")),
-            "enabled": get_secret("OPENAI_REVIEW_ENABLED", "").strip().lower() in {"1", "true", "yes"},
-            "model": get_secret("OPENAI_MODEL", "") or "gpt-4.1-mini",
+            "configured": False,
+            "enabled": False,
+            "disabled": "disabled on local-no-ai branch",
         },
     }
 
