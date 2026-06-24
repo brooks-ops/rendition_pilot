@@ -465,13 +465,6 @@ def get_secret(name: str, default: str = "") -> str:
 
 def hydrate_analysis_env_from_secrets() -> None:
     secret_names = [
-        "OPENAI_API_KEY",
-        "OPENAI_MODEL",
-        "OPENAI_VISION_OCR_MODEL",
-        "OPENAI_VISION_OCR_TIMEOUT_SECONDS",
-        "OPENAI_VISION_OCR_MAX_PAGES",
-        "OPENAI_REVIEW_ENABLED",
-        "OPENAI_REVIEW_TIMEOUT_SECONDS",
         "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT",
         "AZURE_DOCUMENT_INTELLIGENCE_KEY",
         "AZURE_DOCUMENT_INTELLIGENCE_API_VERSION",

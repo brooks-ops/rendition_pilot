@@ -1467,8 +1467,6 @@ def _extract_pdf_bundle(pdf_path: str) -> Dict[str, Any]:
 
     provider_pages = {
         "google_document_ai": _ocr_pdf_pages_with_google_document_ai(pdf_path),
-        "google_cloud_vision": _ocr_pdf_pages_with_google_vision(pdf_path),
-        "openai_vision_ocr": _ocr_pdf_pages_with_openai_vision(pdf_path),
         "azure_document_intelligence": _ocr_pdf_pages_with_azure_document_intelligence(pdf_path),
         "pymupdf_tesseract_ocr": _ocr_pdf_pages_with_pymupdf(pdf_path),
     }
@@ -1487,7 +1485,7 @@ def _extract_pdf_bundle(pdf_path: str) -> Dict[str, Any]:
     provider_errors = []
     if embedded_extraction_error:
         provider_errors.append(embedded_extraction_error)
-    for provider_name in ["google_document_ai", "google_cloud_vision", "openai_vision_ocr", "azure_document_intelligence", "pymupdf_tesseract_ocr"]:
+    for provider_name in ["google_document_ai", "azure_document_intelligence", "pymupdf_tesseract_ocr"]:
         provider_errors.extend(
             str(page.get("ocr_error"))
             for page in provider_pages.get(provider_name, [])
@@ -2179,6 +2177,17 @@ def _google_document_ai_poly_xy(
 def _ocr_pdf_pages_with_google_vision(pdf_path: str) -> List[Dict[str, Any]]:
     global _GOOGLE_VISION_OCR_DISABLED_REASON
 
+    _GOOGLE_VISION_OCR_DISABLED_REASON = "Google Cloud Vision OCR disabled on local-no-ai branch."
+    return [
+        {
+            "page_number": 1,
+            "text": "",
+            "ocr_blocks": [],
+            "text_source": "google_cloud_vision_error",
+            "ocr_error": _GOOGLE_VISION_OCR_DISABLED_REASON,
+        }
+    ]
+
     if _GOOGLE_VISION_OCR_DISABLED_REASON:
         return [
             {
@@ -2673,6 +2682,17 @@ def _is_terminal_openai_ocr_error(error: str) -> bool:
 
 def _ocr_pdf_pages_with_openai_vision(pdf_path: str) -> List[Dict[str, Any]]:
     global _OPENAI_VISION_OCR_DISABLED_REASON
+
+    _OPENAI_VISION_OCR_DISABLED_REASON = "OpenAI vision OCR disabled on local-no-ai branch."
+    return [
+        {
+            "page_number": 1,
+            "text": "",
+            "ocr_blocks": [],
+            "text_source": "openai_vision_ocr_error",
+            "ocr_error": _OPENAI_VISION_OCR_DISABLED_REASON,
+        }
+    ]
 
     if _OPENAI_VISION_OCR_DISABLED_REASON:
         return [
