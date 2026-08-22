@@ -5,6 +5,7 @@ import gc
 import json
 import os
 import tempfile
+from dataclasses import asdict
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -47,6 +48,7 @@ from app.review_workflow import (
 )
 from app.comptroller import admin as comptroller_admin
 from app.comptroller import export as comptroller_export
+from app.comptroller import intelligence as comptroller_intelligence
 from app.comptroller.service import ComptrollerServiceError
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
@@ -295,6 +297,33 @@ class ComptrollerReviewUpdateRequest(BaseModel):
 class ComptrollerReviewExportRequest(BaseModel):
     access_token: str
     review_month: str
+
+
+class IntelligenceQueueRequest(BaseModel):
+    access_token: str
+    signal_type: str | None = None
+    status: str | None = None
+    confidence: str | None = None
+    city: str | None = None
+
+
+class IntelligenceItemRequest(BaseModel):
+    access_token: str
+    source_table: str
+    item_id: str
+
+
+class IntelligenceInvestigateRequest(IntelligenceItemRequest):
+    pass
+
+
+class IntelligenceResolveRequest(IntelligenceItemRequest):
+    resolution: str
+    resolution_notes: str | None = None
+
+
+class IntelligenceDismissRequest(IntelligenceItemRequest):
+    resolution_notes: str | None = None
 
 
 class ARBAuthRequest(BaseModel):
@@ -1886,3 +1915,105 @@ def comptroller_review_queue_export(request: ComptrollerReviewExportRequest) -> 
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# --- BPP Intelligence Queue --------------------------------------------------
+#
+# Unified read/action surface over app.comptroller.intelligence, which merges
+# the new bpp_intelligence_items table (New Business Detection today) with
+# the existing comptroller_closure_reviews table (sales-tax closures,
+# untouched). Gated the same way as the other Comptroller admin endpoints.
+# investigate/resolve/dismiss only ever write this queue's own status/
+# resolution/notes/reviewer fields -- never property value, appraisal
+# status, ownership, account status, BPP records, or exemption data.
+
+
+@app.post("/api/admin/intelligence/summary")
+def intelligence_summary(request: ComptrollerStatusRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    try:
+        summary = comptroller_intelligence.get_queue_summary(district.district_id)
+    except ComptrollerServiceError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return to_jsonable(summary)
+
+
+@app.post("/api/admin/intelligence/queue")
+def intelligence_queue(request: IntelligenceQueueRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    try:
+        items = comptroller_intelligence.list_intelligence_queue(
+            district.district_id,
+            signal_type=request.signal_type,
+            status=request.status,
+            confidence=request.confidence,
+            city=request.city,
+        )
+    except ComptrollerServiceError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"items": to_jsonable([asdict(item) for item in items])}
+
+
+def _require_own_district_item(district, source_table: str, item_id: str) -> comptroller_intelligence.UnifiedIntelligenceItem:
+    item = comptroller_intelligence.get_intelligence_item(source_table, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Intelligence item was not found.")
+    if item.district_id != district.district_id:
+        raise HTTPException(status_code=403, detail="Cannot manage intelligence items for another district.")
+    return item
+
+
+@app.post("/api/admin/intelligence/item")
+def intelligence_item_detail(request: IntelligenceItemRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    item = _require_own_district_item(district, request.source_table, request.item_id)
+    return {"item": to_jsonable(asdict(item))}
+
+
+@app.post("/api/admin/intelligence/investigate")
+def intelligence_investigate(request: IntelligenceInvestigateRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    _require_own_district_item(district, request.source_table, request.item_id)
+    user = get_supabase_user(request.access_token)
+    try:
+        item = comptroller_intelligence.investigate_item(
+            request.source_table, request.item_id, assigned_to=str(user.get("id") or "").strip() or None,
+        )
+    except comptroller_intelligence.IntelligenceQueueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": to_jsonable(asdict(item))}
+
+
+@app.post("/api/admin/intelligence/resolve")
+def intelligence_resolve(request: IntelligenceResolveRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    _require_own_district_item(district, request.source_table, request.item_id)
+    user = get_supabase_user(request.access_token)
+    try:
+        item = comptroller_intelligence.resolve_item(
+            request.source_table,
+            request.item_id,
+            resolution=request.resolution,
+            resolution_notes=request.resolution_notes,
+            reviewed_by=str(user.get("id") or "").strip() or None,
+        )
+    except comptroller_intelligence.IntelligenceQueueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": to_jsonable(asdict(item))}
+
+
+@app.post("/api/admin/intelligence/dismiss")
+def intelligence_dismiss(request: IntelligenceDismissRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    _require_own_district_item(district, request.source_table, request.item_id)
+    user = get_supabase_user(request.access_token)
+    try:
+        item = comptroller_intelligence.dismiss_item(
+            request.source_table,
+            request.item_id,
+            resolution_notes=request.resolution_notes,
+            reviewed_by=str(user.get("id") or "").strip() or None,
+        )
+    except comptroller_intelligence.IntelligenceQueueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": to_jsonable(asdict(item))}

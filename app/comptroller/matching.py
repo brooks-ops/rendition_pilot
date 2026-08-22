@@ -104,6 +104,18 @@ class MatchResult:
     reason: str
     candidate: MatchCandidate | None
     ambiguous: bool = False
+    # Per-signal breakdown for a transparent UI (e.g. "Address: NOT AVAILABLE,
+    # DBA: MATCH, Legal Entity: NO MATCH") -- see build_signal_breakdown().
+    # Signals RenditionPilot has no data for are explicitly "NOT AVAILABLE",
+    # never silently omitted or reported as a false "NO MATCH".
+    signals: dict[str, str] = field(default_factory=dict)
+    # True when the DBA/business name matched well but the legal/taxpayer
+    # name did not (or vice versa) -- the single-field ownership-change hint
+    # described in matching.py's module docstring: RenditionPilot only
+    # stores one name per rendition record, so a strong match on one of the
+    # Comptroller's two name fields with a poor match on the other can't be
+    # fully resolved, only flagged for a human to look at.
+    name_signals_diverge: bool = False
 
 
 def normalize_name(value: str | None) -> str:
@@ -199,6 +211,18 @@ class CandidateScore:
     reasons: list[str] = field(default_factory=list)
     name_strong: bool = False
     name_partial: bool = False
+    dba_score: float = 0.0
+    legal_score: float = 0.0
+
+
+def _signal_label(score: float) -> str:
+    if score >= NAME_STRONG_THRESHOLD:
+        return "MATCH"
+    if score >= NAME_PARTIAL_THRESHOLD:
+        return "PARTIAL MATCH"
+    if score > 0:
+        return "NO MATCH"
+    return "NO MATCH"
 
 
 def score_candidate(
@@ -207,18 +231,63 @@ def score_candidate(
     permit_legal_name: str | None,
     permit_location_name: str | None,
 ) -> CandidateScore:
-    name_score = max(
-        _name_similarity(permit_location_name, candidate.owner_name),
-        _name_similarity(permit_legal_name, candidate.owner_name),
-    )
+    dba_score = _name_similarity(permit_location_name, candidate.owner_name)
+    legal_score = _name_similarity(permit_legal_name, candidate.owner_name)
+    name_score = max(dba_score, legal_score)
 
     if name_score >= NAME_STRONG_THRESHOLD:
-        return CandidateScore(score=name_score, reasons=["strong owner-name match"], name_strong=True)
+        return CandidateScore(
+            score=name_score, reasons=["strong owner-name match"], name_strong=True,
+            dba_score=dba_score, legal_score=legal_score,
+        )
     if name_score >= NAME_PARTIAL_THRESHOLD:
-        return CandidateScore(score=name_score, reasons=["partial owner-name match"], name_partial=True)
+        return CandidateScore(
+            score=name_score, reasons=["partial owner-name match"], name_partial=True,
+            dba_score=dba_score, legal_score=legal_score,
+        )
     if name_score > 0:
-        return CandidateScore(score=name_score, reasons=["owner name differs"])
-    return CandidateScore(score=0.0, reasons=["no name similarity"])
+        return CandidateScore(
+            score=name_score, reasons=["owner name differs"], dba_score=dba_score, legal_score=legal_score,
+        )
+    return CandidateScore(score=0.0, reasons=["no name similarity"], dba_score=dba_score, legal_score=legal_score)
+
+
+def _detect_name_divergence(cs: CandidateScore) -> bool:
+    """One of DBA/legal name matched well while the other didn't -- see
+    MatchResult.name_signals_diverge. A candidate that only ever had one
+    Comptroller name field to begin with (the other blank) doesn't count."""
+
+    strong = NAME_STRONG_THRESHOLD
+    weak = NAME_PARTIAL_THRESHOLD
+    one_strong_one_weak = (cs.dba_score >= strong and cs.legal_score < weak) or (
+        cs.legal_score >= strong and cs.dba_score < weak
+    )
+    return one_strong_one_weak
+
+
+def build_signal_breakdown(candidate: MatchCandidate | None, cs: CandidateScore | None) -> dict[str, str]:
+    """Every signal a reviewer might expect to see, explicitly marked
+    NOT AVAILABLE where RenditionPilot has no data for it -- never silently
+    dropped, so the UI can show the exact table the product spec asks for
+    without implying a signal was checked and failed when it was never
+    checkable at all."""
+
+    breakdown = {
+        "address": "NOT AVAILABLE (RenditionPilot has no situs address data)",
+        "zip": "NOT AVAILABLE (RenditionPilot has no ZIP data)",
+        "suite_unit": "NOT AVAILABLE (RenditionPilot has no address data)",
+        "property_account": "NOT AVAILABLE (no CRS/property linkage yet)",
+    }
+    if candidate is None or cs is None:
+        breakdown["business_dba_name"] = "NO MATCH"
+        breakdown["legal_entity_name"] = "NO MATCH"
+        breakdown["existing_rendition_record"] = "NONE"
+        return breakdown
+
+    breakdown["business_dba_name"] = _signal_label(cs.dba_score)
+    breakdown["legal_entity_name"] = _signal_label(cs.legal_score)
+    breakdown["existing_rendition_record"] = f"FOUND ({candidate.record_id})"
+    return breakdown
 
 
 def _classify_confidence(cs: CandidateScore) -> str:
@@ -257,19 +326,22 @@ def match_closure_to_account(
     record list once rather than re-querying Supabase for every event.
     """
 
+    empty_signals = build_signal_breakdown(None, None)
+
     if not district_id:
         return MatchResult(
             confidence="UNMATCHED",
             score=0.0,
             reason="No RenditionPilot district mapping configured for this county; record search skipped.",
             candidate=None,
+            signals=empty_signals,
         )
 
     if candidates is None:
         try:
             candidates = fetch_candidate_records(district_id)
         except MatchingConfigError as exc:
-            return MatchResult(confidence="UNMATCHED", score=0.0, reason=str(exc), candidate=None)
+            return MatchResult(confidence="UNMATCHED", score=0.0, reason=str(exc), candidate=None, signals=empty_signals)
 
     if not candidates:
         return MatchResult(
@@ -277,6 +349,7 @@ def match_closure_to_account(
             score=0.0,
             reason="No RenditionPilot rendition records found for this district.",
             candidate=None,
+            signals=empty_signals,
         )
 
     scored = [
@@ -293,6 +366,7 @@ def match_closure_to_account(
             score=round(best_score.score, 3),
             reason="No RenditionPilot record met the minimum name-similarity threshold.",
             candidate=None,
+            signals=build_signal_breakdown(None, None),
         )
 
     # Ambiguous: another candidate scored close enough to the winner that
@@ -312,10 +386,16 @@ def match_closure_to_account(
     if ambiguous:
         reason += f"; ambiguous -- {len(runner_up_ties)} other record(s) scored similarly (no address data to disambiguate)"
 
+    name_signals_diverge = _detect_name_divergence(best_score)
+    if name_signals_diverge:
+        reason += "; business/DBA name and legal taxpayer name disagree -- possible ownership change, review before treating as a confirmed match"
+
     return MatchResult(
         confidence=confidence,
         score=round(best_score.score, 3),
         reason=reason,
         candidate=best_candidate,
         ambiguous=ambiguous,
+        signals=build_signal_breakdown(best_candidate, best_score),
+        name_signals_diverge=name_signals_diverge,
     )

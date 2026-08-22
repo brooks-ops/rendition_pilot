@@ -9,12 +9,20 @@ Examples:
   python -m app.comptroller.cli month-end   # defaults to the previous calendar month
   python -m app.comptroller.cli export --month 2026-08
   python -m app.comptroller.cli export      # defaults to the previous calendar month, all districts
+  python -m app.comptroller.cli detect-new-business --jurisdiction lubbock --dry-run
+  python -m app.comptroller.cli detect-new-business --jurisdiction lubbock
+  python -m app.comptroller.cli run-intelligence --jurisdiction lubbock --dry-run
 
 `sync` and `baseline` both call the same underlying logic
 (app.comptroller.service.sync_county), which auto-detects whether a county
 already has state on file. `baseline` additionally refuses to run for a
 county that already has permit rows, to make re-running it on purpose (rather
 than by accident) an explicit choice.
+
+`detect-new-business`/`run-intelligence` take `--jurisdiction <slug>`, not a
+county name -- see app/comptroller/jurisdictions.py. This is the
+jurisdiction-aware BPP Intelligence Engine; the sales-tax closure commands
+above predate it and still take a plain county name, unchanged.
 """
 
 from __future__ import annotations
@@ -25,9 +33,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from app.comptroller import admin, export, service
+from app.comptroller import admin, export, new_business, service
 from app.comptroller.counties import get_monitored_counties
+from app.comptroller.jurisdictions import JurisdictionError, get_jurisdiction_by_slug
 from app.comptroller.month_end import process_month_end, resolve_target_month
+from app.comptroller.new_business import NewBusinessDetectionError
 
 # This CLI is meant to run standalone (e.g. as a Render Cron Job command),
 # not only inside the FastAPI process -- backend/main.py loads .env at import
@@ -144,6 +154,67 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_detect_new_business(args: argparse.Namespace) -> int:
+    try:
+        jurisdiction = get_jurisdiction_by_slug(args.jurisdiction)
+    except JurisdictionError as exc:
+        print(f"[detect-new-business] {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        result = new_business.run_new_business_detection(
+            jurisdiction.id, dry_run=args.dry_run, reevaluate=args.reevaluate,
+        )
+    except NewBusinessDetectionError as exc:
+        print(f"[detect-new-business] {jurisdiction.slug}: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"[detect-new-business] {jurisdiction.slug}: FAILED - {exc}", file=sys.stderr)
+        return 1
+
+    prefix = "[detect-new-business:dry-run]" if args.dry_run else "[detect-new-business]"
+    print(
+        f"{prefix} {jurisdiction.name}\n"
+        f"  Comptroller records evaluated: {result.evaluated}\n"
+        f"  Existing account -- High confidence: {result.existing_high_confidence}\n"
+        f"  Possible existing account: {result.possible_existing}\n"
+        f"  No account found: {result.no_account_found}\n"
+        f"  Ambiguous: {result.ambiguous}\n"
+        f"  Intelligence items created: {result.items_created}\n"
+        f"  Intelligence items updated: {result.items_updated}\n"
+        f"  Duplicates suppressed: {result.duplicates_suppressed}"
+    )
+    return 0
+
+
+def cmd_run_intelligence(args: argparse.Namespace) -> int:
+    """Runs every intelligence module the jurisdiction has enabled. Only
+    new_business_detection exists today; this dispatcher is the extension
+    point for future modules (relocation, ownership change, etc.) without
+    changing how the job is invoked."""
+
+    try:
+        jurisdiction = get_jurisdiction_by_slug(args.jurisdiction)
+    except JurisdictionError as exc:
+        print(f"[run-intelligence] {exc}", file=sys.stderr)
+        return 1
+
+    exit_code = 0
+    ran_any = False
+
+    if jurisdiction.has_capability("new_business_detection"):
+        ran_any = True
+        exit_code = max(exit_code, cmd_detect_new_business(argparse.Namespace(
+            jurisdiction=args.jurisdiction, dry_run=args.dry_run, reevaluate=False,
+        )))
+
+    if not ran_any:
+        print(f"[run-intelligence] {jurisdiction.name} has no intelligence modules enabled.", file=sys.stderr)
+        return 1
+
+    return exit_code
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m app.comptroller.cli")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -189,6 +260,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output file path (default: comptroller-closures-<month>.xlsx in the current directory).",
     )
     export_parser.set_defaults(func=cmd_export)
+
+    detect_parser = subparsers.add_parser(
+        "detect-new-business", help="Identify newly-active Comptroller locations without a matching BPP account."
+    )
+    detect_parser.add_argument("--jurisdiction", required=True, help="Jurisdiction slug, e.g. 'lubbock'.")
+    detect_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Report classification counts without writing intelligence items or marking permits evaluated.",
+    )
+    detect_parser.add_argument(
+        "--reevaluate", action="store_true",
+        help="Re-run against already-evaluated permits too (normally skipped once evaluated).",
+    )
+    detect_parser.set_defaults(func=cmd_detect_new_business)
+
+    run_intelligence_parser = subparsers.add_parser(
+        "run-intelligence", help="Run every intelligence module a jurisdiction has enabled."
+    )
+    run_intelligence_parser.add_argument("--jurisdiction", required=True, help="Jurisdiction slug, e.g. 'lubbock'.")
+    run_intelligence_parser.add_argument("--dry-run", action="store_true")
+    run_intelligence_parser.set_defaults(func=cmd_run_intelligence)
 
     return parser
 

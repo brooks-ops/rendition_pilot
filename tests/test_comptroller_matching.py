@@ -209,3 +209,81 @@ def test_address_signature_args_are_accepted_and_ignored(monkeypatch):
     )
 
     assert result.confidence == "MEDIUM"
+
+
+# -- transparent signal breakdown (spec: avoid unexplained black-box scores) --
+
+
+def test_signals_mark_unavailable_fields_explicitly_not_as_no_match(monkeypatch):
+    set_records(monkeypatch, [record_row(owner_name="ACME HARDWARE")])
+
+    result = matching.match_closure_to_account(
+        district_id="district-1", permit_legal_name="ACME HARDWARE LLC", permit_location_name="ACME HARDWARE",
+    )
+
+    assert "NOT AVAILABLE" in result.signals["address"]
+    assert "NOT AVAILABLE" in result.signals["zip"]
+    assert "NOT AVAILABLE" in result.signals["suite_unit"]
+    assert "NOT AVAILABLE" in result.signals["property_account"]
+
+
+def test_signals_report_match_for_strong_name(monkeypatch):
+    set_records(monkeypatch, [record_row(owner_name="ACME HARDWARE")])
+
+    result = matching.match_closure_to_account(
+        district_id="district-1", permit_legal_name="ACME HARDWARE LLC", permit_location_name="ACME HARDWARE",
+    )
+
+    assert result.signals["business_dba_name"] == "MATCH"
+    assert "FOUND" in result.signals["existing_rendition_record"]
+
+
+def test_signals_are_none_when_unmatched(monkeypatch):
+    set_records(monkeypatch, [])
+
+    result = matching.match_closure_to_account(
+        district_id="district-1", permit_legal_name="ACME HARDWARE LLC", permit_location_name="ACME HARDWARE",
+    )
+
+    assert result.signals["business_dba_name"] == "NO MATCH"
+    assert result.signals["existing_rendition_record"] == "NONE"
+
+
+# -- ownership-change hint: DBA/legal name divergence ------------------------
+
+
+def test_name_divergence_flagged_when_dba_matches_but_legal_name_does_not(monkeypatch):
+    set_records(monkeypatch, [record_row(owner_name="JOES SPORTS BAR")])
+
+    result = matching.match_closure_to_account(
+        district_id="district-1",
+        permit_legal_name="XYZ HOSPITALITY LLC",
+        permit_location_name="JOE'S SPORTS BAR",
+    )
+
+    assert result.name_signals_diverge is True
+    assert "ownership change" in result.reason
+
+
+def test_name_divergence_not_flagged_when_both_names_agree(monkeypatch):
+    set_records(monkeypatch, [record_row(owner_name="ACME HARDWARE")])
+
+    result = matching.match_closure_to_account(
+        district_id="district-1",
+        permit_legal_name="ACME HARDWARE LLC",
+        permit_location_name="ACME HARDWARE",
+    )
+
+    assert result.name_signals_diverge is False
+
+
+def test_name_divergence_not_flagged_when_neither_name_matches(monkeypatch):
+    set_records(monkeypatch, [record_row(owner_name="TOTALLY UNRELATED CO")])
+
+    result = matching.match_closure_to_account(
+        district_id="district-1",
+        permit_legal_name="ACME HARDWARE LLC",
+        permit_location_name="ACME HARDWARE",
+    )
+
+    assert result.name_signals_diverge is False

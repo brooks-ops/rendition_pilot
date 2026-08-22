@@ -98,3 +98,14 @@ SMTP_HOST="smtp.office365.com"
 SMTP_PORT="587"
 COMPTROLLER_EXPORT_EMAIL_TO="bbarrett@lubbockcad.org"
 ```
+
+## BPP Intelligence Queue + New Business Detection
+
+Generalized review-item model (`bpp_intelligence_items`) plus a jurisdiction abstraction (`jurisdictions`, `app/comptroller/jurisdictions.py`, `app/comptroller/cad_adapter.py`) so future detection modules aren't Lubbock-specific. First module: **New Business Detection** -- identifies newly-active Comptroller locations without a matching RenditionPilot account. Reuses the existing Comptroller sync and matcher; does not modify the sales-tax closure monitor above. Run manually first (no cron enabled for this feature yet):
+
+```bash
+python -m app.comptroller.cli detect-new-business --jurisdiction lubbock --dry-run
+python -m app.comptroller.cli detect-new-business --jurisdiction lubbock
+```
+
+View results at the website's **BPP Intelligence** tab (district admin). Requires `supabase/migrations/20260822_bpp_intelligence_queue.sql` applied. See [docs/bpp_intelligence_queue.md](docs/bpp_intelligence_queue.md) for the full design, why the closure monitor wasn't migrated onto the new table, and known limitations.

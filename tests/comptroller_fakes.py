@@ -19,6 +19,8 @@ class FakeSupabase:
         self.sync_runs: dict[str, dict[str, Any]] = {}
         self.districts: list[dict[str, Any]] = []
         self.closure_reviews: dict[str, dict[str, Any]] = {}
+        self.jurisdictions: dict[str, dict[str, Any]] = {}
+        self.intelligence_items: dict[str, dict[str, Any]] = {}
         self._next_id = 0
         self.calls: list[dict[str, Any]] = []
 
@@ -29,11 +31,20 @@ class FakeSupabase:
     # -- filter helpers ----------------------------------------------------
 
     @staticmethod
-    def _matches_eq(row: dict[str, Any], field: str, expected: str) -> bool:
-        return str(row.get(field)) == expected
+    def _pg_str(value: Any) -> str:
+        # PostgREST/Postgres booleans serialize lowercase ("true"/"false"),
+        # not Python's str(True) == "True" -- a real filter (is_baseline=eq.false)
+        # would silently never match without this.
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        return str(value)
 
     @staticmethod
-    def _apply_simple_filters(rows: list[dict[str, Any]], params: dict[str, Any], skip: set[str]) -> list[dict[str, Any]]:
+    def _matches_eq(row: dict[str, Any], field: str, expected: str) -> bool:
+        return FakeSupabase._pg_str(row.get(field)) == expected
+
+    @classmethod
+    def _apply_simple_filters(cls, rows: list[dict[str, Any]], params: dict[str, Any], skip: set[str]) -> list[dict[str, Any]]:
         result = rows
         for key, value in params.items():
             if key in skip or key in ("select", "order", "limit", "offset", "on_conflict"):
@@ -45,7 +56,7 @@ class FakeSupabase:
                     result = [r for r in result if r.get(key) is None]
                 elif condition.startswith("eq."):
                     expected = condition[len("eq."):]
-                    result = [r for r in result if str(r.get(key)) == expected]
+                    result = [r for r in result if cls._pg_str(r.get(key)) == expected]
                 elif condition.startswith("gte."):
                     expected = condition[len("gte."):]
                     result = [r for r in result if r.get(key) is not None and str(r.get(key)) >= expected]
@@ -115,6 +126,12 @@ class FakeSupabase:
                     self.permit_locations[key] = new_row
                     results.append(new_row)
             return results
+        if method == "PATCH":
+            target_id = self._extract_eq(params, "id")
+            row = next((r for r in self.permit_locations.values() if r.get("id") == target_id), None)
+            if row is not None:
+                row.update(json_payload)
+            return [row] if row else []
         raise AssertionError(f"Unhandled method {method} for comptroller_permit_locations")
 
     # -- comptroller_permit_status_events ------------------------------------
@@ -186,6 +203,35 @@ class FakeSupabase:
             rows = self._apply_simple_filters(list(self.districts), params, skip=set())
             return self._paginate(rows, params)
         raise AssertionError(f"Unhandled method {method} for districts")
+
+    # -- jurisdictions -----------------------------------------------------------
+
+    def _handle_jurisdictions(self, method, params, json_payload):
+        if method == "GET":
+            rows = self._apply_simple_filters(list(self.jurisdictions.values()), params, skip=set())
+            return self._paginate(rows, params)
+        raise AssertionError(f"Unhandled method {method} for jurisdictions")
+
+    # -- bpp_intelligence_items --------------------------------------------------
+
+    def _handle_bpp_intelligence_items(self, method, params, json_payload):
+        if method == "POST":
+            row = dict(json_payload)
+            row["id"] = self._new_id("intel")
+            row.setdefault("created_at", f"2000-01-01T00:00:{len(self.intelligence_items):02d}Z")
+            row.setdefault("updated_at", row["created_at"])
+            self.intelligence_items[row["id"]] = row
+            return [row]
+        if method == "GET":
+            rows = self._apply_simple_filters(list(self.intelligence_items.values()), params, skip=set())
+            return self._paginate(rows, params)
+        if method == "PATCH":
+            target_id = self._extract_eq(params, "id")
+            row = self.intelligence_items.get(target_id)
+            if row is not None:
+                row.update(json_payload)
+            return [row] if row else []
+        raise AssertionError(f"Unhandled method {method} for bpp_intelligence_items")
 
     # -- comptroller_closure_reviews --------------------------------------------
 
