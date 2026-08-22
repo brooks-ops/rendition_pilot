@@ -73,7 +73,7 @@ python extract_pages_ocr.py --pdf "Data/samples/sample_rendition.pdf" --provider
 
 ## Supabase Setup
 
-- Run `supabase/migrations/20260429_multi_district_renditions.sql`, `supabase/migrations/20260430_district_user_roles.sql`, `supabase/migrations/20260430_arb_pilot_access.sql`, `supabase/migrations/20260501_cad_onboarding.sql`, `supabase/migrations/20260601_sherman_cad_access.sql`, and `supabase/migrations/20260818_comptroller_closure_monitor.sql` in the Supabase SQL editor before using New CAD Setup, ARB Pilot signup, or Comptroller closure monitoring.
+- Run `supabase/migrations/20260429_multi_district_renditions.sql`, `supabase/migrations/20260430_district_user_roles.sql`, `supabase/migrations/20260430_arb_pilot_access.sql`, `supabase/migrations/20260501_cad_onboarding.sql`, `supabase/migrations/20260601_sherman_cad_access.sql`, `supabase/migrations/20260818_comptroller_closure_monitor.sql`, `supabase/migrations/20260822_bpp_intelligence_queue.sql`, and `supabase/migrations/20260823_property_enrichment.sql` in the Supabase SQL editor before using New CAD Setup, ARB Pilot signup, Comptroller closure monitoring, BPP Intelligence, or Property Enrichment.
 - Set `APP_BASE_URL` to the public Render app URL so Supabase confirmation emails send users back to the deployed HTML app.
 - In Supabase Auth settings, make sure both the project Site URL and redirect allow list include that same Render URL.
 - The OpenAI OCR/review path only works if the OpenAI project has active quota/billing.
@@ -109,3 +109,14 @@ python -m app.comptroller.cli detect-new-business --jurisdiction lubbock
 ```
 
 View results at the website's **BPP Intelligence** tab (district admin). Requires `supabase/migrations/20260822_bpp_intelligence_queue.sql` applied. See [docs/bpp_intelligence_queue.md](docs/bpp_intelligence_queue.md) for the full design, why the closure monitor wasn't migrated onto the new table, and known limitations.
+
+## Property Enrichment
+
+Answers "what real-property record is most likely associated with this address?" to give New Business Detection a second, independent signal (address) alongside business-name matching -- strong enough corroboration on both makes `EXISTING_ACCOUNT_HIGH_CONFIDENCE` reachable for the first time. Portable by design (a jurisdiction onboards with a property export + field mapping, not new code); no real property/CRS data is loaded for any jurisdiction yet, so `real_property_linkage` stays disabled until one is imported. Requires `supabase/migrations/20260823_property_enrichment.sql` applied.
+
+```bash
+python -m app.comptroller.cli property-import --jurisdiction lubbock --file lubbock_properties.csv
+python -m app.comptroller.cli property-enrich --jurisdiction lubbock --address "5807 88TH PL" --zip 79424
+```
+
+Staff-facing standalone lookup at **BPP > Property Lookup** (district admin); property evidence also appears in the BPP Intelligence detail view when available. See [docs/property_enrichment.md](docs/property_enrichment.md) for the full design, the matching/confidence rules, and a real production data gap (Comptroller street number vs. street name split) found and fixed while building this.

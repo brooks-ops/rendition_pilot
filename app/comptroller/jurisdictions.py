@@ -20,6 +20,12 @@ already-running sales-tax closure monitor -- see that module's docstring for
 why it wasn't migrated onto this table in this pass). All NEW code
 (New Business Detection and beyond) should take a `jurisdiction_id` and go
 through this module, never a bare county name/code string.
+
+`property_field_mapping` follows the same pattern for real-property/CRS data
+(see property_adapter.py/property_matching.py): a jurisdiction with no
+property export loaded has an empty mapping, `real_property_linkage` stays
+disabled, and every consumer degrades to its existing name-only behavior
+rather than failing.
 """
 
 from __future__ import annotations
@@ -31,7 +37,8 @@ from app.comptroller.service import _request_json, get_supabase_config, postgres
 
 _SELECT = (
     "id,district_id,name,slug,county_name,state,timezone,active,"
-    "comptroller_county_code,comptroller_dataset_id,capabilities,cad_field_mapping"
+    "comptroller_county_code,comptroller_dataset_id,capabilities,cad_field_mapping,"
+    "property_field_mapping"
 )
 
 
@@ -53,6 +60,7 @@ class Jurisdiction:
     comptroller_dataset_id: str
     capabilities: dict[str, bool] = field(default_factory=dict)
     cad_field_mapping: dict[str, str] = field(default_factory=dict)
+    property_field_mapping: dict[str, str] = field(default_factory=dict)
 
     def has_capability(self, capability: str) -> bool:
         return bool(self.capabilities.get(capability))
@@ -72,6 +80,7 @@ def _row_to_jurisdiction(row: dict[str, Any]) -> Jurisdiction:
         comptroller_dataset_id=row.get("comptroller_dataset_id") or "3kx8-uryv",
         capabilities=row.get("capabilities") or {},
         cad_field_mapping=row.get("cad_field_mapping") or {},
+        property_field_mapping=row.get("property_field_mapping") or {},
     )
 
 
@@ -108,6 +117,16 @@ def get_jurisdiction_by_county_name(county_name: str) -> Jurisdiction | None:
     return _row_to_jurisdiction(rows[0]) if rows else None
 
 
+def get_jurisdiction_by_district_id(district_id: str) -> Jurisdiction | None:
+    """Resolve a jurisdiction from a RenditionPilot district id -- used by
+    endpoints that only have the requester's district context (e.g. the
+    Property Lookup tool) and need the jurisdiction's property_field_mapping/
+    capabilities to run enrichment for it."""
+
+    rows = _fetch({"district_id": f"eq.{district_id}", "limit": "1"})
+    return _row_to_jurisdiction(rows[0]) if rows else None
+
+
 def list_active_jurisdictions(*, capability: str | None = None) -> list[Jurisdiction]:
     jurisdictions = [_row_to_jurisdiction(row) for row in _fetch({"active": "eq.true"})]
     if capability:
@@ -131,6 +150,13 @@ CAPABILITY_FIELD_REQUIREMENTS: dict[str, dict[str, list[str]]] = {
         "required": ["owner_name"],
         "optional": ["situs_address", "dba_name"],
     },
+    # Checked against a jurisdiction's own property_field_mapping keys
+    # (which normalized fields it has mapped to a raw export column), not a
+    # CadAdapter's AVAILABLE_ACCOUNT_FIELDS -- see property_adapter.py.
+    "real_property_linkage": {
+        "required": ["source_property_id", "situs_address"],
+        "optional": ["real_account_number", "situs_zip", "tug", "neighborhood", "map_id"],
+    },
 }
 
 FIELD_LABELS: dict[str, str] = {
@@ -140,6 +166,12 @@ FIELD_LABELS: dict[str, str] = {
     "dba_name": "DBA name",
     "mailing_address": "mailing address",
     "property_type": "property type",
+    "source_property_id": "property source ID",
+    "real_account_number": "real-property account number",
+    "situs_zip": "property ZIP",
+    "tug": "TUG code",
+    "neighborhood": "neighborhood code",
+    "map_id": "map ID",
 }
 
 

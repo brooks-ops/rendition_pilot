@@ -123,12 +123,23 @@ def _parse_row(row: dict[str, Any]) -> PermitRecord | None:
     out_of_business_date = _parse_socrata_date(row.get("out_of_business_date"))
     current_status = "INACTIVE" if out_of_business_date is not None else "ACTIVE"
 
+    # The Comptroller dataset splits the street number (address_number, e.g.
+    # "3612") from the street name (address_text, e.g. "122ND ST") into two
+    # separate fields. Name-only matching (the sales-tax closure monitor)
+    # never needed this combined -- see matching.py's module docstring -- but
+    # Property Enrichment's street-number signal (property_matching.py) does,
+    # so this recombines them into one full street address, matching how the
+    # Comptroller's own tp_address field already formats it ("3612 122ND ST").
+    address_number = _clean_text(row.get("address_number"))
+    address_text = _clean_text(row.get("address_text"))
+    combined_address = f"{address_number} {address_text}".strip() if address_number else address_text
+
     return PermitRecord(
         taxpayer_id=taxpayer_id,
         location_number=location_number,
         legal_name=_clean_text(row.get("tp_name")),
         location_name=_clean_text(row.get("loc_name")),
-        address=_clean_text(row.get("address_text")),
+        address=combined_address,
         city=_clean_text(row.get("loc_city")),
         state=_clean_text(row.get("loc_state")),
         zip=_clean_text(row.get("loc_zip")),

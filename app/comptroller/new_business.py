@@ -52,6 +52,9 @@ from typing import Any
 from app.comptroller.cad_adapter import get_cad_adapter
 from app.comptroller.jurisdictions import Jurisdiction, get_jurisdiction, validate_capability
 from app.comptroller.matching import MatchCandidate, MatchResult, match_closure_to_account
+from app.comptroller.property_adapter import PropertySourceError, get_property_adapter
+from app.comptroller.property_enrichment import CAPABILITY as PROPERTY_CAPABILITY
+from app.comptroller.property_enrichment import PropertyEnrichmentError, run_property_enrichment
 from app.comptroller.service import _paginated_get, _request_json, get_supabase_config, postgrest_headers
 
 CAPABILITY = "new_business_detection"
@@ -225,8 +228,10 @@ def _build_item_payload(
     match_result: MatchResult,
     classification: str,
     priority: str,
+    property_match: Any | None = None,
 ) -> dict[str, Any]:
     matched = match_result.candidate
+    matched_property = getattr(property_match, "matched_property", None) if property_match is not None else None
     return {
         "jurisdiction_id": jurisdiction.id,
         "district_id": jurisdiction.district_id,
@@ -254,6 +259,13 @@ def _build_item_payload(
         "matched_record_id": matched.record_id if matched else None,
         "matched_account_number": matched.account_number if matched else None,
         "matched_owner_name": matched.owner_name if matched else None,
+        "matched_address": matched_property.situs_address_raw if matched_property else None,
+        "property_account_number": matched_property.real_account_number if matched_property else None,
+        "property_match_status": getattr(property_match, "classification", None),
+        "property_record_id": matched_property.property_id if matched_property else None,
+        "tug": matched_property.tug if matched_property else None,
+        "neighborhood": matched_property.neighborhood if matched_property else None,
+        "map_id": matched_property.map_id if matched_property else None,
         "match_score": match_result.score,
         "match_reason": match_result.reason,
         "match_signals": match_result.signals,
@@ -286,6 +298,23 @@ def run_new_business_detection(
     if not validation.ok:
         raise NewBusinessDetectionError(validation.message)
 
+    # Property Enrichment is optional, additive corroboration -- a
+    # jurisdiction with no property data loaded (the default; see
+    # property_enrichment.py) must never block or change New Business
+    # Detection's existing name-only behavior. Any failure here silently
+    # disables enrichment for this run rather than raising.
+    all_properties: list | None = None
+    if jurisdiction.has_capability(PROPERTY_CAPABILITY):
+        property_validation = validate_capability(
+            jurisdiction, PROPERTY_CAPABILITY, frozenset(jurisdiction.property_field_mapping.keys())
+        )
+        if property_validation.ok:
+            try:
+                property_adapter_instance = get_property_adapter(jurisdiction)
+                all_properties = property_adapter_instance.search_properties(jurisdiction)
+            except PropertySourceError:
+                all_properties = None
+
     candidates = get_new_business_candidates(jurisdiction, reevaluate=reevaluate)
 
     # Fetch once, reuse for every candidate in this run (mirrors month_end.py's
@@ -313,11 +342,28 @@ def run_new_business_detection(
     item_ids: list[str] = []
 
     for candidate in candidates:
+        property_match = None
+        if all_properties is not None and candidate.address:
+            try:
+                outcome = run_property_enrichment(
+                    jurisdiction,
+                    subject_type="NEW_BUSINESS_CANDIDATE",
+                    subject_id=candidate.source_record_id,
+                    input_address=candidate.address,
+                    input_zip=candidate.zip,
+                    candidates=all_properties,
+                    dry_run=dry_run,
+                )
+                property_match = outcome.result
+            except PropertyEnrichmentError:
+                property_match = None
+
         match_result = match_closure_to_account(
             district_id=jurisdiction.district_id,
             permit_legal_name=candidate.legal_name,
             permit_location_name=candidate.location_name,
             candidates=match_candidates,
+            property_match=property_match,
         )
         classification, priority = classify_match(match_result)
 
@@ -341,7 +387,7 @@ def run_new_business_detection(
         if not dry_run:
             if create_alert:
                 existing = _find_existing_item(candidate.source_record_id)
-                payload = _build_item_payload(jurisdiction, candidate, match_result, classification, priority)
+                payload = _build_item_payload(jurisdiction, candidate, match_result, classification, priority, property_match)
                 if existing is None:
                     created = _create_item(payload)
                     items_created += 1

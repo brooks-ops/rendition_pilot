@@ -24,16 +24,25 @@ internal appraisal account number in a completely different numbering space
 from the Comptroller's `taxpayer_id`/`location_number` -- it cannot be
 compared for equality, only carried through as a display field on a match.
 
-Because of that, HIGH confidence is intentionally unreachable by this
-module's logic: a single name-similarity signal, with nothing to corroborate
-it, is exactly the kind of "maybe, but I can't be sure" evidence that should
-never be labeled with the same confidence as a genuinely corroborated match
-(address + ZIP + name, in the original address-aware design this module had
-before the real schema was inspected). If RenditionPilot's data model is ever
-extended to store a situs address, city/ZIP, or a cross-referenced taxpayer
-ID, add that as a second signal here and HIGH becomes reachable again -- see
-git history / docs/comptroller_closure_monitor.md for the address-aware
-version this replaced.
+Because of that, HIGH confidence is unreachable from name evidence alone: a
+single name-similarity signal, with nothing to corroborate it, is exactly the
+kind of "maybe, but I can't be sure" evidence that should never be labeled
+with the same confidence as a genuinely corroborated match (address + ZIP +
+name, in the original address-aware design this module had before the real
+schema was inspected).
+
+Property Enrichment (see property_matching.py/property_enrichment.py) adds
+that missing second signal back, from an independent source: a Comptroller
+permit's address can be resolved against a jurisdiction's real-property
+records (loaded from a county property export, not from RenditionPilot's own
+account data, which still has no address). `match_closure_to_account`'s
+optional `property_match` parameter carries that result in; HIGH is only ever
+returned when BOTH a strong name match AND an exact/strong property-address
+match agree on the SAME account number (the property record's
+`real_account_number` equals the candidate's `account_number`) -- an exact
+address match alone, or a name match alone, is never enough. Jurisdictions
+with no property data loaded (`property_match=None`, the default) get the
+exact unreachable-HIGH behavior described above, unchanged.
 
 NOT YET POPULATED: as of 2026-08-21, `rendition_uploads`, `rendition_jobs`,
 and `parsed_rendition_results` all exist but contain zero rows, and nothing
@@ -265,12 +274,24 @@ def _detect_name_divergence(cs: CandidateScore) -> bool:
     return one_strong_one_weak
 
 
-def build_signal_breakdown(candidate: MatchCandidate | None, cs: CandidateScore | None) -> dict[str, str]:
+def build_signal_breakdown(
+    candidate: MatchCandidate | None,
+    cs: CandidateScore | None,
+    *,
+    property_match: "object | None" = None,
+) -> dict[str, str]:
     """Every signal a reviewer might expect to see, explicitly marked
     NOT AVAILABLE where RenditionPilot has no data for it -- never silently
     dropped, so the UI can show the exact table the product spec asks for
     without implying a signal was checked and failed when it was never
-    checkable at all."""
+    checkable at all.
+
+    `property_match` (a property_matching.PropertyMatchResult, when a
+    jurisdiction has real-property data loaded) fills in the address/ZIP/
+    suite/property-account rows that would otherwise read NOT AVAILABLE --
+    typed loosely here to avoid matching.py depending on property_matching.py
+    for anything but this optional display detail.
+    """
 
     breakdown = {
         "address": "NOT AVAILABLE (RenditionPilot has no situs address data)",
@@ -287,15 +308,40 @@ def build_signal_breakdown(candidate: MatchCandidate | None, cs: CandidateScore 
     breakdown["business_dba_name"] = _signal_label(cs.dba_score)
     breakdown["legal_entity_name"] = _signal_label(cs.legal_score)
     breakdown["existing_rendition_record"] = f"FOUND ({candidate.record_id})"
+
+    if property_match is not None and getattr(property_match, "signals", None):
+        pm_signals = property_match.signals
+        breakdown["address"] = f"{property_match.classification} ({pm_signals.get('street_name', 'NO MATCH')})"
+        breakdown["zip"] = pm_signals.get("zip", breakdown["zip"])
+        breakdown["suite_unit"] = pm_signals.get("suite", breakdown["suite_unit"])
+        matched_property = property_match.matched_property
+        if matched_property is not None and matched_property.real_account_number:
+            breakdown["property_account"] = (
+                f"{matched_property.real_account_number}"
+                f"{' (MATCHES account)' if candidate.account_number and _accounts_equal(matched_property.real_account_number, candidate.account_number) else ''}"
+            )
+        else:
+            breakdown["property_account"] = "NOT AVAILABLE (no property record matched)"
+
     return breakdown
 
 
+def _clean_account_number(value: str) -> str:
+    return "".join(ch for ch in value.upper() if ch.isalnum())
+
+
+def _accounts_equal(a: str | None, b: str | None) -> bool:
+    if not a or not b:
+        return False
+    return _clean_account_number(a) == _clean_account_number(b)
+
+
 def _classify_confidence(cs: CandidateScore) -> str:
-    """HIGH is not reachable here: a lone, uncorroborated name-similarity
-    signal (no address/ZIP/cross-referenced ID exists in RenditionPilot's
-    current data model to check it against) is only ever "maybe the same
-    business," never "confirmed." See the module docstring for what would
-    need to change for HIGH to become reachable.
+    """HIGH is not reachable from name evidence alone: a lone,
+    uncorroborated name-similarity signal is only ever "maybe the same
+    business," never "confirmed." match_closure_to_account() may still
+    upgrade MEDIUM to HIGH afterward if independent property corroboration
+    agrees -- see this module's docstring and property_matching.py.
     """
 
     if cs.name_strong:
@@ -317,6 +363,11 @@ def match_closure_to_account(
     permit_address: str | None = None,
     permit_city: str | None = None,
     permit_zip: str | None = None,
+    # Optional independent corroboration from Property Enrichment (see
+    # property_matching.PropertyMatchResult). None (the default) means "no
+    # property data loaded for this jurisdiction" and reproduces the exact
+    # name-only behavior this module always had. See module docstring.
+    property_match: "object | None" = None,
 ) -> MatchResult:
     """Match one closure against a district's rendition records.
 
@@ -326,7 +377,7 @@ def match_closure_to_account(
     record list once rather than re-querying Supabase for every event.
     """
 
-    empty_signals = build_signal_breakdown(None, None)
+    empty_signals = build_signal_breakdown(None, None, property_match=property_match)
 
     if not district_id:
         return MatchResult(
@@ -390,12 +441,29 @@ def match_closure_to_account(
     if name_signals_diverge:
         reason += "; business/DBA name and legal taxpayer name disagree -- possible ownership change, review before treating as a confirmed match"
 
+    # Property corroboration (spec: "Make HIGH confidence reachable through
+    # corroboration"). Requires ALL of: unambiguous name match, a strong name
+    # signal, an exact/strong property-address match, AND that property's
+    # real-property account number matching this candidate's account number.
+    # Address match alone, or name match alone, never produces HIGH -- see
+    # module docstring.
+    if (
+        not ambiguous
+        and best_score.name_strong
+        and property_match is not None
+        and getattr(property_match, "classification", None) in ("EXACT_PROPERTY_MATCH", "STRONG_PROPERTY_MATCH")
+        and getattr(property_match, "matched_property", None) is not None
+        and _accounts_equal(property_match.matched_property.real_account_number, best_candidate.account_number)
+    ):
+        confidence = "HIGH"
+        reason += "; corroborated by an exact property/account match at the same address"
+
     return MatchResult(
         confidence=confidence,
         score=round(best_score.score, 3),
         reason=reason,
         candidate=best_candidate,
         ambiguous=ambiguous,
-        signals=build_signal_breakdown(best_candidate, best_score),
+        signals=build_signal_breakdown(best_candidate, best_score, property_match=property_match),
         name_signals_diverge=name_signals_diverge,
     )

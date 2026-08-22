@@ -49,6 +49,9 @@ from app.review_workflow import (
 from app.comptroller import admin as comptroller_admin
 from app.comptroller import export as comptroller_export
 from app.comptroller import intelligence as comptroller_intelligence
+from app.comptroller import jurisdictions as comptroller_jurisdictions
+from app.comptroller import property_adapter as comptroller_property_adapter
+from app.comptroller import property_enrichment as comptroller_property_enrichment
 from app.comptroller.service import ComptrollerServiceError
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
@@ -324,6 +327,12 @@ class IntelligenceResolveRequest(IntelligenceItemRequest):
 
 class IntelligenceDismissRequest(IntelligenceItemRequest):
     resolution_notes: str | None = None
+
+
+class PropertyLookupRequest(BaseModel):
+    access_token: str
+    address: str
+    zip: str | None = None
 
 
 class ARBAuthRequest(BaseModel):
@@ -2000,6 +2009,62 @@ def intelligence_resolve(request: IntelligenceResolveRequest) -> dict[str, Any]:
     except comptroller_intelligence.IntelligenceQueueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"item": to_jsonable(asdict(item))}
+
+
+# --- Property Lookup ----------------------------------------------------------
+#
+# Standalone diagnostic tool over app.comptroller.property_enrichment, so
+# staff can validate address-to-property matching independently of New
+# Business Detection. Read-only against real_property_records; the one
+# write is an advisory property_enrichment_results cache row, never
+# official CAD data (see property_enrichment.py's module docstring).
+
+
+@app.post("/api/admin/property/lookup")
+def property_lookup(request: PropertyLookupRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
+    if jurisdiction is None:
+        raise HTTPException(status_code=404, detail="No jurisdiction is configured for this district yet.")
+    try:
+        adapter = comptroller_property_adapter.get_property_adapter(jurisdiction)
+        candidates = adapter.search_properties(jurisdiction)
+        outcome = comptroller_property_enrichment.run_property_enrichment(
+            jurisdiction,
+            subject_type="AD_HOC_LOOKUP",
+            subject_id=f"lookup:{request.address}:{request.zip or ''}",
+            input_address=request.address,
+            input_zip=request.zip,
+            candidates=candidates,
+        )
+    except comptroller_property_enrichment.PropertyEnrichmentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ComptrollerServiceError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    result = outcome.result
+    matched = result.matched_property
+    return to_jsonable({
+        "normalized_address": result.normalized_input.normalized if result.normalized_input else None,
+        "candidate_count": result.candidate_count,
+        "classification": result.classification,
+        "confidence": result.confidence,
+        "score": result.score,
+        "reasons": result.reasons,
+        "signals": result.signals,
+        "matched_property": {
+            "property_id": matched.source_property_id,
+            "real_account_number": matched.real_account_number,
+            "situs_address": matched.situs_address_raw,
+            "tug": matched.tug,
+            "neighborhood": matched.neighborhood,
+            "map_id": matched.map_id,
+        } if matched else None,
+        "alternatives": [
+            {"property_id": a.source_property_id, "situs_address": a.situs_address_raw}
+            for a in result.alternatives
+        ],
+    })
 
 
 @app.post("/api/admin/intelligence/dismiss")

@@ -109,6 +109,17 @@ class UnifiedIntelligenceItem:
     jurisdiction_id: str | None
     created_at: str | None
     raw: dict[str, Any]
+    # Property Enrichment evidence (see app/comptroller/property_enrichment.py)
+    # -- always None for closure-review rows and for jurisdictions with no
+    # property data loaded, never fabricated. Defaulted so existing
+    # construction sites (tests, callers) don't need updating for an
+    # additive field.
+    property_match_status: str | None = None
+    matched_address: str | None = None
+    property_account_number: str | None = None
+    tug: str | None = None
+    neighborhood: str | None = None
+    map_id: str | None = None
 
 
 def _from_intelligence_row(row: dict[str, Any]) -> UnifiedIntelligenceItem:
@@ -143,6 +154,12 @@ def _from_intelligence_row(row: dict[str, Any]) -> UnifiedIntelligenceItem:
         district_id=row.get("district_id"),
         jurisdiction_id=row.get("jurisdiction_id"),
         created_at=row.get("created_at"),
+        property_match_status=row.get("property_match_status"),
+        matched_address=row.get("matched_address"),
+        property_account_number=row.get("property_account_number"),
+        tug=row.get("tug"),
+        neighborhood=row.get("neighborhood"),
+        map_id=row.get("map_id"),
         raw=row,
     )
 
@@ -180,6 +197,12 @@ def _from_closure_review_row(row: dict[str, Any]) -> UnifiedIntelligenceItem:
         district_id=row.get("district_id"),
         jurisdiction_id=None,
         created_at=row.get("created_at"),
+        property_match_status=None,
+        matched_address=row.get("matched_situs_address"),
+        property_account_number=None,
+        tug=None,
+        neighborhood=None,
+        map_id=None,
         raw=row,
     )
 

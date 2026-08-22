@@ -12,6 +12,9 @@ Examples:
   python -m app.comptroller.cli detect-new-business --jurisdiction lubbock --dry-run
   python -m app.comptroller.cli detect-new-business --jurisdiction lubbock
   python -m app.comptroller.cli run-intelligence --jurisdiction lubbock --dry-run
+  python -m app.comptroller.cli property-import --jurisdiction lubbock --file lubbock_properties.csv
+  python -m app.comptroller.cli property-import --jurisdiction lubbock --file lubbock_properties.csv --dry-run
+  python -m app.comptroller.cli property-enrich --jurisdiction lubbock --address "5807 88TH PL" --zip 79424
 
 `sync` and `baseline` both call the same underlying logic
 (app.comptroller.service.sync_county), which auto-detects whether a county
@@ -33,11 +36,13 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from app.comptroller import admin, export, new_business, service
+from app.comptroller import admin, export, new_business, property_adapter, property_enrichment, property_import, service
 from app.comptroller.counties import get_monitored_counties
 from app.comptroller.jurisdictions import JurisdictionError, get_jurisdiction_by_slug
 from app.comptroller.month_end import process_month_end, resolve_target_month
 from app.comptroller.new_business import NewBusinessDetectionError
+from app.comptroller.property_enrichment import PropertyEnrichmentError
+from app.comptroller.property_import import PropertyImportError
 
 # This CLI is meant to run standalone (e.g. as a Render Cron Job command),
 # not only inside the FastAPI process -- backend/main.py loads .env at import
@@ -215,6 +220,83 @@ def cmd_run_intelligence(args: argparse.Namespace) -> int:
     return exit_code
 
 
+def cmd_property_import(args: argparse.Namespace) -> int:
+    try:
+        jurisdiction = get_jurisdiction_by_slug(args.jurisdiction)
+    except JurisdictionError as exc:
+        print(f"[property-import] {exc}", file=sys.stderr)
+        return 1
+
+    csv_path = Path(args.file)
+    if not csv_path.exists():
+        print(f"[property-import] {jurisdiction.slug}: file not found: {csv_path}", file=sys.stderr)
+        return 1
+
+    try:
+        result = property_import.import_property_csv(
+            jurisdiction, csv_path.read_text(), source_as_of_date=args.as_of, notes=args.notes, dry_run=args.dry_run,
+        )
+    except PropertyImportError as exc:
+        print(f"[property-import] {jurisdiction.slug}: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"[property-import] {jurisdiction.slug}: FAILED - {exc}", file=sys.stderr)
+        return 1
+
+    prefix = "[property-import:dry-run]" if args.dry_run else "[property-import]"
+    print(
+        f"{prefix} {jurisdiction.name}\n"
+        f"  Rows read: {result.rows_read}\n"
+        f"  Rows imported: {result.rows_imported}\n"
+        f"  Rows skipped (no source property id): {result.rows_skipped}\n"
+        f"  Import batch id: {result.import_id or '(dry-run, not recorded)'}"
+    )
+    return 0
+
+
+def cmd_property_enrich(args: argparse.Namespace) -> int:
+    try:
+        jurisdiction = get_jurisdiction_by_slug(args.jurisdiction)
+    except JurisdictionError as exc:
+        print(f"[property-enrich] {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        adapter = property_adapter.get_property_adapter(jurisdiction)
+        candidates = adapter.search_properties(jurisdiction)
+        outcome = property_enrichment.run_property_enrichment(
+            jurisdiction,
+            subject_type="AD_HOC_LOOKUP",
+            subject_id=f"cli:{args.address}:{args.zip or ''}",
+            input_address=args.address,
+            input_zip=args.zip,
+            candidates=candidates,
+            dry_run=args.dry_run,
+        )
+    except PropertyEnrichmentError as exc:
+        print(f"[property-enrich] {jurisdiction.slug}: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"[property-enrich] {jurisdiction.slug}: FAILED - {exc}", file=sys.stderr)
+        return 1
+
+    result = outcome.result
+    matched = result.matched_property
+    print(
+        f"[property-enrich] {jurisdiction.name}\n"
+        f"  Normalized: {result.normalized_input.normalized if result.normalized_input else ''}\n"
+        f"  Candidates evaluated: {result.candidate_count}\n"
+        f"  Best match: {'PropertyID ' + matched.source_property_id if matched else 'none'}"
+        f"{' / R Account ' + matched.real_account_number if matched and matched.real_account_number else ''}\n"
+        f"  Classification: {result.classification}\n"
+        f"  Confidence: {result.confidence}\n"
+        f"  Reasons: {'; '.join(result.reasons)}"
+    )
+    if result.alternatives:
+        print(f"  Alternative candidates: {', '.join(a.source_property_id for a in result.alternatives)}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m app.comptroller.cli")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -281,6 +363,29 @@ def build_parser() -> argparse.ArgumentParser:
     run_intelligence_parser.add_argument("--jurisdiction", required=True, help="Jurisdiction slug, e.g. 'lubbock'.")
     run_intelligence_parser.add_argument("--dry-run", action="store_true")
     run_intelligence_parser.set_defaults(func=cmd_run_intelligence)
+
+    property_import_parser = subparsers.add_parser(
+        "property-import", help="Import a county property/CRS export CSV into the normalized property table."
+    )
+    property_import_parser.add_argument("--jurisdiction", required=True, help="Jurisdiction slug, e.g. 'lubbock'.")
+    property_import_parser.add_argument("--file", required=True, help="Path to the property export CSV.")
+    property_import_parser.add_argument("--as-of", default=None, help="Source data's as-of date, YYYY-MM-DD.")
+    property_import_parser.add_argument("--notes", default=None, help="Free-text note about this import batch.")
+    property_import_parser.add_argument(
+        "--dry-run", action="store_true", help="Report row counts without writing any property records.",
+    )
+    property_import_parser.set_defaults(func=cmd_property_import)
+
+    property_enrich_parser = subparsers.add_parser(
+        "property-enrich", help="Look up the real-property record most likely associated with an address."
+    )
+    property_enrich_parser.add_argument("--jurisdiction", required=True, help="Jurisdiction slug, e.g. 'lubbock'.")
+    property_enrich_parser.add_argument("--address", required=True, help="Address to match, e.g. '5807 88TH PL'.")
+    property_enrich_parser.add_argument("--zip", default=None, help="ZIP code, if known.")
+    property_enrich_parser.add_argument(
+        "--dry-run", action="store_true", help="Report the match without caching it in property_enrichment_results.",
+    )
+    property_enrich_parser.set_defaults(func=cmd_property_enrich)
 
     return parser
 

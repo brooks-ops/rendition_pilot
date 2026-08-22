@@ -21,6 +21,9 @@ class FakeSupabase:
         self.closure_reviews: dict[str, dict[str, Any]] = {}
         self.jurisdictions: dict[str, dict[str, Any]] = {}
         self.intelligence_items: dict[str, dict[str, Any]] = {}
+        self.real_property_records: dict[str, dict[str, Any]] = {}
+        self.property_source_imports: dict[str, dict[str, Any]] = {}
+        self.property_enrichment_results: dict[str, dict[str, Any]] = {}
         self._next_id = 0
         self.calls: list[dict[str, Any]] = []
 
@@ -66,7 +69,25 @@ class FakeSupabase:
                 elif condition.startswith("not.in.("):
                     excluded = condition[len("not.in.("):-1].split(",")
                     result = [r for r in result if str(r.get(key)) not in excluded]
+                elif condition.startswith("ilike."):
+                    result = [r for r in result if cls._matches_ilike(r.get(key), condition[len("ilike."):])]
         return result
+
+    @staticmethod
+    def _matches_ilike(value: Any, pattern: str) -> bool:
+        # PostgREST ilike uses "*" where SQL ilike uses "%".
+        if value is None:
+            return False
+        value = str(value).upper()
+        prefix, suffix = pattern.startswith("*"), pattern.endswith("*")
+        core = pattern.strip("*").upper()
+        if prefix and suffix:
+            return core in value
+        if suffix:
+            return value.startswith(core)
+        if prefix:
+            return value.endswith(core)
+        return value == core
 
     # -- request dispatch ----------------------------------------------------
 
@@ -254,6 +275,84 @@ class FakeSupabase:
                 row.update(json_payload)
             return [row] if row else []
         raise AssertionError(f"Unhandled method {method} for comptroller_closure_reviews")
+
+    # -- real_property_records -----------------------------------------------
+
+    def _handle_real_property_records(self, method, params, json_payload):
+        if method == "GET":
+            rows = self._apply_simple_filters(list(self.real_property_records.values()), params, skip=set())
+            return self._paginate(rows, params)
+        if method == "POST":
+            payload_rows = json_payload if isinstance(json_payload, list) else [json_payload]
+            results = []
+            for incoming in payload_rows:
+                key = f"{incoming['jurisdiction_id']}::{incoming['source_property_id']}"
+                existing = self.real_property_records.get(key)
+                if existing:
+                    merged = {**existing, **incoming, "id": existing["id"]}
+                    self.real_property_records[key] = merged
+                    results.append(merged)
+                else:
+                    new_row = dict(incoming)
+                    new_row["id"] = self._new_id("prop")
+                    self.real_property_records[key] = new_row
+                    results.append(new_row)
+            return results
+        raise AssertionError(f"Unhandled method {method} for real_property_records")
+
+    # -- property_source_imports ----------------------------------------------
+
+    def _handle_property_source_imports(self, method, params, json_payload):
+        if method == "POST":
+            payload_row = json_payload[0] if isinstance(json_payload, list) else json_payload
+            row = dict(payload_row)
+            row["id"] = self._new_id("import")
+            row.setdefault("imported_at", f"2000-01-01T00:00:{len(self.property_source_imports):02d}Z")
+            self.property_source_imports[row["id"]] = row
+            return [row]
+        if method == "GET":
+            rows = self._apply_simple_filters(list(self.property_source_imports.values()), params, skip=set())
+            order = str(params.get("order") or "")
+            if "imported_at.desc" in order:
+                rows = sorted(rows, key=lambda r: r.get("imported_at", ""), reverse=True)
+            return self._paginate(rows, params)
+        if method == "PATCH":
+            target_id = self._extract_eq(params, "id")
+            row = self.property_source_imports.get(target_id)
+            if row is not None:
+                row.update(json_payload)
+            return [row] if row else []
+        raise AssertionError(f"Unhandled method {method} for property_source_imports")
+
+    # -- property_enrichment_results -------------------------------------------
+
+    def _handle_property_enrichment_results(self, method, params, json_payload):
+        if method == "GET":
+            rows = self._apply_simple_filters(list(self.property_enrichment_results.values()), params, skip=set())
+            return self._paginate(rows, params)
+        if method == "POST":
+            payload_rows = json_payload if isinstance(json_payload, list) else [json_payload]
+            results = []
+            for incoming in payload_rows:
+                key = f"{incoming['jurisdiction_id']}::{incoming['subject_type']}::{incoming['subject_id']}"
+                existing = self.property_enrichment_results.get(key)
+                if existing:
+                    # merge-duplicates upsert: only columns present in the
+                    # incoming payload are replaced -- review_status (never
+                    # sent by property_enrichment.py on refresh) survives.
+                    merged = {**existing, **incoming, "id": existing["id"]}
+                    self.property_enrichment_results[key] = merged
+                    results.append(merged)
+                else:
+                    new_row = dict(incoming)
+                    new_row["id"] = self._new_id("penrich")
+                    new_row.setdefault("review_status", "NOT_REVIEWED")
+                    new_row.setdefault("created_at", f"2000-01-01T00:00:{len(self.property_enrichment_results):02d}Z")
+                    new_row["updated_at"] = new_row["created_at"]
+                    self.property_enrichment_results[key] = new_row
+                    results.append(new_row)
+            return results
+        raise AssertionError(f"Unhandled method {method} for property_enrichment_results")
 
     # -- shared helpers ----------------------------------------------------
 
