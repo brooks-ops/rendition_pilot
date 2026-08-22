@@ -679,6 +679,22 @@
             </table>
           </div>
         </section>
+
+        <section class="card">
+          <h3>Comptroller Closures</h3>
+          <div class="subtle" style="margin-bottom:12px;">Download the Texas Comptroller sales-tax closure review queue for a month as an Excel file. Each row is a possible closure signal, not confirmed fact -- see the Match Confidence and Match Reason columns.</div>
+          <div class="layout-3">
+            <div class="field">
+              <label for="comptroller-export-month">Month</label>
+              <input id="comptroller-export-month" type="month">
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <button id="comptroller-export-download" type="button">Download Excel</button>
+            </div>
+          </div>
+          <div id="comptroller-export-status" class="status hidden"></div>
+        </section>
       </div>
     </section>
   </div>
@@ -866,7 +882,10 @@
         $("signed-in-district").textContent = `District: ${appState.auth.district.district_name} | Role: ${appState.auth.district.role || "member"}`;
         $("app-subtitle").textContent = `${appState.auth.district.district_name} | Intelligent BPP rendition review with side-by-side document verification.`;
         $("admin-tab").classList.toggle("hidden", !isAdmin);
-        if (isAdmin) refreshDistrictUsers();
+        if (isAdmin) {
+          refreshDistrictUsers();
+          if (!$("comptroller-export-month").value) $("comptroller-export-month").value = defaultComptrollerExportMonth();
+        }
       } else {
         $("app-subtitle").textContent = "Authorized rendition review access only.";
         $("admin-tab").classList.add("hidden");
@@ -1879,6 +1898,40 @@
       })));
     }
 
+    function defaultComptrollerExportMonth() {
+      const now = new Date();
+      const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const year = previousMonth.getFullYear();
+      const month = String(previousMonth.getMonth() + 1).padStart(2, "0");
+      return `${year}-${month}`;
+    }
+
+    async function downloadComptrollerExport() {
+      const status = $("comptroller-export-status");
+      const reviewMonth = $("comptroller-export-month").value || defaultComptrollerExportMonth();
+      status.className = "status";
+      status.textContent = `Preparing ${reviewMonth} export...`;
+      status.classList.remove("hidden");
+      try {
+        const response = await fetch(`${API_BASE}/api/admin/comptroller/review-queue/export`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: appState.auth.access_token, review_month: reviewMonth })
+        });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || "Could not generate the closure export.");
+        }
+        const workbook = await response.blob();
+        downloadBlob(workbook, `comptroller-closures-${reviewMonth}.xlsx`);
+        status.textContent = `Downloaded the ${reviewMonth} closure export.`;
+        status.className = "status success";
+      } catch (error) {
+        status.textContent = error.message;
+        status.className = "status error";
+      }
+    }
+
     function renderTable(headId, bodyId, rows) {
       const head = $(headId);
       const body = $(bodyId);
@@ -2129,6 +2182,7 @@
       $("refresh-users").addEventListener("click", async () => {
         try { await refreshDistrictUsers(); } catch (error) { showFlash(error.message, "error"); }
       });
+      $("comptroller-export-download").addEventListener("click", downloadComptrollerExport);
       $("invite-submit").addEventListener("click", async () => {
         try {
           const email = $("invite-email").value.trim().toLowerCase();

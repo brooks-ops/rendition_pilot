@@ -45,6 +45,9 @@ from app.review_workflow import (
     safe_stem,
     stamp_reviewed_pdf_bytes,
 )
+from app.comptroller import admin as comptroller_admin
+from app.comptroller import export as comptroller_export
+from app.comptroller.service import ComptrollerServiceError
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "app" / ".env", override=True)
@@ -270,6 +273,28 @@ class CadOnboardingRequest(BaseModel):
 class CadScheduleSaveRequest(BaseModel):
     access_token: str
     schedule: CadScheduleRequest
+
+
+class ComptrollerStatusRequest(BaseModel):
+    access_token: str
+
+
+class ComptrollerReviewQueueRequest(BaseModel):
+    access_token: str
+    review_month: str | None = None
+    workflow_status: str | None = None
+
+
+class ComptrollerReviewUpdateRequest(BaseModel):
+    access_token: str
+    review_id: str
+    workflow_status: str
+    reviewer_notes: str | None = None
+
+
+class ComptrollerReviewExportRequest(BaseModel):
+    access_token: str
+    review_month: str
 
 
 class ARBAuthRequest(BaseModel):
@@ -1782,3 +1807,82 @@ def review_save(request: SaveReviewRequest) -> Response:
 @app.get("/api/review-queue")
 def review_queue_disabled() -> dict[str, Any]:
     raise HTTPException(status_code=410, detail="Review queue is disabled.")
+
+
+# --- Texas Comptroller sales-tax permit closure monitoring -----------------
+#
+# Read-only observability + a review-queue workflow status endpoint for the
+# feature implemented in app/comptroller/. Gated the same way as CAD
+# onboarding (require_district_admin): the caller must be an admin of the
+# district that owns the permit data being viewed/updated. These endpoints
+# never write appraisal/account/BPP/exemption data -- see
+# app.comptroller.admin.update_review_workflow.
+
+
+@app.post("/api/admin/comptroller/status")
+def comptroller_status(request: ComptrollerStatusRequest) -> dict[str, Any]:
+    require_district_admin(request.access_token)
+    try:
+        return to_jsonable(comptroller_admin.get_sync_status_summary())
+    except (ComptrollerServiceError, ValueError) as exc:
+        # ValueError surfaces a misconfigured COMPTROLLER_MONITORED_COUNTIES
+        # (see app.comptroller.counties.get_monitored_counties) as a clean
+        # 500 with an actionable message, instead of an unhandled 500.
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/comptroller/review-queue")
+def comptroller_review_queue(request: ComptrollerReviewQueueRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    try:
+        reviews = comptroller_admin.list_reviews(
+            district.district_id,
+            review_month=request.review_month,
+            workflow_status=request.workflow_status,
+        )
+    except ComptrollerServiceError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"reviews": to_jsonable(reviews)}
+
+
+@app.post("/api/admin/comptroller/review-queue/update")
+def comptroller_review_queue_update(request: ComptrollerReviewUpdateRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    try:
+        existing = comptroller_admin.get_review_by_id(request.review_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Review item was not found.")
+        if existing.get("district_id") != district.district_id:
+            raise HTTPException(status_code=403, detail="Cannot manage review items for another district.")
+        user = get_supabase_user(request.access_token)
+        updated = comptroller_admin.update_review_workflow(
+            request.review_id,
+            workflow_status=request.workflow_status,
+            reviewer_notes=request.reviewer_notes,
+            reviewed_by=str(user.get("id") or "").strip() or None,
+        )
+    except ComptrollerServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"review": to_jsonable(updated)}
+
+
+@app.post("/api/admin/comptroller/review-queue/export")
+def comptroller_review_queue_export(request: ComptrollerReviewExportRequest) -> Response:
+    district = require_district_admin(request.access_token)
+    try:
+        reviews = comptroller_admin.list_all_reviews_for_month(
+            request.review_month,
+            district_id=district.district_id,
+        )
+        workbook_bytes = comptroller_export.build_review_queue_workbook(
+            reviews,
+            month_label=request.review_month,
+        )
+    except ComptrollerServiceError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    filename = f"comptroller-closures-{request.review_month}.xlsx"
+    return Response(
+        content=workbook_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

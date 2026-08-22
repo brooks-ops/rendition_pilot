@@ -73,8 +73,28 @@ python extract_pages_ocr.py --pdf "Data/samples/sample_rendition.pdf" --provider
 
 ## Supabase Setup
 
-- Run `supabase/migrations/20260429_multi_district_renditions.sql`, `supabase/migrations/20260430_district_user_roles.sql`, `supabase/migrations/20260430_arb_pilot_access.sql`, `supabase/migrations/20260501_cad_onboarding.sql`, and `supabase/migrations/20260601_sherman_cad_access.sql` in the Supabase SQL editor before using New CAD Setup or ARB Pilot signup.
+- Run `supabase/migrations/20260429_multi_district_renditions.sql`, `supabase/migrations/20260430_district_user_roles.sql`, `supabase/migrations/20260430_arb_pilot_access.sql`, `supabase/migrations/20260501_cad_onboarding.sql`, `supabase/migrations/20260601_sherman_cad_access.sql`, and `supabase/migrations/20260818_comptroller_closure_monitor.sql` in the Supabase SQL editor before using New CAD Setup, ARB Pilot signup, or Comptroller closure monitoring.
 - Set `APP_BASE_URL` to the public Render app URL so Supabase confirmation emails send users back to the deployed HTML app.
 - In Supabase Auth settings, make sure both the project Site URL and redirect allow list include that same Render URL.
 - The OpenAI OCR/review path only works if the OpenAI project has active quota/billing.
 - If OpenAI quota is exhausted, Google OCR can still carry the OCR path when configured.
+
+## Texas Comptroller Closure Monitoring
+
+Detects Texas sales-tax permit closures in monitored counties (Lubbock in v1) as an appraisal review signal. Migrations `supabase/migrations/20260818_comptroller_closure_monitor.sql` and `supabase/migrations/20260821_comptroller_match_schema_correction.sql` have been applied to production and the daily/month-end Render Cron Jobs are active as of 2026-08-21. Get the monthly closure export from the website (sign in as a district admin -> Admin tab -> Comptroller Closures -> pick a month -> Download Excel). See [docs/comptroller_closure_monitor.md](docs/comptroller_closure_monitor.md) for the full design, data source, scheduler setup, manual commands, and the live-schema validation findings (RenditionPilot's real Supabase project has no `accounts` table; matching runs against `parsed_rendition_results` on owner name only). Optional configuration:
+
+```text
+COMPTROLLER_MONITORED_COUNTIES="Lubbock"
+COMPTROLLER_APP_TOKEN="<optional-socrata-app-token>"
+COMPTROLLER_MATCH_TABLE="parsed_rendition_results"
+COMPTROLLER_MATCH_OWNER_NAME_PATH="result->metadata->>owner_name"
+COMPTROLLER_MATCH_ACCOUNT_NUMBER_PATH="result->metadata->>account_number"
+
+# Optional, currently unused: automatic monthly export email (comptroller-month-end
+# cron job only). Not configured as of 2026-08-21 -- the website download is used instead.
+SMTP_USERNAME="<sending mailbox>"
+SMTP_PASSWORD="<app password>"
+SMTP_HOST="smtp.office365.com"
+SMTP_PORT="587"
+COMPTROLLER_EXPORT_EMAIL_TO="bbarrett@lubbockcad.org"
+```

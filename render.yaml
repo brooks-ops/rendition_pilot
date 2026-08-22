@@ -1,0 +1,71 @@
+# Render Blueprint. This repo has no prior render.yaml -- the web service
+# below documents the existing manually-configured deployment (see
+# README.MD "Render Deployment") so the two new cron jobs have something to
+# live alongside. Applying this file (Render dashboard -> New -> Blueprint)
+# is the recommended way to add the Comptroller sync schedule; it can also be
+# skipped in favor of creating the two cron jobs by hand with the same
+# schedule/command, e.g. if this Render account doesn't otherwise use
+# Blueprints. See docs/comptroller_closure_monitor.md for why cron jobs
+# (rather than an in-process scheduler in the web service) were chosen.
+services:
+  - type: web
+    name: rendition-pilot
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+  - type: cron
+    name: comptroller-daily-sync
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    # Every day. Idempotent and safe to re-run or overlap with a manual run.
+    schedule: "0 11 * * *"
+    command: python -m app.comptroller.cli sync
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+  - type: cron
+    name: comptroller-month-end
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    # First of every month. Deliberately NOT scheduled by day-of-month
+    # arithmetic on the *previous* month -- `month-end` with no --month
+    # argument always resolves to "the calendar month before today", so
+    # running once on the 1st correctly handles 28/29/30/31-day months and
+    # the December -> January rollover with no special-casing.
+    schedule: "0 12 1 * *"
+    command: python -m app.comptroller.cli month-end
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # OPTIONAL, currently unused: if set, month-end emails the export via
+      # SMTP after processing (see app/comptroller/emailer.py). Left unset by
+      # choice as of 2026-08-21 -- the monthly export is retrieved from the
+      # website (Admin tab -> Comptroller Closures) instead. Every month-end
+      # run harmlessly reports an EmailConfigError in that case; that's
+      # expected, not a failure. Not needed by the other two services.
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.office365.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: COMPTROLLER_EXPORT_EMAIL_TO
+        value: bbarrett@lubbockcad.org
