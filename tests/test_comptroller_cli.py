@@ -217,3 +217,48 @@ def test_property_enrich_command_reports_match(monkeypatch, capsys):
     assert "PropertyID 813538" in out
     assert "R Account R163313" in out
     assert "EXACT_PROPERTY_MATCH" in out
+
+
+def test_account_card_command_reports_card(monkeypatch, capsys):
+    from app.comptroller.intelligence import SOURCE_TABLE_INTELLIGENCE, UnifiedIntelligenceItem
+    from app.comptroller.new_account_enrichment import AccountCard, AppraiserAssignment
+
+    jurisdiction = _make_jurisdiction()
+    monkeypatch.setattr(cli, "get_jurisdiction_by_slug", lambda slug: jurisdiction)
+    item = UnifiedIntelligenceItem(
+        id="intel-1", source_table=SOURCE_TABLE_INTELLIGENCE, signal_type="new_business", status="NEW",
+        classification="NO_ACCOUNT_FOUND", priority="HIGH", confidence="UNMATCHED", confidence_score=0.0,
+        is_ambiguous=False, business_name="JOE'S SPORTS BAR", legal_name=None, source_address="1234 MAIN ST",
+        source_city="LUBBOCK", source_state="TX", source_zip="79401", permit_start_date=None, permit_end_date=None,
+        first_detected_at=None, matched_account_number=None, matched_owner_name=None, match_reason=None,
+        match_signals=None, recommended_action=None, resolution=None, resolution_notes=None, reviewed_by=None,
+        reviewed_at=None, district_id="district-lubbock", jurisdiction_id="jur-lubbock", created_at=None, raw={},
+    )
+    monkeypatch.setattr(cli.intelligence, "get_intelligence_item", lambda source_table, item_id: item)
+    card = AccountCard(
+        jurisdiction_id="jur-lubbock", source_table=SOURCE_TABLE_INTELLIGENCE, item_id="intel-1",
+        business_name="JOE'S SPORTS BAR", legal_name=None, source_address="1234 MAIN ST", source_city="LUBBOCK",
+        source_state="TX", source_zip="79401", permit_start_date=None, property_match_status=None,
+        situs_address=None, real_account_number=None, tug=None, neighborhood=None, map_id=None,
+        appraiser_assignment=AppraiserAssignment(appraiser=None, basis="unassigned", reason="No rules configured."),
+        suggested_property_link=None, suggested_property_link_reason=None, generated_at="2026-08-24T00:00:00Z",
+    )
+    monkeypatch.setattr(cli.new_account_enrichment, "generate_account_card", lambda item, jurisdiction, dry_run=False: card)
+
+    exit_code = cli.main(["account-card", "--jurisdiction", "lubbock", "--item-id", "intel-1"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "JOE'S SPORTS BAR" in out
+    assert "UNASSIGNED" in out
+
+
+def test_account_card_command_reports_missing_item(monkeypatch, capsys):
+    jurisdiction = _make_jurisdiction()
+    monkeypatch.setattr(cli, "get_jurisdiction_by_slug", lambda slug: jurisdiction)
+    monkeypatch.setattr(cli.intelligence, "get_intelligence_item", lambda source_table, item_id: None)
+
+    exit_code = cli.main(["account-card", "--jurisdiction", "lubbock", "--item-id", "missing"])
+
+    assert exit_code == 1
+    assert "not found" in capsys.readouterr().err

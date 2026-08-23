@@ -15,6 +15,7 @@ Examples:
   python -m app.comptroller.cli property-import --jurisdiction lubbock --file lubbock_properties.csv
   python -m app.comptroller.cli property-import --jurisdiction lubbock --file lubbock_properties.csv --dry-run
   python -m app.comptroller.cli property-enrich --jurisdiction lubbock --address "5807 88TH PL" --zip 79424
+  python -m app.comptroller.cli account-card --jurisdiction lubbock --source-table bpp_intelligence_items --item-id <id>
 
 `sync` and `baseline` both call the same underlying logic
 (app.comptroller.service.sync_county), which auto-detects whether a county
@@ -36,10 +37,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from app.comptroller import admin, export, new_business, property_adapter, property_enrichment, property_import, service
+from app.comptroller import admin, export, intelligence, new_account_enrichment, new_business, property_adapter, property_enrichment, property_import, service
 from app.comptroller.counties import get_monitored_counties
 from app.comptroller.jurisdictions import JurisdictionError, get_jurisdiction_by_slug
 from app.comptroller.month_end import process_month_end, resolve_target_month
+from app.comptroller.new_account_enrichment import NewAccountEnrichmentError, account_card_to_dict
 from app.comptroller.new_business import NewBusinessDetectionError
 from app.comptroller.property_enrichment import PropertyEnrichmentError
 from app.comptroller.property_import import PropertyImportError
@@ -297,6 +299,36 @@ def cmd_property_enrich(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_account_card(args: argparse.Namespace) -> int:
+    try:
+        jurisdiction = get_jurisdiction_by_slug(args.jurisdiction)
+    except JurisdictionError as exc:
+        print(f"[account-card] {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        item = intelligence.get_intelligence_item(args.source_table, args.item_id)
+        if item is None:
+            print(f"[account-card] Item {args.item_id} was not found in {args.source_table}.", file=sys.stderr)
+            return 1
+        card = new_account_enrichment.generate_account_card(item, jurisdiction, dry_run=args.dry_run)
+    except (NewAccountEnrichmentError, intelligence.IntelligenceQueueError) as exc:
+        print(f"[account-card] {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"[account-card] FAILED - {exc}", file=sys.stderr)
+        return 1
+
+    data = account_card_to_dict(card)
+    print(f"[account-card] {jurisdiction.name}")
+    for key, value in data.items():
+        if key == "appraiser":
+            print(f"  Appraiser: {value['appraiser'] or 'UNASSIGNED'} ({value['basis']}) -- {value['reason']}")
+        else:
+            print(f"  {key}: {value}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m app.comptroller.cli")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -386,6 +418,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="Report the match without caching it in property_enrichment_results.",
     )
     property_enrich_parser.set_defaults(func=cmd_property_enrich)
+
+    account_card_parser = subparsers.add_parser(
+        "account-card", help="Generate a New Account Enrichment card for a new-business intelligence item."
+    )
+    account_card_parser.add_argument("--jurisdiction", required=True, help="Jurisdiction slug, e.g. 'lubbock'.")
+    account_card_parser.add_argument(
+        "--source-table", default="bpp_intelligence_items",
+        help="Intelligence item's source table (default: bpp_intelligence_items).",
+    )
+    account_card_parser.add_argument("--item-id", required=True, help="Intelligence item id.")
+    account_card_parser.add_argument(
+        "--dry-run", action="store_true", help="Print the card without marking it generated on the item.",
+    )
+    account_card_parser.set_defaults(func=cmd_account_card)
 
     return parser
 

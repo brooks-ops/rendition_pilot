@@ -38,7 +38,7 @@ from app.comptroller.service import _request_json, get_supabase_config, postgres
 _SELECT = (
     "id,district_id,name,slug,county_name,state,timezone,active,"
     "comptroller_county_code,comptroller_dataset_id,capabilities,cad_field_mapping,"
-    "property_field_mapping"
+    "property_field_mapping,appraiser_assignment_rules"
 )
 
 
@@ -61,6 +61,7 @@ class Jurisdiction:
     capabilities: dict[str, bool] = field(default_factory=dict)
     cad_field_mapping: dict[str, str] = field(default_factory=dict)
     property_field_mapping: dict[str, str] = field(default_factory=dict)
+    appraiser_assignment_rules: dict[str, Any] = field(default_factory=dict)
 
     def has_capability(self, capability: str) -> bool:
         return bool(self.capabilities.get(capability))
@@ -81,6 +82,7 @@ def _row_to_jurisdiction(row: dict[str, Any]) -> Jurisdiction:
         capabilities=row.get("capabilities") or {},
         cad_field_mapping=row.get("cad_field_mapping") or {},
         property_field_mapping=row.get("property_field_mapping") or {},
+        appraiser_assignment_rules=row.get("appraiser_assignment_rules") or {},
     )
 
 

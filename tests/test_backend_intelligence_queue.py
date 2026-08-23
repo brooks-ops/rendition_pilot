@@ -9,6 +9,10 @@ import pytest
 from fastapi import HTTPException
 
 from app.comptroller import intelligence as comptroller_intelligence
+from app.comptroller import jurisdictions as comptroller_jurisdictions
+from app.comptroller import new_account_enrichment as comptroller_new_account_enrichment
+from app.comptroller.jurisdictions import Jurisdiction
+from app.comptroller.new_account_enrichment import AccountCard, AppraiserAssignment
 from app.district_service import DistrictContext
 from backend.main import (
     ComptrollerStatusRequest,
@@ -17,6 +21,7 @@ from backend.main import (
     IntelligenceItemRequest,
     IntelligenceQueueRequest,
     IntelligenceResolveRequest,
+    intelligence_account_card,
     intelligence_dismiss,
     intelligence_investigate,
     intelligence_item_detail,
@@ -176,3 +181,71 @@ def test_dismiss_blocks_cross_district(monkeypatch):
             access_token="fake", source_table=comptroller_intelligence.SOURCE_TABLE_INTELLIGENCE, item_id="intel-1",
         ))
     assert exc_info.value.status_code == 403
+
+
+def make_jurisdiction(**overrides) -> Jurisdiction:
+    defaults = dict(
+        id="jur-lubbock", district_id="district-1", name="Lubbock CAD", slug="lubbock", county_name="Lubbock",
+        state="TX", timezone="America/Chicago", active=True, comptroller_county_code="152",
+        comptroller_dataset_id="3kx8-uryv", capabilities={}, cad_field_mapping={}, property_field_mapping={},
+        appraiser_assignment_rules={},
+    )
+    defaults.update(overrides)
+    return Jurisdiction(**defaults)
+
+
+def test_account_card_blocks_cross_district(monkeypatch):
+    monkeypatch.setattr(comptroller_intelligence, "get_intelligence_item", lambda source_table, item_id: make_item(district_id="district-OTHER"))
+
+    with pytest.raises(HTTPException) as exc_info:
+        intelligence_account_card(IntelligenceItemRequest(
+            access_token="fake", source_table=comptroller_intelligence.SOURCE_TABLE_INTELLIGENCE, item_id="intel-1",
+        ))
+    assert exc_info.value.status_code == 403
+
+
+def test_account_card_404_when_no_jurisdiction_on_item(monkeypatch):
+    monkeypatch.setattr(comptroller_intelligence, "get_intelligence_item", lambda source_table, item_id: make_item(jurisdiction_id=None))
+
+    with pytest.raises(HTTPException) as exc_info:
+        intelligence_account_card(IntelligenceItemRequest(
+            access_token="fake", source_table=comptroller_intelligence.SOURCE_TABLE_INTELLIGENCE, item_id="intel-1",
+        ))
+    assert exc_info.value.status_code == 404
+
+
+def test_account_card_returns_card_for_own_district_item(monkeypatch):
+    monkeypatch.setattr(comptroller_intelligence, "get_intelligence_item", lambda source_table, item_id: make_item())
+    monkeypatch.setattr(comptroller_jurisdictions, "get_jurisdiction", lambda jurisdiction_id: make_jurisdiction())
+    card = AccountCard(
+        jurisdiction_id="jur-lubbock", source_table=comptroller_intelligence.SOURCE_TABLE_INTELLIGENCE,
+        item_id="intel-1", business_name="JOE'S SPORTS BAR", legal_name=None, source_address=None,
+        source_city="LUBBOCK", source_state="TX", source_zip="79401", permit_start_date=None,
+        property_match_status=None, situs_address=None, real_account_number=None, tug=None, neighborhood=None,
+        map_id=None, appraiser_assignment=AppraiserAssignment(appraiser=None, basis="unassigned", reason="no rules"),
+        suggested_property_link=None, suggested_property_link_reason=None, generated_at="2026-08-24T00:00:00Z",
+    )
+    monkeypatch.setattr(comptroller_new_account_enrichment, "generate_account_card", lambda item, jurisdiction: card)
+
+    result = intelligence_account_card(IntelligenceItemRequest(
+        access_token="fake", source_table=comptroller_intelligence.SOURCE_TABLE_INTELLIGENCE, item_id="intel-1",
+    ))
+
+    assert result["card"]["business_name"] == "JOE'S SPORTS BAR"
+    assert result["card"]["appraiser"]["basis"] == "unassigned"
+
+
+def test_account_card_rejects_non_new_business_signal_type(monkeypatch):
+    monkeypatch.setattr(comptroller_intelligence, "get_intelligence_item", lambda source_table, item_id: make_item())
+    monkeypatch.setattr(comptroller_jurisdictions, "get_jurisdiction", lambda jurisdiction_id: make_jurisdiction())
+
+    def fail(item, jurisdiction):
+        raise comptroller_new_account_enrichment.NewAccountEnrichmentError("Account cards are only produced for new-business items.")
+
+    monkeypatch.setattr(comptroller_new_account_enrichment, "generate_account_card", fail)
+
+    with pytest.raises(HTTPException) as exc_info:
+        intelligence_account_card(IntelligenceItemRequest(
+            access_token="fake", source_table=comptroller_intelligence.SOURCE_TABLE_INTELLIGENCE, item_id="intel-1",
+        ))
+    assert exc_info.value.status_code == 400

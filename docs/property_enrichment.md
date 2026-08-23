@@ -230,6 +230,41 @@ any official record. A "Suggested Property Link" is advisory review data --
 applying it to a real BPP account remains a human decision through
 RenditionPilot's normal tools.
 
+## New Account Enrichment (the final leg of the pipeline)
+
+`app/comptroller/new_account_enrichment.py` completes the pipeline described
+at the top of this doc with the two pieces that didn't already exist:
+
+- **Appraiser assignment** (`assign_appraiser()`): a jurisdiction-configurable
+  `appraiser_assignment_rules` jsonb mapping (`by_tug`, `by_neighborhood`,
+  `default`), checked in that precedence order -- TUG is the more specific
+  unit in the pipeline (PropertyID -> R account -> TUG -> Neighborhood ->
+  Map), so it's checked first. No real Lubbock assignment rules exist yet
+  (same honesty as `property_field_mapping`), so every card shows
+  `basis="unassigned"` until a CAD supplies real rules.
+- **Account card** (`build_account_card()`/`generate_account_card()`): bundles
+  business identity, the Property Enrichment result, and the appraiser
+  assignment into one staff-facing summary. This is a **report, not a new
+  database entity** -- everything in it is reconstructible on demand from the
+  intelligence item, `real_property_records`, and the appraiser mapping, so
+  there's nothing to go stale or need its own audit trail beyond
+  `bpp_intelligence_items.account_card_generated_at` (an additive, nullable
+  timestamp marking when a card was last generated for that item).
+
+Only applies to `new_business` signal-type items -- `NEW_ACCOUNT_NEEDED` is a
+resolution outcome specific to New Business Detection
+(`RESOLUTION_OPTIONS_BY_SIGNAL_TYPE` in `intelligence.py`), not something the
+sales-tax closure monitor produces; `build_account_card()` raises for any
+other signal type rather than fabricating a card for a request that doesn't
+make sense.
+
+**Never creates a BPP account.** The card is advisory output for a human to
+use when manually creating the account in the CAD's real system -- exactly
+like Property Enrichment's "Suggested Property Link." Exposed via
+`python -m app.comptroller.cli account-card --jurisdiction lubbock --item-id <id>`,
+`POST /api/admin/intelligence/account-card`, and a "Generate Account Card"
+button in the Intelligence detail view (shown only for `new_business` items).
+
 ## Known limitations
 
 - No real property/CRS data is loaded for any jurisdiction as of this

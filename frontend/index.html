@@ -726,9 +726,11 @@
           </div>
           <div class="button-row">
             <button id="intel-action-dismiss" class="secondary" type="button">Dismiss / False Positive</button>
+            <button id="intel-action-account-card" class="secondary hidden" type="button">Generate Account Card</button>
             <button id="intel-detail-close" class="secondary" type="button">Close</button>
           </div>
           <div id="intel-detail-status" class="status hidden"></div>
+          <div id="intel-account-card" class="hidden" style="margin-top:12px;"></div>
         </section>
       </div>
 
@@ -2179,6 +2181,9 @@
       resolutionSelect.innerHTML = options.map((code) => `<option value="${code}">${intelResolutionLabel(code)}</option>`).join("");
       $("intel-resolution-notes").value = "";
       $("intel-detail-status").classList.add("hidden");
+      $("intel-action-account-card").classList.toggle("hidden", item.signal_type !== "new_business");
+      $("intel-account-card").classList.add("hidden");
+      $("intel-account-card").innerHTML = "";
       $("intel-detail-card").classList.remove("hidden");
       $("intel-detail-card").scrollIntoView({ behavior: "smooth", block: "start" });
     }
@@ -2203,6 +2208,46 @@
         statusEl.classList.remove("hidden");
         await refreshIntelligenceQueue();
         if (data.item) openIntelligenceDetail(data.item.id, data.item.source_table);
+      } catch (error) {
+        statusEl.textContent = error.message;
+        statusEl.className = "status error";
+        statusEl.classList.remove("hidden");
+      }
+    }
+
+    function accountCardHtml(card) {
+      const appraiser = card.appraiser || {};
+      return `
+        <div class="card">
+          <h4>New Account Card</h4>
+          <div class="subtle" style="margin-bottom:8px;">Advisory only -- use this to manually create the account in your CAD's own system. Nothing here has been written to official CAD data.</div>
+          <div>Business/DBA: ${formatText(card.business_name)}</div>
+          <div>Legal Name: ${formatText(card.legal_name)}</div>
+          <div>Address: ${formatText([card.source_address, card.source_city, card.source_state, card.source_zip].filter(Boolean).join(", "))}</div>
+          <div>Permit Start: ${formatText(card.permit_start_date)}</div>
+          <div style="margin-top:8px;">Property Match: ${formatText(card.property_match_status)}</div>
+          <div>Situs Address: ${formatText(card.situs_address)}</div>
+          <div>Suggested Property Link: ${formatText(card.suggested_property_link)}</div>
+          <div class="subtle">${formatText(card.suggested_property_link_reason)}</div>
+          <div>TUG: ${formatText(card.tug)} | Neighborhood: ${formatText(card.neighborhood)} | Map: ${formatText(card.map_id)}</div>
+          <div style="margin-top:8px;">Suggested Appraiser: <strong>${formatText(appraiser.appraiser || "UNASSIGNED")}</strong> (${formatText(appraiser.basis)})</div>
+          <div class="subtle">${formatText(appraiser.reason)}</div>
+        </div>`;
+    }
+
+    async function generateAccountCard() {
+      const item = appState.intelligence.selected;
+      if (!item) return;
+      const statusEl = $("intel-detail-status");
+      try {
+        const data = await fetchJson("/api/admin/intelligence/account-card", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: appState.auth.access_token, source_table: item.source_table, item_id: item.id })
+        });
+        $("intel-account-card").innerHTML = accountCardHtml(data.card);
+        $("intel-account-card").classList.remove("hidden");
+        statusEl.classList.add("hidden");
       } catch (error) {
         statusEl.textContent = error.message;
         statusEl.className = "status error";
@@ -2532,6 +2577,7 @@
         resolution_notes: $("intel-resolution-notes").value || null
       }));
       $("property-lookup-submit").addEventListener("click", () => { runPropertyLookup().catch((error) => showFlash(error.message, "error")); });
+      $("intel-action-account-card").addEventListener("click", () => { generateAccountCard().catch((error) => showFlash(error.message, "error")); });
       $("invite-submit").addEventListener("click", async () => {
         try {
           const email = $("invite-email").value.trim().toLowerCase();

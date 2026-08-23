@@ -73,7 +73,7 @@ python extract_pages_ocr.py --pdf "Data/samples/sample_rendition.pdf" --provider
 
 ## Supabase Setup
 
-- Run `supabase/migrations/20260429_multi_district_renditions.sql`, `supabase/migrations/20260430_district_user_roles.sql`, `supabase/migrations/20260430_arb_pilot_access.sql`, `supabase/migrations/20260501_cad_onboarding.sql`, `supabase/migrations/20260601_sherman_cad_access.sql`, `supabase/migrations/20260818_comptroller_closure_monitor.sql`, `supabase/migrations/20260822_bpp_intelligence_queue.sql`, and `supabase/migrations/20260823_property_enrichment.sql` in the Supabase SQL editor before using New CAD Setup, ARB Pilot signup, Comptroller closure monitoring, BPP Intelligence, or Property Enrichment.
+- Run `supabase/migrations/20260429_multi_district_renditions.sql`, `supabase/migrations/20260430_district_user_roles.sql`, `supabase/migrations/20260430_arb_pilot_access.sql`, `supabase/migrations/20260501_cad_onboarding.sql`, `supabase/migrations/20260601_sherman_cad_access.sql`, `supabase/migrations/20260818_comptroller_closure_monitor.sql`, `supabase/migrations/20260822_bpp_intelligence_queue.sql`, and `supabase/migrations/20260823_property_enrichment.sql`, and `supabase/migrations/20260824_new_account_enrichment.sql` in the Supabase SQL editor before using New CAD Setup, ARB Pilot signup, Comptroller closure monitoring, BPP Intelligence, Property Enrichment, or New Account Enrichment.
 - Set `APP_BASE_URL` to the public Render app URL so Supabase confirmation emails send users back to the deployed HTML app.
 - In Supabase Auth settings, make sure both the project Site URL and redirect allow list include that same Render URL.
 - The OpenAI OCR/review path only works if the OpenAI project has active quota/billing.
@@ -120,3 +120,9 @@ python -m app.comptroller.cli property-enrich --jurisdiction lubbock --address "
 ```
 
 Staff-facing standalone lookup at **BPP > Property Lookup** (district admin); property evidence also appears in the BPP Intelligence detail view when available. See [docs/property_enrichment.md](docs/property_enrichment.md) for the full design, the matching/confidence rules, and a real production data gap (Comptroller street number vs. street name split) found and fixed while building this.
+
+**New Account Enrichment** completes the pipeline: for a new-business item, "Generate Account Card" in its detail view bundles business identity + the Property Enrichment result + a jurisdiction-configurable appraiser assignment (`jurisdictions.appraiser_assignment_rules`, empty by default -- no real Lubbock rules exist yet) into one staff-facing summary for manually creating the account in your CAD's own system. It never creates a BPP account itself. Requires `supabase/migrations/20260824_new_account_enrichment.sql` applied.
+
+```bash
+python -m app.comptroller.cli account-card --jurisdiction lubbock --source-table bpp_intelligence_items --item-id <id>
+```

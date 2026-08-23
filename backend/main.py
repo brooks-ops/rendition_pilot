@@ -50,6 +50,7 @@ from app.comptroller import admin as comptroller_admin
 from app.comptroller import export as comptroller_export
 from app.comptroller import intelligence as comptroller_intelligence
 from app.comptroller import jurisdictions as comptroller_jurisdictions
+from app.comptroller import new_account_enrichment as comptroller_new_account_enrichment
 from app.comptroller import property_adapter as comptroller_property_adapter
 from app.comptroller import property_enrichment as comptroller_property_enrichment
 from app.comptroller.service import ComptrollerServiceError
@@ -2009,6 +2010,30 @@ def intelligence_resolve(request: IntelligenceResolveRequest) -> dict[str, Any]:
     except comptroller_intelligence.IntelligenceQueueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"item": to_jsonable(asdict(item))}
+
+
+@app.post("/api/admin/intelligence/account-card")
+def intelligence_account_card(request: IntelligenceItemRequest) -> dict[str, Any]:
+    """New Account Enrichment: bundles the intelligence item's evidence
+    (business identity, Property Enrichment result, appraiser assignment)
+    into one staff-facing summary for manually creating the account in the
+    CAD's real system. Read-only against RenditionPilot's own data; the one
+    write is an audit marker (account_card_generated_at) on the item
+    itself -- never a new account, never official CAD data."""
+
+    district = require_district_admin(request.access_token)
+    item = _require_own_district_item(district, request.source_table, request.item_id)
+    if not item.jurisdiction_id:
+        raise HTTPException(status_code=404, detail="No jurisdiction is configured for this item.")
+    try:
+        jurisdiction = comptroller_jurisdictions.get_jurisdiction(item.jurisdiction_id)
+    except comptroller_jurisdictions.JurisdictionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        card = comptroller_new_account_enrichment.generate_account_card(item, jurisdiction)
+    except comptroller_new_account_enrichment.NewAccountEnrichmentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"card": to_jsonable(comptroller_new_account_enrichment.account_card_to_dict(card))}
 
 
 # --- Property Lookup ----------------------------------------------------------
