@@ -23,7 +23,7 @@ LUBBOCK_MAPPING = {
 # unrelated column names, per spec item 29's example.
 OTHER_COUNTY_MAPPING = {
     "source_property_id": "ParcelKey", "real_account_number": "AccountRef",
-    "situs_address": "PhysicalAddress",
+    "situs_address": "PhysicalAddress", "tax_year": "TaxYr",
     "tug": "TaxArea", "neighborhood": "NeighborhoodCode", "map_id": "MapNumber",
     # Deliberately omits situs_zip -- an optional field this county's export
     # doesn't carry, to also prove graceful degradation (spec item 17).

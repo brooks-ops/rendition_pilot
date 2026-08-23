@@ -4,6 +4,7 @@ import base64
 import gc
 import json
 import os
+import sys
 import tempfile
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -53,7 +54,9 @@ from app.comptroller import jurisdictions as comptroller_jurisdictions
 from app.comptroller import new_account_enrichment as comptroller_new_account_enrichment
 from app.comptroller import property_adapter as comptroller_property_adapter
 from app.comptroller import property_enrichment as comptroller_property_enrichment
+from app.comptroller import readiness as comptroller_readiness
 from app.comptroller.service import ComptrollerServiceError
+from app.rendition_persistence import RenditionPersistenceError, persist_locked_review
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "app" / ".env", override=True)
@@ -336,6 +339,10 @@ class PropertyLookupRequest(BaseModel):
     zip: str | None = None
 
 
+class ProductionReadinessRequest(BaseModel):
+    access_token: str
+
+
 class ARBAuthRequest(BaseModel):
     access_token: str
 
@@ -355,6 +362,14 @@ class LockReviewRequest(BaseModel):
     decision: str = "accepted"
     district_context: dict[str, Any] | None = None
     saved_calculators: list[dict[str, Any]] = Field(default_factory=list)
+    # Optional: when present and valid, the locked review is durably persisted
+    # to parsed_rendition_results under the SERVER-VERIFIED district it
+    # resolves to -- never the client-supplied district_context above, which
+    # is display-only and was never re-validated against the caller's
+    # session. Omitted/invalid tokens still lock successfully; they just
+    # don't persist (see backend/main.py::review_lock and
+    # app/rendition_persistence.py).
+    access_token: str | None = None
 
 
 class SaveReviewRequest(BaseModel):
@@ -1816,9 +1831,33 @@ def review_lock(request: LockReviewRequest) -> dict[str, Any]:
     )
     record["saved_calculators"] = request.saved_calculators
     record["calculated_total_value"] = calculate_combined_total(request.saved_calculators)
+
+    persisted = False
+    if request.access_token:
+        try:
+            district = get_authenticated_district_context(request.access_token)
+            user = get_supabase_user(request.access_token)
+            persist_locked_review(
+                district_id=district.district_id,
+                file_name=request.file_name,
+                result=request.result,
+                account_number=record["account_number"],
+                final_value=final_value,
+                pipeline_confidence=record.get("pipeline_confidence"),
+                created_by=str(user.get("id") or "").strip() or None,
+            )
+            persisted = True
+        except HTTPException:
+            pass  # invalid/expired token -- lock still succeeds, just doesn't persist
+        except (RenditionPersistenceError, ComptrollerServiceError) as exc:
+            # Persistence failure must never block the appraiser from locking
+            # a review -- but must not vanish silently either.
+            print(f"[review/lock] persistence failed: {exc}", file=sys.stderr)
+
     return {
         "final_record": to_jsonable(record),
         "decision_label": get_decision_label(record.get("decision")),
+        "persisted": persisted,
     }
 
 
@@ -2089,6 +2128,25 @@ def property_lookup(request: PropertyLookupRequest) -> dict[str, Any]:
             {"property_id": a.source_property_id, "situs_address": a.situs_address_raw}
             for a in result.alternatives
         ],
+    })
+
+
+@app.post("/api/admin/production-readiness")
+def production_readiness(request: ProductionReadinessRequest) -> dict[str, Any]:
+    """Admin-only diagnostic (spec item 17/24): which pipeline dependencies
+    are satisfied for the requester's own jurisdiction. Never exposes
+    another district's data -- jurisdiction is resolved from the caller's
+    own verified district, same as Property Lookup."""
+
+    district = require_district_admin(request.access_token)
+    jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
+    if jurisdiction is None:
+        raise HTTPException(status_code=404, detail="No jurisdiction is configured for this district yet.")
+    result = comptroller_readiness.assess_production_readiness(jurisdiction)
+    return to_jsonable({
+        "jurisdiction_id": result.jurisdiction_id,
+        "jurisdiction_name": result.jurisdiction_name,
+        "checks": [{"name": c.name, "status": c.status, "detail": c.detail} for c in result.checks],
     })
 
 

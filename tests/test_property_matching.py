@@ -7,7 +7,7 @@ from app.comptroller.address_normalizer import normalize_address
 
 def make_property(pid, addr, zip_=None, acct=None, **overrides):
     defaults = dict(
-        property_id=pid, jurisdiction_id="jur-1", source_property_id=pid,
+        property_id=pid, jurisdiction_id="jur-1", source_property_id=pid, tax_year=None,
         real_account_number=acct, situs_address_raw=addr, situs_address_normalized=None,
         situs_city="LUBBOCK", situs_state="TX", situs_zip=zip_, owner_name=None,
         tug=None, neighborhood=None, map_id=None, latitude=None, longitude=None,

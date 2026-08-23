@@ -38,7 +38,7 @@ from app.comptroller.service import _request_json, get_supabase_config, postgres
 _SELECT = (
     "id,district_id,name,slug,county_name,state,timezone,active,"
     "comptroller_county_code,comptroller_dataset_id,capabilities,cad_field_mapping,"
-    "property_field_mapping,appraiser_assignment_rules"
+    "property_field_mapping,appraiser_assignment_rules,current_tax_year"
 )
 
 
@@ -62,6 +62,7 @@ class Jurisdiction:
     cad_field_mapping: dict[str, str] = field(default_factory=dict)
     property_field_mapping: dict[str, str] = field(default_factory=dict)
     appraiser_assignment_rules: dict[str, Any] = field(default_factory=dict)
+    current_tax_year: int | None = None
 
     def has_capability(self, capability: str) -> bool:
         return bool(self.capabilities.get(capability))
@@ -83,6 +84,7 @@ def _row_to_jurisdiction(row: dict[str, Any]) -> Jurisdiction:
         cad_field_mapping=row.get("cad_field_mapping") or {},
         property_field_mapping=row.get("property_field_mapping") or {},
         appraiser_assignment_rules=row.get("appraiser_assignment_rules") or {},
+        current_tax_year=row.get("current_tax_year"),
     )
 
 
@@ -157,7 +159,7 @@ CAPABILITY_FIELD_REQUIREMENTS: dict[str, dict[str, list[str]]] = {
     # CadAdapter's AVAILABLE_ACCOUNT_FIELDS -- see property_adapter.py.
     "real_property_linkage": {
         "required": ["source_property_id", "situs_address"],
-        "optional": ["real_account_number", "situs_zip", "tug", "neighborhood", "map_id"],
+        "optional": ["real_account_number", "situs_zip", "tug", "neighborhood", "map_id", "tax_year"],
     },
 }
 
@@ -174,6 +176,7 @@ FIELD_LABELS: dict[str, str] = {
     "tug": "TUG code",
     "neighborhood": "neighborhood code",
     "map_id": "map ID",
+    "tax_year": "property source tax year",
 }
 
 

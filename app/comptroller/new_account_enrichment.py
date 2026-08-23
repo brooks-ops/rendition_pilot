@@ -74,6 +74,10 @@ class AccountCard:
     suggested_property_link: str | None
     suggested_property_link_reason: str | None
     generated_at: str
+    # Explicit reasons the card isn't fully automated for this item -- never
+    # just a blank field (spec item 19: "automate the normal cases and make
+    # the exceptions obvious"). Empty when everything resolved cleanly.
+    exceptions: list[str]
 
 
 def assign_appraiser(jurisdiction: Jurisdiction, *, tug: str | None, neighborhood: str | None) -> AppraiserAssignment:
@@ -100,6 +104,34 @@ def assign_appraiser(jurisdiction: Jurisdiction, *, tug: str | None, neighborhoo
     return AppraiserAssignment(appraiser=None, basis="unassigned", reason="No appraiser-assignment rules configured for this jurisdiction yet.")
 
 
+def _compute_exceptions(item: UnifiedIntelligenceItem, assignment: AppraiserAssignment) -> list[str]:
+    exceptions: list[str] = []
+
+    if item.property_match_status == "AMBIGUOUS_PROPERTY_MATCH":
+        exceptions.append(
+            "PROPERTY MATCH AMBIGUOUS -- multiple candidate properties were found for this address; "
+            "review the alternatives in Property Lookup before linking."
+        )
+    elif item.property_match_status in (None, "NO_PROPERTY_MATCH"):
+        exceptions.append(
+            "NO PROPERTY MATCH -- Property Enrichment did not find a matching real-property record; "
+            "verify the source address or search manually."
+        )
+    elif not item.property_account_number:
+        exceptions.append(
+            "NO REAL ACCOUNT NUMBER -- a property record was found, but its R account/QuickRefID "
+            "field is blank in the source data."
+        )
+
+    if assignment.basis == "unassigned":
+        exceptions.append(
+            "APPRAISER UNASSIGNED -- no matching TUG/neighborhood assignment rule is configured "
+            "for this jurisdiction."
+        )
+
+    return exceptions
+
+
 def build_account_card(item: UnifiedIntelligenceItem, jurisdiction: Jurisdiction) -> AccountCard:
     if item.signal_type != "new_business":
         raise NewAccountEnrichmentError(
@@ -119,6 +151,7 @@ def build_account_card(item: UnifiedIntelligenceItem, jurisdiction: Jurisdiction
             tug, neighborhood, map_id = record.tug, record.neighborhood, record.map_id
 
     assignment = assign_appraiser(jurisdiction, tug=tug, neighborhood=neighborhood)
+    exceptions = _compute_exceptions(item, assignment)
 
     suggested_link = item.property_account_number
     suggested_link_reason = None
@@ -146,6 +179,7 @@ def build_account_card(item: UnifiedIntelligenceItem, jurisdiction: Jurisdiction
         suggested_property_link=suggested_link,
         suggested_property_link_reason=suggested_link_reason,
         generated_at=datetime.now(timezone.utc).isoformat(),
+        exceptions=exceptions,
     )
 
 
@@ -197,4 +231,5 @@ def account_card_to_dict(card: AccountCard) -> dict[str, Any]:
         "suggested_property_link": card.suggested_property_link,
         "suggested_property_link_reason": card.suggested_property_link_reason,
         "generated_at": card.generated_at,
+        "exceptions": card.exceptions,
     }

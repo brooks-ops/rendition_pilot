@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
-from io import StringIO
+from io import BytesIO, StringIO
 
 from app.comptroller.jurisdictions import Jurisdiction, validate_capability
 from app.comptroller.property_adapter import normalize_source_record
@@ -143,4 +143,42 @@ def import_property_csv(
         rows_imported=imported,
         rows_skipped=rows_skipped,
         import_id=import_id,
+    )
+
+
+def excel_bytes_to_csv_text(file_bytes: bytes, *, sheet_name: str | int = 0) -> str:
+    """Converts one sheet of an .xlsx/.xls export to the same CSV text
+    `import_property_csv` already handles -- pandas/openpyxl are existing
+    dependencies (already used by app/comptroller/export.py), so Excel
+    support is one small conversion step, not a second import path."""
+
+    import pandas as pd
+
+    frame = pd.read_excel(BytesIO(file_bytes), sheet_name=sheet_name, dtype=str)
+    return frame.to_csv(index=False)
+
+
+def import_property_file(
+    jurisdiction: Jurisdiction,
+    file_bytes: bytes,
+    filename: str,
+    *,
+    source_as_of_date: str | None = None,
+    notes: str | None = None,
+    dry_run: bool = False,
+) -> PropertyImportResult:
+    """Dispatches to import_property_csv by file extension -- .csv is read
+    as-is; .xlsx/.xls are converted via excel_bytes_to_csv_text() first.
+    Same generic import path either way; no per-format-specific behavior
+    beyond this one conversion step."""
+
+    lower = filename.lower()
+    if lower.endswith(".csv"):
+        csv_text = file_bytes.decode("utf-8-sig")
+    elif lower.endswith((".xlsx", ".xls")):
+        csv_text = excel_bytes_to_csv_text(file_bytes)
+    else:
+        raise PropertyImportError(f"Unsupported property export file type: '{filename}'. Use .csv or .xlsx.")
+    return import_property_csv(
+        jurisdiction, csv_text, source_as_of_date=source_as_of_date, notes=notes, dry_run=dry_run,
     )

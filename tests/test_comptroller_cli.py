@@ -145,8 +145,8 @@ def test_property_import_command_reports_summary(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(cli, "get_jurisdiction_by_slug", lambda slug: _make_jurisdiction())
     monkeypatch.setattr(
         cli.property_import,
-        "import_property_csv",
-        lambda jurisdiction, text, **kw: PropertyImportResult(
+        "import_property_file",
+        lambda jurisdiction, file_bytes, filename, **kw: PropertyImportResult(
             jurisdiction_id=jurisdiction.id, rows_read=5, rows_imported=4, rows_skipped=1, import_id="imp-1",
         ),
     )
@@ -171,10 +171,10 @@ def test_property_import_command_missing_file_returns_error(monkeypatch, capsys)
 def test_property_import_command_reports_capability_error(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(cli, "get_jurisdiction_by_slug", lambda slug: _make_jurisdiction())
 
-    def fail(jurisdiction, text, **kw):
+    def fail(jurisdiction, file_bytes, filename, **kw):
         raise PropertyImportError("Real Property Linkage cannot run.")
 
-    monkeypatch.setattr(cli.property_import, "import_property_csv", fail)
+    monkeypatch.setattr(cli.property_import, "import_property_file", fail)
     csv_path = tmp_path / "props.csv"
     csv_path.write_text("PropertyID,SitusAddress\n1,100 Main St\n")
 
@@ -195,7 +195,7 @@ def test_property_enrich_command_reports_match(monkeypatch, capsys):
     monkeypatch.setattr(cli.property_adapter, "get_property_adapter", lambda j: type("A", (), {"search_properties": staticmethod(lambda j2: [])})())
 
     matched = NormalizedRealProperty(
-        property_id="row-1", jurisdiction_id="jur-lubbock", source_property_id="813538",
+        property_id="row-1", jurisdiction_id="jur-lubbock", source_property_id="813538", tax_year=None,
         real_account_number="R163313", situs_address_raw="5807 88TH PL", situs_address_normalized="5807 88TH PLACE",
         situs_city=None, situs_state=None, situs_zip="79424", owner_name=None, tug=None, neighborhood=None,
         map_id=None, latitude=None, longitude=None, source_system=None, source_import_id=None, source_updated_at=None,
@@ -242,6 +242,7 @@ def test_account_card_command_reports_card(monkeypatch, capsys):
         situs_address=None, real_account_number=None, tug=None, neighborhood=None, map_id=None,
         appraiser_assignment=AppraiserAssignment(appraiser=None, basis="unassigned", reason="No rules configured."),
         suggested_property_link=None, suggested_property_link_reason=None, generated_at="2026-08-24T00:00:00Z",
+        exceptions=["APPRAISER UNASSIGNED -- no matching TUG/neighborhood assignment rule is configured for this jurisdiction."],
     )
     monkeypatch.setattr(cli.new_account_enrichment, "generate_account_card", lambda item, jurisdiction, dry_run=False: card)
 

@@ -153,7 +153,7 @@ class FakeMatchCandidate:
 
 def test_same_property_accounts_cross_references_by_account_number():
     matched = NormalizedRealProperty(
-        property_id="row-1", jurisdiction_id="jur-1", source_property_id="P1",
+        property_id="row-1", jurisdiction_id="jur-1", source_property_id="P1", tax_year=None,
         real_account_number="R163313", situs_address_raw=None, situs_address_normalized=None,
         situs_city=None, situs_state=None, situs_zip=None, owner_name=None,
         tug=None, neighborhood=None, map_id=None, latitude=None, longitude=None,

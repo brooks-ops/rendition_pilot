@@ -2217,10 +2217,15 @@
 
     function accountCardHtml(card) {
       const appraiser = card.appraiser || {};
+      const exceptions = card.exceptions || [];
+      const exceptionsBlock = exceptions.length
+        ? `<div class="status warn" style="margin-bottom:8px;">${exceptions.map((e) => `<div>${formatText(e)}</div>`).join("")}</div>`
+        : `<div class="status success" style="margin-bottom:8px;">No exceptions -- this card is ready to use.</div>`;
       return `
         <div class="card">
           <h4>New Account Card</h4>
           <div class="subtle" style="margin-bottom:8px;">Advisory only -- use this to manually create the account in your CAD's own system. Nothing here has been written to official CAD data.</div>
+          ${exceptionsBlock}
           <div>Business/DBA: ${formatText(card.business_name)}</div>
           <div>Legal Name: ${formatText(card.legal_name)}</div>
           <div>Address: ${formatText([card.source_address, card.source_city, card.source_state, card.source_zip].filter(Boolean).join(", "))}</div>
@@ -2332,7 +2337,8 @@
         account_number: $("final-account-number").value,
         decision: $("final-decision").value,
         district_context: appState.auth?.district || null,
-        saved_calculators: appState.single.savedCalculators
+        saved_calculators: appState.single.savedCalculators,
+        access_token: appState.auth?.access_token || null
       };
     }
 

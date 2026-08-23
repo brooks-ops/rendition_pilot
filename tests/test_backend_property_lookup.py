@@ -81,7 +81,7 @@ def test_returns_match_details_for_own_jurisdiction(monkeypatch):
     monkeypatch.setattr(comptroller_property_adapter, "get_property_adapter", lambda j: type("A", (), {"search_properties": staticmethod(lambda j2: [])})())
 
     matched = NormalizedRealProperty(
-        property_id="row-1", jurisdiction_id="jur-lubbock", source_property_id="813538",
+        property_id="row-1", jurisdiction_id="jur-lubbock", source_property_id="813538", tax_year=None,
         real_account_number="R163313", situs_address_raw="5807 88TH PL", situs_address_normalized="5807 88TH PLACE",
         situs_city=None, situs_state=None, situs_zip="79424", owner_name=None, tug="12", neighborhood="4400",
         map_id="R-33", latitude=None, longitude=None, source_system=None, source_import_id=None, source_updated_at=None,

@@ -9,6 +9,7 @@ existing convention of monkeypatching `_request_json` directly
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -24,6 +25,9 @@ class FakeSupabase:
         self.real_property_records: dict[str, dict[str, Any]] = {}
         self.property_source_imports: dict[str, dict[str, Any]] = {}
         self.property_enrichment_results: dict[str, dict[str, Any]] = {}
+        self.rendition_uploads: dict[str, dict[str, Any]] = {}
+        self.rendition_jobs: dict[str, dict[str, Any]] = {}
+        self.parsed_rendition_results: dict[str, dict[str, Any]] = {}
         self._next_id = 0
         self.calls: list[dict[str, Any]] = []
 
@@ -46,6 +50,23 @@ class FakeSupabase:
     def _matches_eq(row: dict[str, Any], field: str, expected: str) -> bool:
         return FakeSupabase._pg_str(row.get(field)) == expected
 
+    @staticmethod
+    def _resolve_field(row: dict[str, Any], key: str) -> Any:
+        # Supports PostgREST jsonb path filters like
+        # "result->metadata->>account_number" (used by
+        # app/rendition_persistence.py's dedup lookup) alongside plain
+        # column names -- every "->"/"->>' hop after the first is a nested
+        # dict lookup on the jsonb column named by the first segment.
+        if "->" not in key:
+            return row.get(key)
+        parts = re.split(r"->>|->", key)
+        value: Any = row.get(parts[0])
+        for part in parts[1:]:
+            if not isinstance(value, dict):
+                return None
+            value = value.get(part)
+        return value
+
     @classmethod
     def _apply_simple_filters(cls, rows: list[dict[str, Any]], params: dict[str, Any], skip: set[str]) -> list[dict[str, Any]]:
         result = rows
@@ -56,21 +77,21 @@ class FakeSupabase:
             for condition in conditions:
                 condition = str(condition)
                 if condition == "is.null":
-                    result = [r for r in result if r.get(key) is None]
+                    result = [r for r in result if cls._resolve_field(r, key) is None]
                 elif condition.startswith("eq."):
                     expected = condition[len("eq."):]
-                    result = [r for r in result if cls._pg_str(r.get(key)) == expected]
+                    result = [r for r in result if cls._pg_str(cls._resolve_field(r, key)) == expected]
                 elif condition.startswith("gte."):
                     expected = condition[len("gte."):]
-                    result = [r for r in result if r.get(key) is not None and str(r.get(key)) >= expected]
+                    result = [r for r in result if cls._resolve_field(r, key) is not None and str(cls._resolve_field(r, key)) >= expected]
                 elif condition.startswith("lt."):
                     expected = condition[len("lt."):]
-                    result = [r for r in result if r.get(key) is not None and str(r.get(key)) < expected]
+                    result = [r for r in result if cls._resolve_field(r, key) is not None and str(cls._resolve_field(r, key)) < expected]
                 elif condition.startswith("not.in.("):
                     excluded = condition[len("not.in.("):-1].split(",")
-                    result = [r for r in result if str(r.get(key)) not in excluded]
+                    result = [r for r in result if str(cls._resolve_field(r, key)) not in excluded]
                 elif condition.startswith("ilike."):
-                    result = [r for r in result if cls._matches_ilike(r.get(key), condition[len("ilike."):])]
+                    result = [r for r in result if cls._matches_ilike(cls._resolve_field(r, key), condition[len("ilike."):])]
         return result
 
     @staticmethod
@@ -286,7 +307,10 @@ class FakeSupabase:
             payload_rows = json_payload if isinstance(json_payload, list) else [json_payload]
             results = []
             for incoming in payload_rows:
-                key = f"{incoming['jurisdiction_id']}::{incoming['source_property_id']}"
+                # Keyed including tax_year (mirrors the real two-partial-unique-index
+                # scheme in the migration) so importing a new year's file never
+                # collides with/overwrites a prior year's row.
+                key = f"{incoming['jurisdiction_id']}::{incoming['source_property_id']}::{incoming.get('tax_year')}"
                 existing = self.real_property_records.get(key)
                 if existing:
                     merged = {**existing, **incoming, "id": existing["id"]}
@@ -353,6 +377,70 @@ class FakeSupabase:
                     results.append(new_row)
             return results
         raise AssertionError(f"Unhandled method {method} for property_enrichment_results")
+
+    # -- rendition_uploads / rendition_jobs / parsed_rendition_results --------
+    #
+    # These three tables exist in production out-of-band (no migration in
+    # this repo creates them -- see app/rendition_persistence.py's module
+    # docstring); their shape here mirrors the live schema confirmed via
+    # PostgREST OpenAPI introspection on 2026-08-22, not a local migration.
+
+    def _handle_rendition_uploads(self, method, params, json_payload):
+        if method == "POST":
+            payload_rows = json_payload if isinstance(json_payload, list) else [json_payload]
+            results = []
+            for incoming in payload_rows:
+                row = dict(incoming)
+                row["id"] = self._new_id("upload")
+                row.setdefault("created_at", f"2000-01-01T00:00:{len(self.rendition_uploads):02d}Z")
+                row["updated_at"] = row["created_at"]
+                self.rendition_uploads[row["id"]] = row
+                results.append(row)
+            return results
+        if method == "GET":
+            rows = self._apply_simple_filters(list(self.rendition_uploads.values()), params, skip=set())
+            return self._paginate(rows, params)
+        raise AssertionError(f"Unhandled method {method} for rendition_uploads")
+
+    def _handle_rendition_jobs(self, method, params, json_payload):
+        if method == "POST":
+            payload_rows = json_payload if isinstance(json_payload, list) else [json_payload]
+            results = []
+            for incoming in payload_rows:
+                row = dict(incoming)
+                row["id"] = self._new_id("job")
+                row.setdefault("created_at", f"2000-01-01T00:00:{len(self.rendition_jobs):02d}Z")
+                row["updated_at"] = row["created_at"]
+                self.rendition_jobs[row["id"]] = row
+                results.append(row)
+            return results
+        if method == "GET":
+            rows = self._apply_simple_filters(list(self.rendition_jobs.values()), params, skip=set())
+            return self._paginate(rows, params)
+        raise AssertionError(f"Unhandled method {method} for rendition_jobs")
+
+    def _handle_parsed_rendition_results(self, method, params, json_payload):
+        if method == "GET":
+            rows = self._apply_simple_filters(list(self.parsed_rendition_results.values()), params, skip=set())
+            return self._paginate(rows, params)
+        if method == "POST":
+            payload_rows = json_payload if isinstance(json_payload, list) else [json_payload]
+            results = []
+            for incoming in payload_rows:
+                row = dict(incoming)
+                row["id"] = self._new_id("prr")
+                row.setdefault("created_at", f"2000-01-01T00:00:{len(self.parsed_rendition_results):02d}Z")
+                row["updated_at"] = row["created_at"]
+                self.parsed_rendition_results[row["id"]] = row
+                results.append(row)
+            return results
+        if method == "PATCH":
+            target_id = self._extract_eq(params, "id")
+            row = self.parsed_rendition_results.get(target_id)
+            if row is not None:
+                row.update(json_payload)
+            return [row] if row else []
+        raise AssertionError(f"Unhandled method {method} for parsed_rendition_results")
 
     # -- shared helpers ----------------------------------------------------
 

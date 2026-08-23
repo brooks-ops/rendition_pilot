@@ -115,7 +115,7 @@ View results at the website's **BPP Intelligence** tab (district admin). Require
 Answers "what real-property record is most likely associated with this address?" to give New Business Detection a second, independent signal (address) alongside business-name matching -- strong enough corroboration on both makes `EXISTING_ACCOUNT_HIGH_CONFIDENCE` reachable for the first time. Portable by design (a jurisdiction onboards with a property export + field mapping, not new code); no real property/CRS data is loaded for any jurisdiction yet, so `real_property_linkage` stays disabled until one is imported. Requires `supabase/migrations/20260823_property_enrichment.sql` applied.
 
 ```bash
-python -m app.comptroller.cli property-import --jurisdiction lubbock --file lubbock_properties.csv
+python -m app.comptroller.cli property-import --jurisdiction lubbock --file lubbock_properties.csv   # .csv or .xlsx
 python -m app.comptroller.cli property-enrich --jurisdiction lubbock --address "5807 88TH PL" --zip 79424
 ```
 
@@ -126,3 +126,12 @@ Staff-facing standalone lookup at **BPP > Property Lookup** (district admin); pr
 ```bash
 python -m app.comptroller.cli account-card --jurisdiction lubbock --source-table bpp_intelligence_items --item-id <id>
 ```
+
+**Rendition persistence**: `POST /api/review/lock` now persists the locked review to `parsed_rendition_results` (previously zero writers existed anywhere in the app -- the browser held the OCR result in memory for the whole run/lock/save sequence and nothing was ever saved server-side). Requires a valid `access_token` on the lock request (the deployed frontend already sends one); persistence is skipped, never blocking, otherwise. See [docs/rendition_persistence.md](docs/rendition_persistence.md).
+
+**Production readiness diagnostic**: shows exactly which pipeline dependencies are satisfied for a jurisdiction, dependency-by-dependency (not one pass/fail flag):
+
+```bash
+python -m app.comptroller.cli readiness --jurisdiction lubbock
+```
+Also available as `POST /api/admin/production-readiness` (district admin only).

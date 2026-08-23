@@ -224,6 +224,7 @@ def test_account_card_returns_card_for_own_district_item(monkeypatch):
         property_match_status=None, situs_address=None, real_account_number=None, tug=None, neighborhood=None,
         map_id=None, appraiser_assignment=AppraiserAssignment(appraiser=None, basis="unassigned", reason="no rules"),
         suggested_property_link=None, suggested_property_link_reason=None, generated_at="2026-08-24T00:00:00Z",
+        exceptions=["NO PROPERTY MATCH -- Property Enrichment did not find a matching real-property record; verify the source address or search manually.", "APPRAISER UNASSIGNED -- no matching TUG/neighborhood assignment rule is configured for this jurisdiction."],
     )
     monkeypatch.setattr(comptroller_new_account_enrichment, "generate_account_card", lambda item, jurisdiction: card)
 

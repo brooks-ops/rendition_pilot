@@ -112,6 +112,36 @@ def test_build_account_card_degrades_gracefully_with_no_property_match(fake_supa
     assert card.tug is None
     assert card.appraiser_assignment.basis == "unassigned"
     assert card.business_name == "JOE'S SPORTS BAR"
+    assert any("NO PROPERTY MATCH" in e for e in card.exceptions)
+    assert any("APPRAISER UNASSIGNED" in e for e in card.exceptions)
+
+
+def test_build_account_card_surfaces_ambiguous_property_match(fake_supabase):
+    jurisdiction = make_jurisdiction()
+    item = make_item(property_match_status="AMBIGUOUS_PROPERTY_MATCH")
+    card = build_account_card(item, jurisdiction)
+    assert any("PROPERTY MATCH AMBIGUOUS" in e for e in card.exceptions)
+    assert not any("NO PROPERTY MATCH" in e for e in card.exceptions)
+
+
+def test_build_account_card_surfaces_blank_real_account_number(fake_supabase):
+    jurisdiction = make_jurisdiction()
+    item = make_item(
+        property_match_status="EXACT_PROPERTY_MATCH", matched_address="1234 MAIN ST",
+        property_account_number=None,  # property matched, but QuickRefID was blank
+    )
+    card = build_account_card(item, jurisdiction)
+    assert any("NO REAL ACCOUNT NUMBER" in e for e in card.exceptions)
+
+
+def test_build_account_card_no_exceptions_when_everything_resolved(fake_supabase):
+    jurisdiction = make_jurisdiction(appraiser_assignment_rules={"by_tug": {"4": "appraiser@example.org"}})
+    item = make_item(
+        property_match_status="EXACT_PROPERTY_MATCH", matched_address="1234 MAIN ST",
+        property_account_number="R500000", tug="4",
+    )
+    card = build_account_card(item, jurisdiction)
+    assert card.exceptions == []
 
 
 def test_build_account_card_uses_cached_property_fields_when_no_record_id(fake_supabase):

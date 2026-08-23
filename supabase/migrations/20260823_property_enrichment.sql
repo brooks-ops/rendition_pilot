@@ -32,6 +32,13 @@ create extension if not exists pgcrypto;
 alter table public.jurisdictions
   add column if not exists property_field_mapping jsonb not null default '{}'::jsonb;
 
+-- The jurisdiction's configured "current working tax year" for property
+-- matching (spec item 5): when set, matching prefers a property record from
+-- this year; when null (the default -- no jurisdiction has set one yet),
+-- matching falls back to the newest tax_year available for that property.
+alter table public.jurisdictions
+  add column if not exists current_tax_year integer;
+
 -- One row per property-data import batch, so every real_property_records
 -- row (and every enrichment result computed from it) can be traced back to
 -- "which export, as of when" -- required for cache invalidation (an older
@@ -69,6 +76,14 @@ create table if not exists public.real_property_records (
   source_property_id text not null,
   situs_address_raw text,
 
+  -- Property exports are annual (e.g. Lubbock's AdHocTaxYear). A newer
+  -- year's import must never silently overwrite an older year's row --
+  -- see the two unique indexes below and property_adapter.py's
+  -- tax-year-selection logic. Null means the source didn't supply a year
+  -- at all (treated as its own single "yearless" record, not merged with
+  -- any dated year).
+  tax_year integer,
+
   real_account_number text,
   situs_address_normalized text,
   situs_city text,
@@ -92,8 +107,18 @@ create table if not exists public.real_property_records (
   updated_at timestamptz not null default now()
 );
 
-create unique index if not exists real_property_records_jurisdiction_source_id_idx
-on public.real_property_records (jurisdiction_id, source_property_id);
+-- Two partial unique indexes rather than one plain one: Postgres treats
+-- NULL as distinct-from-itself in a unique index, so a plain
+-- (jurisdiction_id, source_property_id, tax_year) index would silently
+-- allow unlimited duplicate rows for any source with no tax year at all.
+-- Dated rows are unique per year; a "yearless" row is unique on its own.
+create unique index if not exists real_property_records_dated_unique_idx
+on public.real_property_records (jurisdiction_id, source_property_id, tax_year)
+where tax_year is not null;
+
+create unique index if not exists real_property_records_undated_unique_idx
+on public.real_property_records (jurisdiction_id, source_property_id)
+where tax_year is null;
 
 create index if not exists real_property_records_jurisdiction_idx
 on public.real_property_records (jurisdiction_id);
@@ -103,6 +128,11 @@ on public.real_property_records (jurisdiction_id, situs_address_normalized);
 
 create index if not exists real_property_records_real_account_idx
 on public.real_property_records (jurisdiction_id, real_account_number);
+
+-- Supports "pick the newest year for this property" without pulling every
+-- year into application memory (spec item 22).
+create index if not exists real_property_records_source_id_year_idx
+on public.real_property_records (jurisdiction_id, source_property_id, tax_year desc);
 
 drop trigger if exists set_real_property_records_updated_at on public.real_property_records;
 create trigger set_real_property_records_updated_at
