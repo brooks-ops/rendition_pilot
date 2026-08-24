@@ -73,7 +73,7 @@ python extract_pages_ocr.py --pdf "Data/samples/sample_rendition.pdf" --provider
 
 ## Supabase Setup
 
-- Run `supabase/migrations/20260429_multi_district_renditions.sql`, `supabase/migrations/20260430_district_user_roles.sql`, `supabase/migrations/20260430_arb_pilot_access.sql`, `supabase/migrations/20260501_cad_onboarding.sql`, `supabase/migrations/20260601_sherman_cad_access.sql`, and `supabase/migrations/20260818_comptroller_closure_monitor.sql` in the Supabase SQL editor before using New CAD Setup, ARB Pilot signup, or Comptroller closure monitoring.
+- Run `supabase/migrations/20260429_multi_district_renditions.sql`, `supabase/migrations/20260430_district_user_roles.sql`, `supabase/migrations/20260430_arb_pilot_access.sql`, `supabase/migrations/20260501_cad_onboarding.sql`, `supabase/migrations/20260601_sherman_cad_access.sql`, `supabase/migrations/20260818_comptroller_closure_monitor.sql`, `supabase/migrations/20260822_bpp_intelligence_queue.sql`, and `supabase/migrations/20260823_property_enrichment.sql`, and `supabase/migrations/20260824_new_account_enrichment.sql` in the Supabase SQL editor before using New CAD Setup, ARB Pilot signup, Comptroller closure monitoring, BPP Intelligence, Property Enrichment, or New Account Enrichment.
 - Set `APP_BASE_URL` to the public Render app URL so Supabase confirmation emails send users back to the deployed HTML app.
 - In Supabase Auth settings, make sure both the project Site URL and redirect allow list include that same Render URL.
 - The OpenAI OCR/review path only works if the OpenAI project has active quota/billing.
@@ -98,3 +98,40 @@ SMTP_HOST="smtp.office365.com"
 SMTP_PORT="587"
 COMPTROLLER_EXPORT_EMAIL_TO="bbarrett@lubbockcad.org"
 ```
+
+## BPP Intelligence Queue + New Business Detection
+
+Generalized review-item model (`bpp_intelligence_items`) plus a jurisdiction abstraction (`jurisdictions`, `app/comptroller/jurisdictions.py`, `app/comptroller/cad_adapter.py`) so future detection modules aren't Lubbock-specific. First module: **New Business Detection** -- identifies newly-active Comptroller locations without a matching RenditionPilot account. Reuses the existing Comptroller sync and matcher; does not modify the sales-tax closure monitor above. Run manually first (no cron enabled for this feature yet):
+
+```bash
+python -m app.comptroller.cli detect-new-business --jurisdiction lubbock --dry-run
+python -m app.comptroller.cli detect-new-business --jurisdiction lubbock
+```
+
+View results at the website's **BPP Intelligence** tab (district admin). Requires `supabase/migrations/20260822_bpp_intelligence_queue.sql` applied. See [docs/bpp_intelligence_queue.md](docs/bpp_intelligence_queue.md) for the full design, why the closure monitor wasn't migrated onto the new table, and known limitations.
+
+## Property Enrichment
+
+Answers "what real-property record is most likely associated with this address?" to give New Business Detection a second, independent signal (address) alongside business-name matching -- strong enough corroboration on both makes `EXISTING_ACCOUNT_HIGH_CONFIDENCE` reachable for the first time. Portable by design (a jurisdiction onboards with a property export + field mapping, not new code); no real property/CRS data is loaded for any jurisdiction yet, so `real_property_linkage` stays disabled until one is imported. Requires `supabase/migrations/20260823_property_enrichment.sql` applied.
+
+```bash
+python -m app.comptroller.cli property-import --jurisdiction lubbock --file lubbock_properties.csv   # .csv or .xlsx
+python -m app.comptroller.cli property-enrich --jurisdiction lubbock --address "5807 88TH PL" --zip 79424
+```
+
+Staff-facing standalone lookup at **BPP > Property Lookup** (district admin); property evidence also appears in the BPP Intelligence detail view when available. See [docs/property_enrichment.md](docs/property_enrichment.md) for the full design, the matching/confidence rules, and a real production data gap (Comptroller street number vs. street name split) found and fixed while building this.
+
+**New Account Enrichment** completes the pipeline: for a new-business item, "Generate Account Card" in its detail view bundles business identity + the Property Enrichment result + a jurisdiction-configurable appraiser assignment (`jurisdictions.appraiser_assignment_rules`, empty by default -- no real Lubbock rules exist yet) into one staff-facing summary for manually creating the account in your CAD's own system. It never creates a BPP account itself. Requires `supabase/migrations/20260824_new_account_enrichment.sql` applied.
+
+```bash
+python -m app.comptroller.cli account-card --jurisdiction lubbock --source-table bpp_intelligence_items --item-id <id>
+```
+
+**Rendition persistence**: `POST /api/review/lock` now persists the locked review to `parsed_rendition_results` (previously zero writers existed anywhere in the app -- the browser held the OCR result in memory for the whole run/lock/save sequence and nothing was ever saved server-side). Requires a valid `access_token` on the lock request (the deployed frontend already sends one); persistence is skipped, never blocking, otherwise. See [docs/rendition_persistence.md](docs/rendition_persistence.md).
+
+**Production readiness diagnostic**: shows exactly which pipeline dependencies are satisfied for a jurisdiction, dependency-by-dependency (not one pass/fail flag):
+
+```bash
+python -m app.comptroller.cli readiness --jurisdiction lubbock
+```
+Also available as `POST /api/admin/production-readiness` (district admin only).

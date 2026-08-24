@@ -293,6 +293,9 @@
     <section id="app-shell" class="hidden">
       <div class="tabs">
         <button class="tab-btn active" data-view="single" type="button">Single Review</button>
+        <button id="intelligence-tab" class="tab-btn hidden" data-view="intelligence" type="button">BPP Intelligence</button>
+        <button id="property-tab" class="tab-btn hidden" data-view="property" type="button">Property Lookup</button>
+        <button id="readiness-tab" class="tab-btn hidden" data-view="readiness" type="button">Readiness</button>
         <button id="admin-tab" class="tab-btn hidden" data-view="admin" type="button">Admin</button>
       </div>
 
@@ -648,6 +651,125 @@
         </details>
       </div>
 
+      <div id="view-intelligence" class="view">
+        <section class="card">
+          <h3>BPP Intelligence Queue</h3>
+          <div class="subtle" style="margin-bottom:12px;">Evidence-backed work for review -- possible new businesses, sales-tax closures, and (later) relocations/ownership changes. Every item is a signal for a human to review, never an automatic change to official CAD/appraisal data.</div>
+          <div class="layout-3" style="margin-bottom:16px;">
+            <div class="field"><label>New</label><div id="intel-summary-new" class="status" style="text-align:center;font-size:1.4em;">-</div></div>
+            <div class="field"><label>High Priority</label><div id="intel-summary-high" class="status" style="text-align:center;font-size:1.4em;">-</div></div>
+            <div class="field"><label>Needs Review</label><div id="intel-summary-review" class="status" style="text-align:center;font-size:1.4em;">-</div></div>
+            <div class="field"><label>Resolved</label><div id="intel-summary-resolved" class="status" style="text-align:center;font-size:1.4em;">-</div></div>
+          </div>
+          <div class="layout-3" style="margin-bottom:8px;">
+            <div class="field">
+              <label for="intel-filter-signal">Signal Type</label>
+              <select id="intel-filter-signal">
+                <option value="">All</option>
+                <option value="new_business">New Business</option>
+                <option value="sales_tax_inactive">Sales Tax Inactive</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="intel-filter-status">Status</label>
+              <select id="intel-filter-status">
+                <option value="">All</option>
+                <option value="NEW">New</option>
+                <option value="IN_REVIEW">In Review</option>
+                <option value="RESOLVED">Resolved</option>
+                <option value="DISMISSED">Dismissed</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="intel-filter-confidence">Confidence</label>
+              <select id="intel-filter-confidence">
+                <option value="">All</option>
+                <option value="HIGH">High</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="LOW">Low</option>
+                <option value="UNMATCHED">Unmatched</option>
+              </select>
+            </div>
+          </div>
+          <div class="layout-3" style="margin-bottom:12px;">
+            <div class="field">
+              <label for="intel-filter-city">City</label>
+              <input id="intel-filter-city" type="text" placeholder="LUBBOCK">
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <button id="intel-refresh" class="secondary" type="button">Refresh Queue</button>
+            </div>
+          </div>
+          <div id="intel-list"></div>
+        </section>
+
+        <section class="card hidden" id="intel-detail-card">
+          <h3>Item Detail</h3>
+          <div id="intel-detail-body"></div>
+          <div class="layout-3" style="margin-top:12px;">
+            <div class="field">
+              <label>&nbsp;</label>
+              <button id="intel-action-investigate" class="secondary" type="button">Investigate</button>
+            </div>
+            <div class="field">
+              <label for="intel-resolution">Resolution</label>
+              <select id="intel-resolution"></select>
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <button id="intel-action-resolve" type="button">Resolve</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="intel-resolution-notes">Notes (optional)</label>
+            <input id="intel-resolution-notes" type="text" placeholder="Notes for this decision">
+          </div>
+          <div class="button-row">
+            <button id="intel-action-dismiss" class="secondary" type="button">Dismiss / False Positive</button>
+            <button id="intel-action-account-card" class="secondary hidden" type="button">Generate Account Card</button>
+            <button id="intel-detail-close" class="secondary" type="button">Close</button>
+          </div>
+          <div id="intel-detail-status" class="status hidden"></div>
+          <div id="intel-account-card" class="hidden" style="margin-top:12px;"></div>
+        </section>
+      </div>
+
+      <div id="view-property" class="view">
+        <section class="card">
+          <h3>Property Lookup</h3>
+          <div class="subtle" style="margin-bottom:12px;">Look up the real-property record most likely associated with an address, independent of any intelligence item. Read-only against property data your CAD has loaded -- never writes to official CAD records.</div>
+          <div class="layout-3" style="margin-bottom:12px;">
+            <div class="field">
+              <label for="property-lookup-address">Address</label>
+              <input id="property-lookup-address" type="text" placeholder="5807 88TH PL">
+            </div>
+            <div class="field">
+              <label for="property-lookup-zip">ZIP (optional)</label>
+              <input id="property-lookup-zip" type="text" placeholder="79424">
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <button id="property-lookup-submit" type="button">Look Up</button>
+            </div>
+          </div>
+          <div id="property-lookup-status" class="status hidden"></div>
+          <div id="property-lookup-result"></div>
+        </section>
+      </div>
+
+      <div id="view-readiness" class="view">
+        <section class="card">
+          <h3>Production Readiness</h3>
+          <div class="subtle" style="margin-bottom:12px;">Which pipeline dependencies are satisfied for your district right now -- Comptroller data, persisted BPP accounts, property data/mapping, appraiser rules -- and what's still blocked because of it. Read-only diagnostic; changes nothing.</div>
+          <div class="button-row" style="margin-bottom:12px;">
+            <button id="readiness-refresh" type="button">Refresh</button>
+          </div>
+          <div id="readiness-status" class="status hidden"></div>
+          <div id="readiness-list"></div>
+        </section>
+      </div>
+
       <div id="view-admin" class="view">
         <section class="card">
           <h3>Authorized CAD Users</h3>
@@ -729,6 +851,10 @@
       },
       admin: {
         users: [],
+      },
+      intelligence: {
+        items: [],
+        selected: null,
       },
       cadSchedules: []
     };
@@ -882,6 +1008,9 @@
         $("signed-in-district").textContent = `District: ${appState.auth.district.district_name} | Role: ${appState.auth.district.role || "member"}`;
         $("app-subtitle").textContent = `${appState.auth.district.district_name} | Intelligent BPP rendition review with side-by-side document verification.`;
         $("admin-tab").classList.toggle("hidden", !isAdmin);
+        $("intelligence-tab").classList.toggle("hidden", !isAdmin);
+        $("property-tab").classList.toggle("hidden", !isAdmin);
+        $("readiness-tab").classList.toggle("hidden", !isAdmin);
         if (isAdmin) {
           refreshDistrictUsers();
           if (!$("comptroller-export-month").value) $("comptroller-export-month").value = defaultComptrollerExportMonth();
@@ -889,6 +1018,9 @@
       } else {
         $("app-subtitle").textContent = "Authorized rendition review access only.";
         $("admin-tab").classList.add("hidden");
+        $("intelligence-tab").classList.add("hidden");
+        $("property-tab").classList.add("hidden");
+        $("readiness-tab").classList.add("hidden");
       }
     }
 
@@ -900,6 +1032,8 @@
           button.classList.add("active");
           $(`view-${button.dataset.view}`).classList.add("active");
           if (button.dataset.view === "admin" && appState.auth?.district?.role === "admin") refreshDistrictUsers();
+          if (button.dataset.view === "intelligence" && appState.auth?.district?.role === "admin") refreshIntelligenceQueue();
+          if (button.dataset.view === "readiness" && appState.auth?.district?.role === "admin") refreshReadiness().catch((error) => showFlash(error.message, "error"));
         });
       });
       document.querySelectorAll("[data-auth-view]").forEach((button) => {
@@ -1932,6 +2066,307 @@
       }
     }
 
+    // -- BPP Intelligence Queue -----------------------------------------------
+
+    const INTEL_RESOLUTION_OPTIONS = {
+      new_business: ["ACCOUNT_EXISTS", "NEW_ACCOUNT_NEEDED", "OWNERSHIP_CHANGE", "RELOCATION", "DUPLICATE", "NO_TAXABLE_BPP", "FALSE_MATCH", "OTHER"],
+      sales_tax_inactive: ["ACCOUNT_EXISTS", "BUSINESS_CLOSED", "OWNERSHIP_CHANGE", "RELOCATION", "DUPLICATE", "FALSE_MATCH", "OTHER"]
+    };
+
+    function intelResolutionLabel(code) {
+      return String(code || "").replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+
+    async function refreshIntelligenceQueue() {
+      if (!appState.auth?.access_token || appState.auth?.district?.role !== "admin") return;
+      const payload = { access_token: appState.auth.access_token };
+      const signal = $("intel-filter-signal").value;
+      const status = $("intel-filter-status").value;
+      const confidence = $("intel-filter-confidence").value;
+      const city = $("intel-filter-city").value.trim();
+      if (signal) payload.signal_type = signal;
+      if (status) payload.status = status;
+      if (confidence) payload.confidence = confidence;
+      if (city) payload.city = city;
+
+      const [summary, queue] = await Promise.all([
+        fetchJson("/api/admin/intelligence/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ access_token: appState.auth.access_token }) }),
+        fetchJson("/api/admin/intelligence/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+      ]);
+      $("intel-summary-new").textContent = summary.new;
+      $("intel-summary-high").textContent = summary.high_priority;
+      $("intel-summary-review").textContent = summary.needs_review;
+      $("intel-summary-resolved").textContent = summary.resolved;
+
+      appState.intelligence.items = queue.items || [];
+      renderIntelligenceQueue(appState.intelligence.items);
+    }
+
+    function intelCardHtml(item) {
+      const title = item.signal_type === "new_business" ? "NEW BUSINESS" : "SALES TAX INACTIVE";
+      const addressLine = [item.source_address, item.source_city, item.source_state, item.source_zip].filter(Boolean).join(", ");
+      const matched = item.matched_owner_name
+        ? `Matched: ${formatText(item.matched_owner_name)} (${formatText(item.confidence)})`
+        : "CAD Match: No matching RenditionPilot record found";
+      return `
+        <div class="card" style="margin-bottom:10px;cursor:pointer;" data-intel-id="${item.id}" data-intel-table="${item.source_table}">
+          <div style="display:flex;justify-content:space-between;">
+            <strong>${formatText(title)} -- ${formatText(item.business_name)}</strong>
+            <span class="status ${item.priority === "HIGH" ? "error" : "warn"}" style="display:inline-block;">${formatText(item.priority)} PRIORITY</span>
+          </div>
+          <div class="subtle">${formatText(addressLine || "Address not available")}</div>
+          <div class="subtle">Detected: ${formatText(item.first_detected_at)} | Status: ${formatText(item.status)}</div>
+          <div class="subtle">${matched}</div>
+          <div class="subtle">Reason: ${formatText(item.match_reason)}</div>
+        </div>`;
+    }
+
+    function renderIntelligenceQueue(items) {
+      const list = $("intel-list");
+      if (!items.length) {
+        list.innerHTML = `<div class="subtle">No intelligence items match these filters.</div>`;
+        return;
+      }
+      list.innerHTML = items.map(intelCardHtml).join("");
+      list.querySelectorAll("[data-intel-id]").forEach((card) => {
+        card.addEventListener("click", () => openIntelligenceDetail(card.dataset.intelId, card.dataset.intelTable));
+      });
+    }
+
+    function propertyEvidenceHtml(item) {
+      if (!item.property_match_status) {
+        return `<div class="subtle">Property Match: NONE -- no property data loaded for this jurisdiction, or no address was available to check.</div>`;
+      }
+      if (item.property_match_status === "AMBIGUOUS_PROPERTY_MATCH") {
+        return `<div>Property Match: <strong>AMBIGUOUS</strong></div><div class="subtle">Multiple candidate properties scored similarly -- review manually.</div>`;
+      }
+      if (item.property_match_status === "NO_PROPERTY_MATCH") {
+        return `<div>Property Match: <strong>NONE</strong></div>`;
+      }
+      return `
+        <div>Property Match: <strong>${formatText(item.property_match_status.replace("_PROPERTY_MATCH", ""))}</strong></div>
+        <div>Situs Address: ${formatText(item.matched_address)}</div>
+        <div>Real Account: ${formatText(item.property_account_number)}</div>
+        <div>TUG: ${formatText(item.tug)}</div>
+        <div>Neighborhood: ${formatText(item.neighborhood)}</div>
+        <div>Map: ${formatText(item.map_id)}</div>`;
+    }
+
+    function openIntelligenceDetail(itemId, sourceTable) {
+      const item = appState.intelligence.items.find((candidate) => candidate.id === itemId && candidate.source_table === sourceTable);
+      if (!item) return;
+      appState.intelligence.selected = item;
+
+      const signals = item.match_signals || {};
+      const signalRows = Object.keys(signals).length
+        ? Object.entries(signals).map(([key, value]) => `<div>${formatText(key.replaceAll("_", " "))}: <strong>${formatText(value)}</strong></div>`).join("")
+        : `<div class="subtle">No per-signal breakdown available for this item.</div>`;
+
+      $("intel-detail-body").innerHTML = `
+        <div class="layout-3">
+          <div>
+            <h4>External Source (Comptroller)</h4>
+            <div>Business/DBA: ${formatText(item.business_name)}</div>
+            <div>Legal/Taxpayer Name: ${formatText(item.legal_name)}</div>
+            <div>Address: ${formatText([item.source_address, item.source_city, item.source_state, item.source_zip].filter(Boolean).join(", "))}</div>
+            <div>Permit Start: ${formatText(item.permit_start_date)}</div>
+            <div>First Detected: ${formatText(item.first_detected_at)}</div>
+          </div>
+          <div>
+            <h4>RenditionPilot Match</h4>
+            <div>Matched Owner Name: ${formatText(item.matched_owner_name)}</div>
+            <div>Matched Account #: ${formatText(item.matched_account_number)}</div>
+            <div>Confidence: ${formatText(item.confidence)} (${formatText(item.confidence_score)})</div>
+            <div>Ambiguous: ${item.is_ambiguous ? "YES -- multiple similarly-scored records" : "No"}</div>
+            <div>Classification: ${formatText(item.classification)}</div>
+          </div>
+          <div>
+            <h4>Match Analysis</h4>
+            ${signalRows}
+          </div>
+          <div>
+            <h4>Property Enrichment</h4>
+            ${propertyEvidenceHtml(item)}
+          </div>
+        </div>
+        <div style="margin-top:10px;"><strong>Reason:</strong> ${formatText(item.match_reason)}</div>
+        <div><strong>Recommended:</strong> ${formatText(item.recommended_action)}</div>`;
+
+      const resolutionSelect = $("intel-resolution");
+      const options = INTEL_RESOLUTION_OPTIONS[item.signal_type] || INTEL_RESOLUTION_OPTIONS.new_business;
+      resolutionSelect.innerHTML = options.map((code) => `<option value="${code}">${intelResolutionLabel(code)}</option>`).join("");
+      $("intel-resolution-notes").value = "";
+      $("intel-detail-status").classList.add("hidden");
+      $("intel-action-account-card").classList.toggle("hidden", item.signal_type !== "new_business");
+      $("intel-account-card").classList.add("hidden");
+      $("intel-account-card").innerHTML = "";
+      $("intel-detail-card").classList.remove("hidden");
+      $("intel-detail-card").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    async function intelligenceAction(path, extraPayload) {
+      const item = appState.intelligence.selected;
+      if (!item) return;
+      const statusEl = $("intel-detail-status");
+      try {
+        const data = await fetchJson(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            access_token: appState.auth.access_token,
+            source_table: item.source_table,
+            item_id: item.id,
+            ...extraPayload
+          })
+        });
+        statusEl.textContent = "Saved.";
+        statusEl.className = "status success";
+        statusEl.classList.remove("hidden");
+        await refreshIntelligenceQueue();
+        if (data.item) openIntelligenceDetail(data.item.id, data.item.source_table);
+      } catch (error) {
+        statusEl.textContent = error.message;
+        statusEl.className = "status error";
+        statusEl.classList.remove("hidden");
+      }
+    }
+
+    function accountCardHtml(card) {
+      const appraiser = card.appraiser || {};
+      const exceptions = card.exceptions || [];
+      const exceptionsBlock = exceptions.length
+        ? `<div class="status warn" style="margin-bottom:8px;">${exceptions.map((e) => `<div>${formatText(e)}</div>`).join("")}</div>`
+        : `<div class="status success" style="margin-bottom:8px;">No exceptions -- this card is ready to use.</div>`;
+      return `
+        <div class="card">
+          <h4>New Account Card</h4>
+          <div class="subtle" style="margin-bottom:8px;">Advisory only -- use this to manually create the account in your CAD's own system. Nothing here has been written to official CAD data.</div>
+          ${exceptionsBlock}
+          <div>Business/DBA: ${formatText(card.business_name)}</div>
+          <div>Legal Name: ${formatText(card.legal_name)}</div>
+          <div>Address: ${formatText([card.source_address, card.source_city, card.source_state, card.source_zip].filter(Boolean).join(", "))}</div>
+          <div>Permit Start: ${formatText(card.permit_start_date)}</div>
+          <div style="margin-top:8px;">Property Match: ${formatText(card.property_match_status)}</div>
+          <div>Situs Address: ${formatText(card.situs_address)}</div>
+          <div>Suggested Property Link: ${formatText(card.suggested_property_link)}</div>
+          <div class="subtle">${formatText(card.suggested_property_link_reason)}</div>
+          <div>TUG: ${formatText(card.tug)} | Neighborhood: ${formatText(card.neighborhood)} | Map: ${formatText(card.map_id)}</div>
+          <div style="margin-top:8px;">Suggested Appraiser: <strong>${formatText(appraiser.appraiser || "UNASSIGNED")}</strong> (${formatText(appraiser.basis)})</div>
+          <div class="subtle">${formatText(appraiser.reason)}</div>
+        </div>`;
+    }
+
+    async function generateAccountCard() {
+      const item = appState.intelligence.selected;
+      if (!item) return;
+      const statusEl = $("intel-detail-status");
+      try {
+        const data = await fetchJson("/api/admin/intelligence/account-card", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: appState.auth.access_token, source_table: item.source_table, item_id: item.id })
+        });
+        $("intel-account-card").innerHTML = accountCardHtml(data.card);
+        $("intel-account-card").classList.remove("hidden");
+        statusEl.classList.add("hidden");
+      } catch (error) {
+        statusEl.textContent = error.message;
+        statusEl.className = "status error";
+        statusEl.classList.remove("hidden");
+      }
+    }
+
+    function propertyLookupResultHtml(result) {
+      const matched = result.matched_property;
+      const alternatives = result.alternatives || [];
+      const matchBlock = matched
+        ? `
+          <div>Matched PropertyID: <strong>${formatText(matched.property_id)}</strong></div>
+          <div>Real Account: ${formatText(matched.real_account_number)}</div>
+          <div>Situs Address: ${formatText(matched.situs_address)}</div>
+          <div>TUG: ${formatText(matched.tug)}</div>
+          <div>Neighborhood: ${formatText(matched.neighborhood)}</div>
+          <div>Map: ${formatText(matched.map_id)}</div>`
+        : `<div class="subtle">No matching property record.</div>`;
+      const alternativesBlock = alternatives.length
+        ? `<div style="margin-top:8px;"><strong>Alternative candidates:</strong> ${alternatives.map((a) => formatText(a.property_id)).join(", ")}</div>`
+        : "";
+      return `
+        <div class="card">
+          <div>Normalized Address: ${formatText(result.normalized_address)}</div>
+          <div>Candidates Evaluated: ${formatText(result.candidate_count)}</div>
+          <div style="margin-top:8px;">Classification: <strong>${formatText(result.classification)}</strong></div>
+          <div>Confidence: ${formatText(result.confidence)} (${formatText(result.score)})</div>
+          <div style="margin-top:8px;">${matchBlock}</div>
+          ${alternativesBlock}
+          <div class="subtle" style="margin-top:8px;">${formatText((result.reasons || []).join("; "))}</div>
+        </div>`;
+    }
+
+    async function runPropertyLookup() {
+      const address = $("property-lookup-address").value.trim();
+      const zip = $("property-lookup-zip").value.trim();
+      const statusEl = $("property-lookup-status");
+      if (!address) {
+        statusEl.textContent = "Enter an address to look up.";
+        statusEl.className = "status error";
+        statusEl.classList.remove("hidden");
+        return;
+      }
+      try {
+        const result = await fetchJson("/api/admin/property/lookup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: appState.auth.access_token, address, zip: zip || null })
+        });
+        statusEl.classList.add("hidden");
+        $("property-lookup-result").innerHTML = propertyLookupResultHtml(result);
+      } catch (error) {
+        statusEl.textContent = error.message;
+        statusEl.className = "status error";
+        statusEl.classList.remove("hidden");
+        $("property-lookup-result").innerHTML = "";
+      }
+    }
+
+    const READINESS_STATUS_CLASS = {
+      READY: "success",
+      NOT_READY: "error",
+      BLOCKED: "error",
+      OPTIONAL: "warn",
+      NOT_CONFIGURED: "warn"
+    };
+
+    function readinessCheckHtml(check) {
+      const statusClass = READINESS_STATUS_CLASS[check.status] || "warn";
+      return `
+        <div class="card" style="margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <strong>${formatText(check.name)}</strong>
+            <span class="status ${statusClass}" style="display:inline-block;">${formatText(check.status)}</span>
+          </div>
+          <div class="subtle">${formatText(check.detail)}</div>
+        </div>`;
+    }
+
+    async function refreshReadiness() {
+      const statusEl = $("readiness-status");
+      try {
+        const data = await fetchJson("/api/admin/production-readiness", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: appState.auth.access_token })
+        });
+        statusEl.classList.add("hidden");
+        $("readiness-list").innerHTML = `<div class="subtle" style="margin-bottom:10px;">${formatText(data.jurisdiction_name)}</div>` + (data.checks || []).map(readinessCheckHtml).join("");
+      } catch (error) {
+        statusEl.textContent = error.message;
+        statusEl.className = "status error";
+        statusEl.classList.remove("hidden");
+        $("readiness-list").innerHTML = "";
+      }
+    }
+
     function renderTable(headId, bodyId, rows) {
       const head = $(headId);
       const body = $(bodyId);
@@ -1956,7 +2391,8 @@
         account_number: $("final-account-number").value,
         decision: $("final-decision").value,
         district_context: appState.auth?.district || null,
-        saved_calculators: appState.single.savedCalculators
+        saved_calculators: appState.single.savedCalculators,
+        access_token: appState.auth?.access_token || null
       };
     }
 
@@ -2183,6 +2619,26 @@
         try { await refreshDistrictUsers(); } catch (error) { showFlash(error.message, "error"); }
       });
       $("comptroller-export-download").addEventListener("click", downloadComptrollerExport);
+
+      $("intel-refresh").addEventListener("click", () => { refreshIntelligenceQueue().catch((error) => showFlash(error.message, "error")); });
+      ["intel-filter-signal", "intel-filter-status", "intel-filter-confidence"].forEach((id) => {
+        $(id).addEventListener("change", () => { refreshIntelligenceQueue().catch((error) => showFlash(error.message, "error")); });
+      });
+      $("intel-detail-close").addEventListener("click", () => {
+        appState.intelligence.selected = null;
+        $("intel-detail-card").classList.add("hidden");
+      });
+      $("intel-action-investigate").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/investigate", {}));
+      $("intel-action-resolve").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/resolve", {
+        resolution: $("intel-resolution").value,
+        resolution_notes: $("intel-resolution-notes").value || null
+      }));
+      $("intel-action-dismiss").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/dismiss", {
+        resolution_notes: $("intel-resolution-notes").value || null
+      }));
+      $("property-lookup-submit").addEventListener("click", () => { runPropertyLookup().catch((error) => showFlash(error.message, "error")); });
+      $("readiness-refresh").addEventListener("click", () => { refreshReadiness().catch((error) => showFlash(error.message, "error")); });
+      $("intel-action-account-card").addEventListener("click", () => { generateAccountCard().catch((error) => showFlash(error.message, "error")); });
       $("invite-submit").addEventListener("click", async () => {
         try {
           const email = $("invite-email").value.trim().toLowerCase();

@@ -4,7 +4,9 @@ import base64
 import gc
 import json
 import os
+import sys
 import tempfile
+from dataclasses import asdict
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -47,7 +49,14 @@ from app.review_workflow import (
 )
 from app.comptroller import admin as comptroller_admin
 from app.comptroller import export as comptroller_export
+from app.comptroller import intelligence as comptroller_intelligence
+from app.comptroller import jurisdictions as comptroller_jurisdictions
+from app.comptroller import new_account_enrichment as comptroller_new_account_enrichment
+from app.comptroller import property_adapter as comptroller_property_adapter
+from app.comptroller import property_enrichment as comptroller_property_enrichment
+from app.comptroller import readiness as comptroller_readiness
 from app.comptroller.service import ComptrollerServiceError
+from app.rendition_persistence import RenditionPersistenceError, persist_locked_review
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "app" / ".env", override=True)
@@ -297,6 +306,43 @@ class ComptrollerReviewExportRequest(BaseModel):
     review_month: str
 
 
+class IntelligenceQueueRequest(BaseModel):
+    access_token: str
+    signal_type: str | None = None
+    status: str | None = None
+    confidence: str | None = None
+    city: str | None = None
+
+
+class IntelligenceItemRequest(BaseModel):
+    access_token: str
+    source_table: str
+    item_id: str
+
+
+class IntelligenceInvestigateRequest(IntelligenceItemRequest):
+    pass
+
+
+class IntelligenceResolveRequest(IntelligenceItemRequest):
+    resolution: str
+    resolution_notes: str | None = None
+
+
+class IntelligenceDismissRequest(IntelligenceItemRequest):
+    resolution_notes: str | None = None
+
+
+class PropertyLookupRequest(BaseModel):
+    access_token: str
+    address: str
+    zip: str | None = None
+
+
+class ProductionReadinessRequest(BaseModel):
+    access_token: str
+
+
 class ARBAuthRequest(BaseModel):
     access_token: str
 
@@ -316,6 +362,14 @@ class LockReviewRequest(BaseModel):
     decision: str = "accepted"
     district_context: dict[str, Any] | None = None
     saved_calculators: list[dict[str, Any]] = Field(default_factory=list)
+    # Optional: when present and valid, the locked review is durably persisted
+    # to parsed_rendition_results under the SERVER-VERIFIED district it
+    # resolves to -- never the client-supplied district_context above, which
+    # is display-only and was never re-validated against the caller's
+    # session. Omitted/invalid tokens still lock successfully; they just
+    # don't persist (see backend/main.py::review_lock and
+    # app/rendition_persistence.py).
+    access_token: str | None = None
 
 
 class SaveReviewRequest(BaseModel):
@@ -1777,9 +1831,33 @@ def review_lock(request: LockReviewRequest) -> dict[str, Any]:
     )
     record["saved_calculators"] = request.saved_calculators
     record["calculated_total_value"] = calculate_combined_total(request.saved_calculators)
+
+    persisted = False
+    if request.access_token:
+        try:
+            district = get_authenticated_district_context(request.access_token)
+            user = get_supabase_user(request.access_token)
+            persist_locked_review(
+                district_id=district.district_id,
+                file_name=request.file_name,
+                result=request.result,
+                account_number=record["account_number"],
+                final_value=final_value,
+                pipeline_confidence=record.get("pipeline_confidence"),
+                created_by=str(user.get("id") or "").strip() or None,
+            )
+            persisted = True
+        except HTTPException:
+            pass  # invalid/expired token -- lock still succeeds, just doesn't persist
+        except (RenditionPersistenceError, ComptrollerServiceError) as exc:
+            # Persistence failure must never block the appraiser from locking
+            # a review -- but must not vanish silently either.
+            print(f"[review/lock] persistence failed: {exc}", file=sys.stderr)
+
     return {
         "final_record": to_jsonable(record),
         "decision_label": get_decision_label(record.get("decision")),
+        "persisted": persisted,
     }
 
 
@@ -1886,3 +1964,204 @@ def comptroller_review_queue_export(request: ComptrollerReviewExportRequest) -> 
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# --- BPP Intelligence Queue --------------------------------------------------
+#
+# Unified read/action surface over app.comptroller.intelligence, which merges
+# the new bpp_intelligence_items table (New Business Detection today) with
+# the existing comptroller_closure_reviews table (sales-tax closures,
+# untouched). Gated the same way as the other Comptroller admin endpoints.
+# investigate/resolve/dismiss only ever write this queue's own status/
+# resolution/notes/reviewer fields -- never property value, appraisal
+# status, ownership, account status, BPP records, or exemption data.
+
+
+@app.post("/api/admin/intelligence/summary")
+def intelligence_summary(request: ComptrollerStatusRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    try:
+        summary = comptroller_intelligence.get_queue_summary(district.district_id)
+    except ComptrollerServiceError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return to_jsonable(summary)
+
+
+@app.post("/api/admin/intelligence/queue")
+def intelligence_queue(request: IntelligenceQueueRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    try:
+        items = comptroller_intelligence.list_intelligence_queue(
+            district.district_id,
+            signal_type=request.signal_type,
+            status=request.status,
+            confidence=request.confidence,
+            city=request.city,
+        )
+    except ComptrollerServiceError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"items": to_jsonable([asdict(item) for item in items])}
+
+
+def _require_own_district_item(district, source_table: str, item_id: str) -> comptroller_intelligence.UnifiedIntelligenceItem:
+    item = comptroller_intelligence.get_intelligence_item(source_table, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Intelligence item was not found.")
+    if item.district_id != district.district_id:
+        raise HTTPException(status_code=403, detail="Cannot manage intelligence items for another district.")
+    return item
+
+
+@app.post("/api/admin/intelligence/item")
+def intelligence_item_detail(request: IntelligenceItemRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    item = _require_own_district_item(district, request.source_table, request.item_id)
+    return {"item": to_jsonable(asdict(item))}
+
+
+@app.post("/api/admin/intelligence/investigate")
+def intelligence_investigate(request: IntelligenceInvestigateRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    _require_own_district_item(district, request.source_table, request.item_id)
+    user = get_supabase_user(request.access_token)
+    try:
+        item = comptroller_intelligence.investigate_item(
+            request.source_table, request.item_id, assigned_to=str(user.get("id") or "").strip() or None,
+        )
+    except comptroller_intelligence.IntelligenceQueueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": to_jsonable(asdict(item))}
+
+
+@app.post("/api/admin/intelligence/resolve")
+def intelligence_resolve(request: IntelligenceResolveRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    _require_own_district_item(district, request.source_table, request.item_id)
+    user = get_supabase_user(request.access_token)
+    try:
+        item = comptroller_intelligence.resolve_item(
+            request.source_table,
+            request.item_id,
+            resolution=request.resolution,
+            resolution_notes=request.resolution_notes,
+            reviewed_by=str(user.get("id") or "").strip() or None,
+        )
+    except comptroller_intelligence.IntelligenceQueueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": to_jsonable(asdict(item))}
+
+
+@app.post("/api/admin/intelligence/account-card")
+def intelligence_account_card(request: IntelligenceItemRequest) -> dict[str, Any]:
+    """New Account Enrichment: bundles the intelligence item's evidence
+    (business identity, Property Enrichment result, appraiser assignment)
+    into one staff-facing summary for manually creating the account in the
+    CAD's real system. Read-only against RenditionPilot's own data; the one
+    write is an audit marker (account_card_generated_at) on the item
+    itself -- never a new account, never official CAD data."""
+
+    district = require_district_admin(request.access_token)
+    item = _require_own_district_item(district, request.source_table, request.item_id)
+    if not item.jurisdiction_id:
+        raise HTTPException(status_code=404, detail="No jurisdiction is configured for this item.")
+    try:
+        jurisdiction = comptroller_jurisdictions.get_jurisdiction(item.jurisdiction_id)
+    except comptroller_jurisdictions.JurisdictionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        card = comptroller_new_account_enrichment.generate_account_card(item, jurisdiction)
+    except comptroller_new_account_enrichment.NewAccountEnrichmentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"card": to_jsonable(comptroller_new_account_enrichment.account_card_to_dict(card))}
+
+
+# --- Property Lookup ----------------------------------------------------------
+#
+# Standalone diagnostic tool over app.comptroller.property_enrichment, so
+# staff can validate address-to-property matching independently of New
+# Business Detection. Read-only against real_property_records; the one
+# write is an advisory property_enrichment_results cache row, never
+# official CAD data (see property_enrichment.py's module docstring).
+
+
+@app.post("/api/admin/property/lookup")
+def property_lookup(request: PropertyLookupRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
+    if jurisdiction is None:
+        raise HTTPException(status_code=404, detail="No jurisdiction is configured for this district yet.")
+    try:
+        adapter = comptroller_property_adapter.get_property_adapter(jurisdiction)
+        candidates = adapter.search_properties(jurisdiction)
+        outcome = comptroller_property_enrichment.run_property_enrichment(
+            jurisdiction,
+            subject_type="AD_HOC_LOOKUP",
+            subject_id=f"lookup:{request.address}:{request.zip or ''}",
+            input_address=request.address,
+            input_zip=request.zip,
+            candidates=candidates,
+        )
+    except comptroller_property_enrichment.PropertyEnrichmentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ComptrollerServiceError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    result = outcome.result
+    matched = result.matched_property
+    return to_jsonable({
+        "normalized_address": result.normalized_input.normalized if result.normalized_input else None,
+        "candidate_count": result.candidate_count,
+        "classification": result.classification,
+        "confidence": result.confidence,
+        "score": result.score,
+        "reasons": result.reasons,
+        "signals": result.signals,
+        "matched_property": {
+            "property_id": matched.source_property_id,
+            "real_account_number": matched.real_account_number,
+            "situs_address": matched.situs_address_raw,
+            "tug": matched.tug,
+            "neighborhood": matched.neighborhood,
+            "map_id": matched.map_id,
+        } if matched else None,
+        "alternatives": [
+            {"property_id": a.source_property_id, "situs_address": a.situs_address_raw}
+            for a in result.alternatives
+        ],
+    })
+
+
+@app.post("/api/admin/production-readiness")
+def production_readiness(request: ProductionReadinessRequest) -> dict[str, Any]:
+    """Admin-only diagnostic (spec item 17/24): which pipeline dependencies
+    are satisfied for the requester's own jurisdiction. Never exposes
+    another district's data -- jurisdiction is resolved from the caller's
+    own verified district, same as Property Lookup."""
+
+    district = require_district_admin(request.access_token)
+    jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
+    if jurisdiction is None:
+        raise HTTPException(status_code=404, detail="No jurisdiction is configured for this district yet.")
+    result = comptroller_readiness.assess_production_readiness(jurisdiction)
+    return to_jsonable({
+        "jurisdiction_id": result.jurisdiction_id,
+        "jurisdiction_name": result.jurisdiction_name,
+        "checks": [{"name": c.name, "status": c.status, "detail": c.detail} for c in result.checks],
+    })
+
+
+@app.post("/api/admin/intelligence/dismiss")
+def intelligence_dismiss(request: IntelligenceDismissRequest) -> dict[str, Any]:
+    district = require_district_admin(request.access_token)
+    _require_own_district_item(district, request.source_table, request.item_id)
+    user = get_supabase_user(request.access_token)
+    try:
+        item = comptroller_intelligence.dismiss_item(
+            request.source_table,
+            request.item_id,
+            resolution_notes=request.resolution_notes,
+            reviewed_by=str(user.get("id") or "").strip() or None,
+        )
+    except comptroller_intelligence.IntelligenceQueueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": to_jsonable(asdict(item))}

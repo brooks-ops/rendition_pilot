@@ -55,6 +55,34 @@ def test_fetch_derives_active_status_when_no_out_of_business_date(monkeypatch):
     assert result.source_data_date is not None
 
 
+def test_fetch_combines_address_number_and_address_text(monkeypatch):
+    # The real Comptroller dataset splits the street number
+    # (address_number) from the street name (address_text) -- confirmed via
+    # a live API pull on 2026-08-22, e.g. address_number="3612",
+    # address_text="122ND ST". Property Enrichment's street-number matching
+    # signal needs the combined form; name-only matching never did, which is
+    # how this went unnoticed until Property Enrichment needed real addresses.
+    def fake_get(url, headers=None, params=None, timeout=None):
+        return FakeResponse(json_data=[_active_row(address_number="3612", address_text="122ND ST")])
+
+    monkeypatch.setattr(comptroller_client.requests, "get", fake_get)
+
+    result = comptroller_client.fetch_county_permits("152")
+
+    assert result.records[0].address == "3612 122ND ST"
+
+
+def test_fetch_address_falls_back_to_street_name_only_when_no_number(monkeypatch):
+    def fake_get(url, headers=None, params=None, timeout=None):
+        return FakeResponse(json_data=[_active_row(address_text="122ND ST")])
+
+    monkeypatch.setattr(comptroller_client.requests, "get", fake_get)
+
+    result = comptroller_client.fetch_county_permits("152")
+
+    assert result.records[0].address == "122ND ST"
+
+
 def test_fetch_derives_inactive_status_from_out_of_business_date(monkeypatch):
     def fake_get(url, headers=None, params=None, timeout=None):
         return FakeResponse(json_data=[_active_row(out_of_business_date="2026-03-02T00:00:00.000")])
