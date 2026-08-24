@@ -295,6 +295,7 @@
         <button class="tab-btn active" data-view="single" type="button">Single Review</button>
         <button id="intelligence-tab" class="tab-btn hidden" data-view="intelligence" type="button">BPP Intelligence</button>
         <button id="property-tab" class="tab-btn hidden" data-view="property" type="button">Property Lookup</button>
+        <button id="readiness-tab" class="tab-btn hidden" data-view="readiness" type="button">Readiness</button>
         <button id="admin-tab" class="tab-btn hidden" data-view="admin" type="button">Admin</button>
       </div>
 
@@ -757,6 +758,18 @@
         </section>
       </div>
 
+      <div id="view-readiness" class="view">
+        <section class="card">
+          <h3>Production Readiness</h3>
+          <div class="subtle" style="margin-bottom:12px;">Which pipeline dependencies are satisfied for your district right now -- Comptroller data, persisted BPP accounts, property data/mapping, appraiser rules -- and what's still blocked because of it. Read-only diagnostic; changes nothing.</div>
+          <div class="button-row" style="margin-bottom:12px;">
+            <button id="readiness-refresh" type="button">Refresh</button>
+          </div>
+          <div id="readiness-status" class="status hidden"></div>
+          <div id="readiness-list"></div>
+        </section>
+      </div>
+
       <div id="view-admin" class="view">
         <section class="card">
           <h3>Authorized CAD Users</h3>
@@ -997,6 +1010,7 @@
         $("admin-tab").classList.toggle("hidden", !isAdmin);
         $("intelligence-tab").classList.toggle("hidden", !isAdmin);
         $("property-tab").classList.toggle("hidden", !isAdmin);
+        $("readiness-tab").classList.toggle("hidden", !isAdmin);
         if (isAdmin) {
           refreshDistrictUsers();
           if (!$("comptroller-export-month").value) $("comptroller-export-month").value = defaultComptrollerExportMonth();
@@ -1006,6 +1020,7 @@
         $("admin-tab").classList.add("hidden");
         $("intelligence-tab").classList.add("hidden");
         $("property-tab").classList.add("hidden");
+        $("readiness-tab").classList.add("hidden");
       }
     }
 
@@ -1018,6 +1033,7 @@
           $(`view-${button.dataset.view}`).classList.add("active");
           if (button.dataset.view === "admin" && appState.auth?.district?.role === "admin") refreshDistrictUsers();
           if (button.dataset.view === "intelligence" && appState.auth?.district?.role === "admin") refreshIntelligenceQueue();
+          if (button.dataset.view === "readiness" && appState.auth?.district?.role === "admin") refreshReadiness().catch((error) => showFlash(error.message, "error"));
         });
       });
       document.querySelectorAll("[data-auth-view]").forEach((button) => {
@@ -2313,6 +2329,44 @@
       }
     }
 
+    const READINESS_STATUS_CLASS = {
+      READY: "success",
+      NOT_READY: "error",
+      BLOCKED: "error",
+      OPTIONAL: "warn",
+      NOT_CONFIGURED: "warn"
+    };
+
+    function readinessCheckHtml(check) {
+      const statusClass = READINESS_STATUS_CLASS[check.status] || "warn";
+      return `
+        <div class="card" style="margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <strong>${formatText(check.name)}</strong>
+            <span class="status ${statusClass}" style="display:inline-block;">${formatText(check.status)}</span>
+          </div>
+          <div class="subtle">${formatText(check.detail)}</div>
+        </div>`;
+    }
+
+    async function refreshReadiness() {
+      const statusEl = $("readiness-status");
+      try {
+        const data = await fetchJson("/api/admin/production-readiness", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: appState.auth.access_token })
+        });
+        statusEl.classList.add("hidden");
+        $("readiness-list").innerHTML = `<div class="subtle" style="margin-bottom:10px;">${formatText(data.jurisdiction_name)}</div>` + (data.checks || []).map(readinessCheckHtml).join("");
+      } catch (error) {
+        statusEl.textContent = error.message;
+        statusEl.className = "status error";
+        statusEl.classList.remove("hidden");
+        $("readiness-list").innerHTML = "";
+      }
+    }
+
     function renderTable(headId, bodyId, rows) {
       const head = $(headId);
       const body = $(bodyId);
@@ -2583,6 +2637,7 @@
         resolution_notes: $("intel-resolution-notes").value || null
       }));
       $("property-lookup-submit").addEventListener("click", () => { runPropertyLookup().catch((error) => showFlash(error.message, "error")); });
+      $("readiness-refresh").addEventListener("click", () => { refreshReadiness().catch((error) => showFlash(error.message, "error")); });
       $("intel-action-account-card").addEventListener("click", () => { generateAccountCard().catch((error) => showFlash(error.message, "error")); });
       $("invite-submit").addEventListener("click", async () => {
         try {
