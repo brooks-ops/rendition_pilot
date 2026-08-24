@@ -67,6 +67,13 @@ class AccountCard:
     property_match_status: str | None
     situs_address: str | None
     real_account_number: str | None
+    # Personal-property (BPP, 'P'-prefixed) account numbers Property
+    # Enrichment found already on file at this address -- distinct from
+    # real_account_number (always the 'R'-prefixed land record). A
+    # non-empty list here is a strong "an account may already exist for
+    # this business" signal, independent of whether name-matching found
+    # anything (see app/comptroller/property_matching.classify_account_type).
+    personal_property_accounts: list[str]
     tug: str | None
     neighborhood: str | None
     map_id: str | None
@@ -104,7 +111,18 @@ def assign_appraiser(jurisdiction: Jurisdiction, *, tug: str | None, neighborhoo
     return AppraiserAssignment(appraiser=None, basis="unassigned", reason="No appraiser-assignment rules configured for this jurisdiction yet.")
 
 
-def _compute_exceptions(item: UnifiedIntelligenceItem, assignment: AppraiserAssignment) -> list[str]:
+def _extract_personal_property_accounts(item: UnifiedIntelligenceItem) -> list[str]:
+    """Reads the structured personal_property_accounts entry
+    matching.build_signal_breakdown() writes into match_signals -- never
+    parses the human-readable property_account prose string."""
+
+    raw = (item.match_signals or {}).get("personal_property_accounts")
+    if not raw or raw == "NONE FOUND":
+        return []
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _compute_exceptions(item: UnifiedIntelligenceItem, assignment: AppraiserAssignment, personal_property_accounts: list[str]) -> list[str]:
     exceptions: list[str] = []
 
     if item.property_match_status == "AMBIGUOUS_PROPERTY_MATCH":
@@ -121,6 +139,16 @@ def _compute_exceptions(item: UnifiedIntelligenceItem, assignment: AppraiserAssi
         exceptions.append(
             "NO REAL ACCOUNT NUMBER -- a property record was found, but its R account/QuickRefID "
             "field is blank in the source data."
+        )
+
+    if personal_property_accounts:
+        # Loud on purpose: a personal-property account already on file at
+        # this exact address is the single strongest "this may not
+        # actually be a new account" signal available before real rendition
+        # data exists to name-match against.
+        exceptions.append(
+            "EXISTING P-ACCOUNT FOUND: " + ", ".join(personal_property_accounts) + " -- a business personal "
+            "property account may already exist at this address; verify before creating a new one."
         )
 
     if assignment.basis == "unassigned":
@@ -151,7 +179,8 @@ def build_account_card(item: UnifiedIntelligenceItem, jurisdiction: Jurisdiction
             tug, neighborhood, map_id = record.tug, record.neighborhood, record.map_id
 
     assignment = assign_appraiser(jurisdiction, tug=tug, neighborhood=neighborhood)
-    exceptions = _compute_exceptions(item, assignment)
+    personal_property_accounts = _extract_personal_property_accounts(item)
+    exceptions = _compute_exceptions(item, assignment, personal_property_accounts)
 
     suggested_link = item.property_account_number
     suggested_link_reason = None
@@ -172,6 +201,7 @@ def build_account_card(item: UnifiedIntelligenceItem, jurisdiction: Jurisdiction
         property_match_status=item.property_match_status,
         situs_address=item.matched_address,
         real_account_number=item.property_account_number,
+        personal_property_accounts=personal_property_accounts,
         tug=tug,
         neighborhood=neighborhood,
         map_id=map_id,
@@ -220,6 +250,7 @@ def account_card_to_dict(card: AccountCard) -> dict[str, Any]:
         "property_match_status": card.property_match_status,
         "situs_address": card.situs_address,
         "real_account_number": card.real_account_number,
+        "personal_property_accounts": card.personal_property_accounts,
         "tug": card.tug,
         "neighborhood": card.neighborhood,
         "map_id": card.map_id,

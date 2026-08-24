@@ -323,7 +323,7 @@ def test_account_card_command_reports_card(monkeypatch, capsys):
         jurisdiction_id="jur-lubbock", source_table=SOURCE_TABLE_INTELLIGENCE, item_id="intel-1",
         business_name="JOE'S SPORTS BAR", legal_name=None, source_address="1234 MAIN ST", source_city="LUBBOCK",
         source_state="TX", source_zip="79401", permit_start_date=None, property_match_status=None,
-        situs_address=None, real_account_number=None, tug=None, neighborhood=None, map_id=None,
+        situs_address=None, real_account_number=None, personal_property_accounts=[], tug=None, neighborhood=None, map_id=None,
         appraiser_assignment=AppraiserAssignment(appraiser=None, basis="unassigned", reason="No rules configured."),
         suggested_property_link=None, suggested_property_link_reason=None, generated_at="2026-08-24T00:00:00Z",
         exceptions=["APPRAISER UNASSIGNED -- no matching TUG/neighborhood assignment rule is configured for this jurisdiction."],

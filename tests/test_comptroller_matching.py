@@ -287,3 +287,74 @@ def test_name_divergence_not_flagged_when_neither_name_matches(monkeypatch):
     )
 
     assert result.name_signals_diverge is False
+
+
+# -- property corroboration (HIGH confidence) --------------------------------
+#
+# Regression coverage for a real bug: a BPP rendition's account_number is
+# always P-style (the number printed on the rendition), while a matched
+# property's own real_account_number is always R-style (the land record) --
+# a real Texas CAD export mixes both under one column. Comparing a
+# candidate's account_number against the R-account would never match, by
+# definition, making HIGH permanently unreachable even with perfect data.
+# Corroboration must compare against property_match.personal_property_accounts
+# instead. See app/comptroller/property_matching.classify_account_type.
+
+def make_property_match(*, classification="EXACT_PROPERTY_MATCH", personal_property_accounts=None):
+    from app.comptroller.property_matching import PropertyMatchResult
+
+    return PropertyMatchResult(
+        classification=classification, confidence="HIGH", score=1.0,
+        matched_property=None, candidate_count=1,
+        personal_property_accounts=personal_property_accounts or [],
+    )
+
+
+def test_high_confidence_reachable_when_account_matches_personal_property_account(monkeypatch):
+    set_records(monkeypatch, [record_row(account_number="P700000", owner_name="ACME HARDWARE LLC")])
+
+    result = matching.match_closure_to_account(
+        district_id="district-1", permit_legal_name="ACME HARDWARE LLC", permit_location_name="ACME HARDWARE",
+        property_match=make_property_match(personal_property_accounts=["P700000"]),
+    )
+
+    assert result.confidence == "HIGH"
+    assert "corroborated" in result.reason
+
+
+def test_high_confidence_not_reached_when_compared_against_real_account_number(monkeypatch):
+    """Pins the actual bug: the candidate's P-account must never be checked
+    against a property's R-account, even when they happen to look similar,
+    and even with an otherwise-perfect address+name match."""
+
+    set_records(monkeypatch, [record_row(account_number="R500000", owner_name="ACME HARDWARE LLC")])
+
+    result = matching.match_closure_to_account(
+        district_id="district-1", permit_legal_name="ACME HARDWARE LLC", permit_location_name="ACME HARDWARE",
+        # No personal_property_accounts at all -- only a real-property match.
+        property_match=make_property_match(personal_property_accounts=[]),
+    )
+
+    assert result.confidence != "HIGH"
+
+
+def test_high_confidence_not_reached_when_personal_account_does_not_match(monkeypatch):
+    set_records(monkeypatch, [record_row(account_number="P700000", owner_name="ACME HARDWARE LLC")])
+
+    result = matching.match_closure_to_account(
+        district_id="district-1", permit_legal_name="ACME HARDWARE LLC", permit_location_name="ACME HARDWARE",
+        property_match=make_property_match(personal_property_accounts=["P999999"]),
+    )
+
+    assert result.confidence != "HIGH"
+
+
+def test_high_confidence_not_reached_from_possible_property_match(monkeypatch):
+    set_records(monkeypatch, [record_row(account_number="P700000", owner_name="ACME HARDWARE LLC")])
+
+    result = matching.match_closure_to_account(
+        district_id="district-1", permit_legal_name="ACME HARDWARE LLC", permit_location_name="ACME HARDWARE",
+        property_match=make_property_match(classification="POSSIBLE_PROPERTY_MATCH", personal_property_accounts=["P700000"]),
+    )
+
+    assert result.confidence != "HIGH"

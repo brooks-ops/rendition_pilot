@@ -38,11 +38,25 @@ records (loaded from a county property export, not from RenditionPilot's own
 account data, which still has no address). `match_closure_to_account`'s
 optional `property_match` parameter carries that result in; HIGH is only ever
 returned when BOTH a strong name match AND an exact/strong property-address
-match agree on the SAME account number (the property record's
-`real_account_number` equals the candidate's `account_number`) -- an exact
-address match alone, or a name match alone, is never enough. Jurisdictions
-with no property data loaded (`property_match=None`, the default) get the
-exact unreachable-HIGH behavior described above, unchanged.
+match agree on the SAME account number -- specifically, the candidate's
+BPP `account_number` matching one of the personal-property (P-account)
+numbers Property Enrichment found at that address, via
+`property_match.personal_property_accounts`.
+
+This is deliberately NOT compared against the property record's own
+`real_account_number`. A real Texas CAD property export mixes both account
+types under one column: 'R'-prefixed numbers for real property (the land)
+and 'P'-prefixed numbers for business personal property, and a single situs
+address routinely has one real-property record plus zero or more
+personal-property records for whatever businesses operate there (see
+property_matching.classify_account_type). A BPP rendition's account number
+is always P-style; comparing it against an R-style real-property account
+would never match, by definition, no matter how exact the address is --
+that would make HIGH permanently unreachable even with a perfect CRS
+export. An exact address match alone, a name match alone, or a real-account
+match alone is never enough for HIGH. Jurisdictions with no property data
+loaded (`property_match=None`, the default) get the exact unreachable-HIGH
+behavior described above, unchanged.
 
 NOT YET POPULATED: as of 2026-08-21, `rendition_uploads`, `rendition_jobs`,
 and `parsed_rendition_results` all exist but contain zero rows, and nothing
@@ -315,13 +329,32 @@ def build_signal_breakdown(
         breakdown["zip"] = pm_signals.get("zip", breakdown["zip"])
         breakdown["suite_unit"] = pm_signals.get("suite", breakdown["suite_unit"])
         matched_property = property_match.matched_property
-        if matched_property is not None and matched_property.real_account_number:
-            breakdown["property_account"] = (
-                f"{matched_property.real_account_number}"
-                f"{' (MATCHES account)' if candidate.account_number and _accounts_equal(matched_property.real_account_number, candidate.account_number) else ''}"
-            )
+        personal_accounts = getattr(property_match, "personal_property_accounts", None) or []
+
+        # Real (R) and personal-property (P) accounts are different
+        # identifier spaces (see property_matching.classify_account_type) --
+        # a BPP rendition's account number is always P-style, so it is only
+        # ever compared against personal_property_accounts, never against
+        # the property's own real_account_number (always R-style when
+        # present). Comparing a P-account to an R-account would silently
+        # never match, which would make HIGH confidence permanently
+        # unreachable even with a perfect address match.
+        account_matches_personal = bool(
+            candidate.account_number
+            and any(_accounts_equal(candidate.account_number, p) for p in personal_accounts)
+        )
+        real_part = f"R-account: {matched_property.real_account_number}" if matched_property and matched_property.real_account_number else "R-account: NOT AVAILABLE"
+        if personal_accounts:
+            personal_part = f"P-account(s) on file: {', '.join(personal_accounts)}" + (" (MATCHES this BPP account)" if account_matches_personal else "")
         else:
-            breakdown["property_account"] = "NOT AVAILABLE (no property record matched)"
+            personal_part = "P-account(s) on file: NONE FOUND"
+        breakdown["property_account"] = f"{real_part}; {personal_part}" if (matched_property or personal_accounts) else "NOT AVAILABLE (no property record matched)"
+        # Structured (not just the human-readable property_account string
+        # above) so downstream consumers -- the Account Card's exception
+        # list, in particular -- don't need to parse prose to find out
+        # whether a P-account already exists at this address.
+        breakdown["personal_property_accounts"] = ", ".join(personal_accounts) if personal_accounts else "NONE FOUND"
+        breakdown["real_property_account"] = matched_property.real_account_number if matched_property and matched_property.real_account_number else "NOT AVAILABLE"
 
     return breakdown
 
@@ -443,20 +476,30 @@ def match_closure_to_account(
 
     # Property corroboration (spec: "Make HIGH confidence reachable through
     # corroboration"). Requires ALL of: unambiguous name match, a strong name
-    # signal, an exact/strong property-address match, AND that property's
-    # real-property account number matching this candidate's account number.
-    # Address match alone, or name match alone, never produces HIGH -- see
-    # module docstring.
+    # signal, an exact/strong property-address match, AND that this
+    # candidate's own BPP account number appears among the personal-property
+    # (P-account) numbers Property Enrichment found at that address.
+    #
+    # Deliberately NOT compared against matched_property.real_account_number:
+    # that's always the R-account (the land record), a completely different
+    # identifier space from a BPP rendition's P-account -- they can never be
+    # equal, by definition, no matter how exact the address match is. Using
+    # the wrong field here would make HIGH permanently unreachable even with
+    # perfect real data. See property_matching.classify_account_type.
+    # Address match alone, or name match alone, never produces HIGH.
     if (
         not ambiguous
         and best_score.name_strong
         and property_match is not None
         and getattr(property_match, "classification", None) in ("EXACT_PROPERTY_MATCH", "STRONG_PROPERTY_MATCH")
-        and getattr(property_match, "matched_property", None) is not None
-        and _accounts_equal(property_match.matched_property.real_account_number, best_candidate.account_number)
+        and best_candidate.account_number
+        and any(
+            _accounts_equal(best_candidate.account_number, p)
+            for p in (getattr(property_match, "personal_property_accounts", None) or [])
+        )
     ):
         confidence = "HIGH"
-        reason += "; corroborated by an exact property/account match at the same address"
+        reason += "; corroborated by a matching personal-property (BPP) account on file at the same address"
 
     return MatchResult(
         confidence=confidence,

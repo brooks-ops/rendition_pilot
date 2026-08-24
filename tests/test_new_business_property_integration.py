@@ -57,17 +57,25 @@ def seed_jurisdiction_with_property(fake_supabase, **overrides) -> Jurisdiction:
 
 
 def test_high_confidence_reachable_with_strong_name_and_exact_property_and_matching_account(fake_supabase, monkeypatch):
+    """Realistic real-property-export shape: one REAL (land) record plus one
+    PERSONAL (BPP) record at the same address -- exactly what a real Texas
+    CAD export mixes under one account-number column (see
+    property_matching.classify_account_type). The RenditionPilot candidate's
+    account_number is always P-style (the number printed on a rendition),
+    so corroboration must match against the PERSONAL account, not the R."""
+
     jurisdiction = seed_jurisdiction_with_property(fake_supabase)
     add_permit(
         fake_supabase, "TP1", "LOC1", legal_name="ACME HARDWARE LLC", location_name="ACME HARDWARE",
     )
     fake_supabase.permit_locations["TP1::LOC1"]["address"] = "100 MAIN ST"
     fake_supabase.permit_locations["TP1::LOC1"]["zip"] = "79401"
-    seed_property(fake_supabase, jurisdiction.id, "P1", "100 MAIN ST", "79401", acct="R500000")
+    seed_property(fake_supabase, jurisdiction.id, "LAND1", "100 MAIN ST", "79401", acct="R500000")
+    seed_property(fake_supabase, jurisdiction.id, "BPP1", "100 MAIN ST", "79401", acct="P700000")
     monkeypatch.setattr(
         matching.requests, "get",
         lambda *a, **kw: FakeAccountsResponse([
-            {"record_id": "acc-1", "account_number": "R500000", "owner_name": "ACME HARDWARE LLC", "tax_year": 2026},
+            {"record_id": "acc-1", "account_number": "P700000", "owner_name": "ACME HARDWARE LLC", "tax_year": 2026},
         ]),
     )
 

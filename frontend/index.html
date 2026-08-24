@@ -2259,8 +2259,9 @@
           <div>Permit Start: ${formatText(card.permit_start_date)}</div>
           <div style="margin-top:8px;">Property Match: ${formatText(card.property_match_status)}</div>
           <div>Situs Address: ${formatText(card.situs_address)}</div>
-          <div>Suggested Property Link: ${formatText(card.suggested_property_link)}</div>
+          <div>Suggested Property Link (R-account): ${formatText(card.suggested_property_link)}</div>
           <div class="subtle">${formatText(card.suggested_property_link_reason)}</div>
+          <div>Personal Property (P) Accounts on File: ${formatText((card.personal_property_accounts || []).join(", "))}</div>
           <div>TUG: ${formatText(card.tug)} | Neighborhood: ${formatText(card.neighborhood)} | Map: ${formatText(card.map_id)}</div>
           <div style="margin-top:8px;">Suggested Appraiser: <strong>${formatText(appraiser.appraiser || "UNASSIGNED")}</strong> (${formatText(appraiser.basis)})</div>
           <div class="subtle">${formatText(appraiser.reason)}</div>

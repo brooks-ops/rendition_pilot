@@ -144,6 +144,52 @@ def test_build_account_card_no_exceptions_when_everything_resolved(fake_supabase
     assert card.exceptions == []
 
 
+def test_build_account_card_flags_existing_personal_property_account(fake_supabase):
+    """Spec: 'if there is a P account (personal property) it needs to flag
+    that.' A P-account already on file at this address is a loud, explicit
+    exception -- the strongest available 'this might not be new' signal
+    before real rendition data exists to name-match against."""
+
+    jurisdiction = make_jurisdiction(appraiser_assignment_rules={"by_tug": {"4": "appraiser@example.org"}})
+    item = make_item(
+        property_match_status="EXACT_PROPERTY_MATCH", matched_address="1234 MAIN ST",
+        property_account_number="R500000", tug="4",
+        match_signals={"personal_property_accounts": "P302866"},
+    )
+    card = build_account_card(item, jurisdiction)
+    assert card.personal_property_accounts == ["P302866"]
+    assert any("EXISTING P-ACCOUNT FOUND" in e and "P302866" in e for e in card.exceptions)
+
+
+def test_build_account_card_flags_multiple_personal_property_accounts(fake_supabase):
+    jurisdiction = make_jurisdiction()
+    item = make_item(match_signals={"personal_property_accounts": "P100001, P100002"})
+    card = build_account_card(item, jurisdiction)
+    assert card.personal_property_accounts == ["P100001", "P100002"]
+
+
+def test_build_account_card_no_personal_account_exception_when_none_found(fake_supabase):
+    jurisdiction = make_jurisdiction(appraiser_assignment_rules={"by_tug": {"4": "appraiser@example.org"}})
+    item = make_item(
+        property_match_status="EXACT_PROPERTY_MATCH", matched_address="1234 MAIN ST",
+        property_account_number="R500000", tug="4",
+        match_signals={"personal_property_accounts": "NONE FOUND"},
+    )
+    card = build_account_card(item, jurisdiction)
+    assert card.personal_property_accounts == []
+    assert not any("P-ACCOUNT" in e for e in card.exceptions)
+
+
+def test_build_account_card_no_personal_account_exception_when_signals_missing(fake_supabase):
+    """match_signals is None for items created before this feature existed --
+    must degrade gracefully, not crash."""
+
+    jurisdiction = make_jurisdiction()
+    item = make_item(match_signals=None)
+    card = build_account_card(item, jurisdiction)
+    assert card.personal_property_accounts == []
+
+
 def test_build_account_card_uses_cached_property_fields_when_no_record_id(fake_supabase):
     jurisdiction = make_jurisdiction(appraiser_assignment_rules={"by_tug": {"4": "appraiser@example.org"}})
     item = make_item(
