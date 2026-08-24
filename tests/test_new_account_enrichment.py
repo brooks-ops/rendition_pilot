@@ -94,6 +94,48 @@ def test_assign_appraiser_unassigned_when_tug_and_neighborhood_missing():
     assert result.basis == "unassigned"
 
 
+# -- neighborhood code normalization (real LCAD data) -------------------------
+#
+# Real Lubbock NeighborhoodCode values carry a base 4-digit neighborhood
+# number plus, often, a suffix for sub-designations within it (e.g.
+# '0718ARP2.RV5RV6', '0018CND1-4') -- confirmed against the real 234k-row
+# export. The real appraiser-assignment sheet (BP1-4) only lists the base
+# number ("for BPP we just need the first 4 digits, anything after does not
+# matter"), so matching must key off that prefix.
+
+def test_assign_appraiser_matches_bare_four_digit_neighborhood_code():
+    jurisdiction = make_jurisdiction(appraiser_assignment_rules={"by_neighborhood": {"0718": "BP3"}})
+    result = assign_appraiser(jurisdiction, tug=None, neighborhood="0718")
+    assert result.appraiser == "BP3"
+    assert result.basis == "neighborhood"
+
+
+def test_assign_appraiser_matches_neighborhood_code_with_suffix():
+    jurisdiction = make_jurisdiction(appraiser_assignment_rules={"by_neighborhood": {"0718": "BP3"}})
+    result = assign_appraiser(jurisdiction, tug=None, neighborhood="0718ARP2.RV5RV6")
+    assert result.appraiser == "BP3"
+    assert result.basis == "neighborhood"
+
+
+def test_assign_appraiser_zero_pads_short_neighborhood_numbers():
+    """The appraiser sheet itself lists short numbers ('18', '201') for
+    codes that are zero-padded to 4 digits in the real data ('0018',
+    '0201') -- both the stored rule keys and the incoming property code
+    normalize to the same 4-digit form regardless of which format either
+    side happens to use."""
+
+    jurisdiction = make_jurisdiction(appraiser_assignment_rules={"by_neighborhood": {"0018": "BP2"}})
+    assert assign_appraiser(jurisdiction, tug=None, neighborhood="18").appraiser == "BP2"
+    assert assign_appraiser(jurisdiction, tug=None, neighborhood="0018").appraiser == "BP2"
+    assert assign_appraiser(jurisdiction, tug=None, neighborhood="0018CND1-4").appraiser == "BP2"
+
+
+def test_assign_appraiser_does_not_confuse_different_base_neighborhoods():
+    jurisdiction = make_jurisdiction(appraiser_assignment_rules={"by_neighborhood": {"0018": "BP2", "0022": "BP3"}})
+    assert assign_appraiser(jurisdiction, tug=None, neighborhood="0022APM").appraiser == "BP3"
+    assert assign_appraiser(jurisdiction, tug=None, neighborhood="0108B1").basis == "unassigned"
+
+
 # -- build_account_card -------------------------------------------------------
 
 def test_build_account_card_rejects_non_new_business_items(fake_supabase):

@@ -31,6 +31,7 @@ sales-tax closure monitor produces.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -87,6 +88,24 @@ class AccountCard:
     exceptions: list[str]
 
 
+def _normalize_neighborhood_code(value: str | None) -> str | None:
+    """Lubbock's real NeighborhoodCode carries a base 4-digit neighborhood
+    number plus, often, a suffix for sub-designations within it (e.g.
+    '0718ARP2.RV5RV6', '0018CND1-4', '0204DM') -- confirmed against the
+    real 234k-row export, where the same base number recurs with many
+    different suffixes. The appraiser-assignment sheet only lists the base
+    number ('for BPP we just need the first 4 digits, anything after does
+    not matter'), so assignment must match on that prefix, not require an
+    exact string match against the full code."""
+
+    if not value:
+        return None
+    match = re.match(r"0*(\d+)", value.strip())
+    if not match:
+        return None
+    return match.group(1).zfill(4)
+
+
 def assign_appraiser(jurisdiction: Jurisdiction, *, tug: str | None, neighborhood: str | None) -> AppraiserAssignment:
     """TUG is checked before neighborhood -- it's the more specific unit in
     the pipeline this mirrors (PropertyID -> R account -> TUG -> Neighborhood
@@ -101,10 +120,12 @@ def assign_appraiser(jurisdiction: Jurisdiction, *, tug: str | None, neighborhoo
 
     if tug and tug in by_tug:
         return AppraiserAssignment(appraiser=by_tug[tug], basis="tug", reason=f"TUG {tug} is assigned to this appraiser.")
-    if neighborhood and neighborhood in by_neighborhood:
+
+    normalized_neighborhood = _normalize_neighborhood_code(neighborhood)
+    if normalized_neighborhood and normalized_neighborhood in by_neighborhood:
         return AppraiserAssignment(
-            appraiser=by_neighborhood[neighborhood], basis="neighborhood",
-            reason=f"Neighborhood {neighborhood} is assigned to this appraiser.",
+            appraiser=by_neighborhood[normalized_neighborhood], basis="neighborhood",
+            reason=f"Neighborhood {normalized_neighborhood} is assigned to this appraiser.",
         )
     if default:
         return AppraiserAssignment(appraiser=default, basis="default", reason="No TUG/neighborhood-specific rule matched; using the jurisdiction's default assignee.")
