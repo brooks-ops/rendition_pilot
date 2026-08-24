@@ -266,22 +266,36 @@ def cmd_property_enrich(args: argparse.Namespace) -> int:
         print(f"[property-enrich] {exc}", file=sys.stderr)
         return 1
 
+    if not args.account_number and not args.address:
+        print("[property-enrich] Provide --address or --account-number.", file=sys.stderr)
+        return 1
+
     try:
-        adapter = property_adapter.get_property_adapter(jurisdiction)
-        candidates = adapter.search_properties(jurisdiction)
-        outcome = property_enrichment.run_property_enrichment(
-            jurisdiction,
-            subject_type="AD_HOC_LOOKUP",
-            subject_id=f"cli:{args.address}:{args.zip or ''}",
-            input_address=args.address,
-            input_zip=args.zip,
-            candidates=candidates,
-            dry_run=args.dry_run,
-            # A manual diagnostic run should reflect current code/data, not
-            # a possibly-stale prior cached result for the same address --
-            # opt into the cache explicitly with --use-cache instead.
-            force_refresh=not args.use_cache,
-        )
+        if args.account_number:
+            # Exact-key lookup -- never loads the jurisdiction's full
+            # property table (see the address branch below for why that
+            # matters against a real, large county export).
+            result = property_enrichment.lookup_property_by_account_number(jurisdiction, args.account_number)
+        else:
+            # Deliberately does NOT prefetch adapter.search_properties()
+            # (every property in the county) -- run_property_enrichment's
+            # default (candidates=None) already does a targeted, indexed
+            # address search. Prefetching the whole table per lookup was a
+            # real production bug: against Lubbock's real 234k-row table it
+            # took over a minute and made the tool look hung.
+            outcome = property_enrichment.run_property_enrichment(
+                jurisdiction,
+                subject_type="AD_HOC_LOOKUP",
+                subject_id=f"cli:{args.address}:{args.zip or ''}",
+                input_address=args.address,
+                input_zip=args.zip,
+                dry_run=args.dry_run,
+                # A manual diagnostic run should reflect current code/data,
+                # not a possibly-stale prior cached result for the same
+                # address -- opt into the cache explicitly with --use-cache.
+                force_refresh=not args.use_cache,
+            )
+            result = outcome.result
     except PropertyEnrichmentError as exc:
         print(f"[property-enrich] {jurisdiction.slug}: {exc}", file=sys.stderr)
         return 1
@@ -289,7 +303,6 @@ def cmd_property_enrich(args: argparse.Namespace) -> int:
         print(f"[property-enrich] {jurisdiction.slug}: FAILED - {exc}", file=sys.stderr)
         return 1
 
-    result = outcome.result
     matched = result.matched_property
     print(
         f"[property-enrich] {jurisdiction.name}\n"
@@ -433,11 +446,15 @@ def build_parser() -> argparse.ArgumentParser:
     property_import_parser.set_defaults(func=cmd_property_import)
 
     property_enrich_parser = subparsers.add_parser(
-        "property-enrich", help="Look up the real-property record most likely associated with an address."
+        "property-enrich", help="Look up the real-property record for an address or a QuickRefID/R-account number."
     )
     property_enrich_parser.add_argument("--jurisdiction", required=True, help="Jurisdiction slug, e.g. 'lubbock'.")
-    property_enrich_parser.add_argument("--address", required=True, help="Address to match, e.g. '5807 88TH PL'.")
+    property_enrich_parser.add_argument("--address", default=None, help="Address to match, e.g. '5807 88TH PL'.")
     property_enrich_parser.add_argument("--zip", default=None, help="ZIP code, if known.")
+    property_enrich_parser.add_argument(
+        "--account-number", default=None,
+        help="Look up by real-property account number (QuickRefID/R-account) instead of address.",
+    )
     property_enrich_parser.add_argument(
         "--dry-run", action="store_true", help="Report the match without caching it in property_enrichment_results.",
     )

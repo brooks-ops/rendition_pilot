@@ -219,6 +219,54 @@ def test_property_enrich_command_reports_match(monkeypatch, capsys):
     assert "EXACT_PROPERTY_MATCH" in out
 
 
+def test_property_enrich_command_looks_up_by_account_number(monkeypatch, capsys):
+    from app.comptroller.property_adapter import NormalizedRealProperty
+    from app.comptroller.property_matching import PropertyMatchResult
+
+    jurisdiction = _make_jurisdiction()
+    monkeypatch.setattr(cli, "get_jurisdiction_by_slug", lambda slug: jurisdiction)
+
+    def fail_if_called(j):
+        raise AssertionError("account-number lookup must not touch the property adapter/full table scan")
+
+    monkeypatch.setattr(cli.property_adapter, "get_property_adapter", fail_if_called)
+
+    matched = NormalizedRealProperty(
+        property_id="row-1", jurisdiction_id="jur-lubbock", source_property_id="813538", tax_year=None,
+        real_account_number="R163313", situs_address_raw="5807 88TH PL", situs_address_normalized="5807 88TH PLACE",
+        situs_city=None, situs_state=None, situs_zip="79424", owner_name=None, tug=None, neighborhood=None,
+        map_id=None, latitude=None, longitude=None, source_system=None, source_import_id=None, source_updated_at=None,
+    )
+    captured = {}
+
+    def fake_lookup(jurisdiction, account_number):
+        captured["account_number"] = account_number
+        return PropertyMatchResult(
+            classification="EXACT_PROPERTY_MATCH", confidence="HIGH", score=1.0, matched_property=matched,
+            candidate_count=1, reasons=["Exact account number match."], signals={},
+        )
+
+    monkeypatch.setattr(cli.property_enrichment, "lookup_property_by_account_number", fake_lookup)
+
+    exit_code = cli.main(["property-enrich", "--jurisdiction", "lubbock", "--account-number", "R163313"])
+
+    assert exit_code == 0
+    assert captured["account_number"] == "R163313"
+    out = capsys.readouterr().out
+    assert "PropertyID 813538" in out
+    assert "EXACT_PROPERTY_MATCH" in out
+
+
+def test_property_enrich_command_requires_address_or_account_number(monkeypatch, capsys):
+    jurisdiction = _make_jurisdiction()
+    monkeypatch.setattr(cli, "get_jurisdiction_by_slug", lambda slug: jurisdiction)
+
+    exit_code = cli.main(["property-enrich", "--jurisdiction", "lubbock"])
+
+    assert exit_code == 1
+    assert "--account-number" in capsys.readouterr().err
+
+
 def test_property_enrich_command_defaults_to_force_refresh(monkeypatch, capsys):
     """Regression test: a manual diagnostic run must reflect current
     code/data by default, not a possibly-stale cached result for the same

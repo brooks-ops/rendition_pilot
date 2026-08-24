@@ -102,3 +102,81 @@ def test_returns_match_details_for_own_jurisdiction(monkeypatch):
     assert response["matched_property"]["property_id"] == "813538"
     assert response["matched_property"]["real_account_number"] == "R163313"
     assert response["matched_property"]["tug"] == "12"
+
+
+def test_address_lookup_never_loads_the_full_property_table(monkeypatch):
+    """Regression test for a real production bug: this endpoint used to
+    prefetch adapter.search_properties() (every property in the
+    jurisdiction) before every lookup. Against Lubbock's real 234,059-row
+    table that took over a minute per request and made the tool look hung."""
+
+    jurisdiction = make_jurisdiction()
+    monkeypatch.setattr("backend.main.require_district_admin", lambda access_token: make_district())
+    monkeypatch.setattr(comptroller_jurisdictions, "get_jurisdiction_by_district_id", lambda district_id: jurisdiction)
+
+    def fail_if_called(j):
+        raise AssertionError("address lookup must not prefetch the full property table")
+
+    monkeypatch.setattr(comptroller_property_adapter, "get_property_adapter", fail_if_called)
+
+    captured = {}
+
+    def fake_run(jurisdiction, **kwargs):
+        captured.update(kwargs)
+        return PropertyEnrichmentOutcome(
+            result=PropertyMatchResult(
+                classification="NO_PROPERTY_MATCH", confidence="NONE", score=0.0, matched_property=None,
+                candidate_count=0, reasons=[], signals={},
+            ),
+            from_cache=False, stored_row_id=None,
+        )
+
+    monkeypatch.setattr(comptroller_property_enrichment, "run_property_enrichment", fake_run)
+
+    property_lookup(PropertyLookupRequest(access_token="fake", address="100 Main St"))
+
+    assert "candidates" not in captured  # never passed a pre-fetched candidate list
+
+
+def test_requires_address_or_account_number(monkeypatch):
+    jurisdiction = make_jurisdiction()
+    monkeypatch.setattr("backend.main.require_district_admin", lambda access_token: make_district())
+    monkeypatch.setattr(comptroller_jurisdictions, "get_jurisdiction_by_district_id", lambda district_id: jurisdiction)
+
+    with pytest.raises(HTTPException) as exc_info:
+        property_lookup(PropertyLookupRequest(access_token="fake"))
+    assert exc_info.value.status_code == 400
+
+
+def test_looks_up_by_account_number(monkeypatch):
+    jurisdiction = make_jurisdiction()
+    monkeypatch.setattr("backend.main.require_district_admin", lambda access_token: make_district())
+    monkeypatch.setattr(comptroller_jurisdictions, "get_jurisdiction_by_district_id", lambda district_id: jurisdiction)
+
+    def fail_if_called(j):
+        raise AssertionError("account-number lookup must not touch the property adapter/full table scan")
+
+    monkeypatch.setattr(comptroller_property_adapter, "get_property_adapter", fail_if_called)
+
+    matched = NormalizedRealProperty(
+        property_id="row-1", jurisdiction_id="jur-lubbock", source_property_id="813538", tax_year=None,
+        real_account_number="R163313", situs_address_raw="5807 88TH PL", situs_address_normalized="5807 88TH PLACE",
+        situs_city=None, situs_state=None, situs_zip="79424", owner_name=None, tug=None, neighborhood=None,
+        map_id=None, latitude=None, longitude=None, source_system=None, source_import_id=None, source_updated_at=None,
+    )
+    captured = {}
+
+    def fake_lookup(jurisdiction, account_number):
+        captured["account_number"] = account_number
+        return PropertyMatchResult(
+            classification="EXACT_PROPERTY_MATCH", confidence="HIGH", score=1.0, matched_property=matched,
+            candidate_count=1, reasons=["Exact account number match."], signals={},
+        )
+
+    monkeypatch.setattr(comptroller_property_enrichment, "lookup_property_by_account_number", fake_lookup)
+
+    response = property_lookup(PropertyLookupRequest(access_token="fake", account_number="R163313"))
+
+    assert captured["account_number"] == "R163313"
+    assert response["classification"] == "EXACT_PROPERTY_MATCH"
+    assert response["matched_property"]["property_id"] == "813538"

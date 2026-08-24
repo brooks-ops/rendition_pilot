@@ -335,8 +335,9 @@ class IntelligenceDismissRequest(IntelligenceItemRequest):
 
 class PropertyLookupRequest(BaseModel):
     access_token: str
-    address: str
+    address: str | None = None
     zip: str | None = None
+    account_number: str | None = None
 
 
 class ProductionReadinessRequest(BaseModel):
@@ -2090,23 +2091,37 @@ def property_lookup(request: PropertyLookupRequest) -> dict[str, Any]:
     jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
     if jurisdiction is None:
         raise HTTPException(status_code=404, detail="No jurisdiction is configured for this district yet.")
+    account_number = (request.account_number or "").strip()
+    address = (request.address or "").strip()
+    if not account_number and not address:
+        raise HTTPException(status_code=400, detail="Provide an address or an account number to look up.")
+
     try:
-        adapter = comptroller_property_adapter.get_property_adapter(jurisdiction)
-        candidates = adapter.search_properties(jurisdiction)
-        outcome = comptroller_property_enrichment.run_property_enrichment(
-            jurisdiction,
-            subject_type="AD_HOC_LOOKUP",
-            subject_id=f"lookup:{request.address}:{request.zip or ''}",
-            input_address=request.address,
-            input_zip=request.zip,
-            candidates=candidates,
-        )
+        if account_number:
+            # Exact-key lookup -- one indexed equality query, never loads
+            # the jurisdiction's full property table (see the address
+            # branch below for why that matters).
+            result = comptroller_property_enrichment.lookup_property_by_account_number(jurisdiction, account_number)
+        else:
+            # Deliberately does NOT pre-fetch adapter.search_properties()
+            # (every property in the county) -- run_property_enrichment's
+            # default (candidates=None) already does a targeted, indexed
+            # address search. Loading the whole table per lookup was a real
+            # production bug: against Lubbock's real 234k-row table it took
+            # over a minute per request and made the tool look hung.
+            outcome = comptroller_property_enrichment.run_property_enrichment(
+                jurisdiction,
+                subject_type="AD_HOC_LOOKUP",
+                subject_id=f"lookup:{address}:{request.zip or ''}",
+                input_address=address,
+                input_zip=request.zip,
+            )
+            result = outcome.result
     except comptroller_property_enrichment.PropertyEnrichmentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ComptrollerServiceError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    result = outcome.result
     matched = result.matched_property
     return to_jsonable({
         "normalized_address": result.normalized_input.normalized if result.normalized_input else None,
