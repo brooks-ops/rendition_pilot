@@ -230,6 +230,39 @@ any official record. A "Suggested Property Link" is advisory review data --
 applying it to a real BPP account remains a human decision through
 RenditionPilot's normal tools.
 
+## Real (R) vs. personal-property (P) accounts
+
+A real Texas CAD property export mixes two different account-number spaces
+under one column: `R`-prefixed numbers identify real property (the land/
+building), `P`-prefixed numbers identify business personal property (BPP).
+A single situs address routinely has one real-property record plus zero or
+more personal-property records for whatever businesses operate there --
+found in Lubbock's real 2027 export (e.g. `5807 88TH PL` carries both
+`R163313` and `P302866`).
+
+`app/comptroller/property_matching.classify_account_type()` reads the
+prefix to tell them apart. This matters in two places:
+
+- **Matching two records at the same address is not automatically
+  ambiguous.** One real-property record plus any number of personal-property
+  records is normal CAD structure, not conflicting evidence -- only two or
+  more *competing real-property* records at the same address (a genuine
+  data-quality issue) triggers `AMBIGUOUS_PROPERTY_MATCH`. Every
+  personal-property account found is surfaced via
+  `PropertyMatchResult.personal_property_accounts`, never silently dropped.
+- **HIGH-confidence corroboration compares like with like.** A BPP
+  rendition's `account_number` is always P-style; `match_closure_to_account`
+  checks it against `personal_property_accounts`, never against the matched
+  property's own `real_account_number` (always R-style). Comparing a
+  P-account to an R-account would never match, by definition -- doing so
+  would have made HIGH permanently unreachable even with a perfect address
+  match and real CRS data, which was a real bug found and fixed here.
+
+The Account Card surfaces any personal-property accounts found as a loud,
+explicit exception ("EXISTING P-ACCOUNT FOUND") -- the strongest available
+"this business may already have an account" signal before real rendition
+data exists to name-match against.
+
 ## New Account Enrichment (the final leg of the pipeline)
 
 `app/comptroller/new_account_enrichment.py` completes the pipeline described
