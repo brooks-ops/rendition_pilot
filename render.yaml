@@ -69,3 +69,24 @@ services:
         value: "587"
       - key: COMPTROLLER_EXPORT_EMAIL_TO
         value: bbarrett@lubbockcad.org
+
+  - type: cron
+    name: bpp-intelligence-daily
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    # Every day, 30 minutes after comptroller-daily-sync, so it evaluates
+    # that day's freshly-synced permit data. Idempotent: `run-intelligence`
+    # only evaluates permits not already marked new_business_evaluated_at,
+    # so a manual run or an overlapping retry never double-processes.
+    # Currently runs New Business Detection for Lubbock; the same command
+    # picks up any future intelligence module a jurisdiction enables without
+    # editing this file again (see app/comptroller/cli.py's run-intelligence
+    # docstring).
+    schedule: "30 11 * * *"
+    command: python -m app.comptroller.cli run-intelligence --jurisdiction lubbock
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false

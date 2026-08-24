@@ -268,7 +268,7 @@ All gated by `require_district_admin`, scoped to the caller's own district
 - `POST /api/admin/intelligence/resolve` (+ `resolution`, `resolution_notes`)
 - `POST /api/admin/intelligence/dismiss` (+ `resolution_notes`)
 
-## Manual commands (no cron enabled for this feature)
+## Manual commands (also runs automatically -- see below)
 
 ```bash
 # Dry run: report classification counts, write nothing
@@ -285,11 +285,13 @@ python -m app.comptroller.cli detect-new-business --jurisdiction lubbock --reeva
 python -m app.comptroller.cli run-intelligence --jurisdiction lubbock --dry-run
 ```
 
-**No Render Cron Job was created or enabled for New Business Detection.**
+**A Render Cron Job (`bpp-intelligence-daily`) runs `run-intelligence` for
+Lubbock automatically every day, as of 2026-08-24** -- scheduled 30 minutes
+after `comptroller-daily-sync` so it evaluates that day's freshly-synced
+permit data. Idempotent by design (`new_business_evaluated_at` marks
+already-evaluated permits), so it's safe if it ever overlaps a manual run.
 The existing sales-tax `comptroller-daily-sync`/`comptroller-month-end` cron
-jobs are unaffected and continue running as before. Once validated, adding
-a cron job for this is the same pattern as the existing ones in
-`render.yaml`: schedule + `python -m app.comptroller.cli detect-new-business --jurisdiction lubbock`.
+jobs are unaffected. See `render.yaml` for the exact schedule/command.
 
 ## Tests
 

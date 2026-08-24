@@ -101,11 +101,12 @@ COMPTROLLER_EXPORT_EMAIL_TO="bbarrett@lubbockcad.org"
 
 ## BPP Intelligence Queue + New Business Detection
 
-Generalized review-item model (`bpp_intelligence_items`) plus a jurisdiction abstraction (`jurisdictions`, `app/comptroller/jurisdictions.py`, `app/comptroller/cad_adapter.py`) so future detection modules aren't Lubbock-specific. First module: **New Business Detection** -- identifies newly-active Comptroller locations without a matching RenditionPilot account. Reuses the existing Comptroller sync and matcher; does not modify the sales-tax closure monitor above. Run manually first (no cron enabled for this feature yet):
+Generalized review-item model (`bpp_intelligence_items`) plus a jurisdiction abstraction (`jurisdictions`, `app/comptroller/jurisdictions.py`, `app/comptroller/cad_adapter.py`) so future detection modules aren't Lubbock-specific. First module: **New Business Detection** -- identifies newly-active Comptroller locations without a matching RenditionPilot account. Reuses the existing Comptroller sync and matcher; does not modify the sales-tax closure monitor above. The `bpp-intelligence-daily` Render Cron Job runs it automatically every day (30 minutes after `comptroller-daily-sync`, so it sees that day's fresh permit data) as of 2026-08-24. Manual commands still work for one-off runs:
 
 ```bash
 python -m app.comptroller.cli detect-new-business --jurisdiction lubbock --dry-run
 python -m app.comptroller.cli detect-new-business --jurisdiction lubbock
+python -m app.comptroller.cli run-intelligence --jurisdiction lubbock   # what the cron job runs
 ```
 
 View results at the website's **BPP Intelligence** tab (district admin). Requires `supabase/migrations/20260822_bpp_intelligence_queue.sql` applied. See [docs/bpp_intelligence_queue.md](docs/bpp_intelligence_queue.md) for the full design, why the closure monitor wasn't migrated onto the new table, and known limitations.
