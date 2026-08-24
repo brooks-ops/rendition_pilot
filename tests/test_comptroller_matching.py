@@ -249,6 +249,42 @@ def test_signals_are_none_when_unmatched(monkeypatch):
     assert result.signals["existing_rendition_record"] == "NONE"
 
 
+def test_property_signals_appear_even_with_no_bpp_candidate_at_all(monkeypatch):
+    """Regression test for a real production bug: property_match's signals
+    were only ever merged in when a BPP name-match existed, so on every
+    real production item (parsed_rendition_results is still empty, so
+    candidates is always []) the P/R-account breakdown silently never
+    appeared -- exactly the case a reviewer most needs it for
+    (NO_ACCOUNT_FOUND items, which is currently all of them)."""
+
+    set_records(monkeypatch, [])  # no RenditionPilot accounts at all
+
+    result = matching.match_closure_to_account(
+        district_id="district-1", permit_legal_name="ACME HARDWARE LLC", permit_location_name="ACME HARDWARE",
+        property_match=make_property_match(personal_property_accounts=["P700000"]),
+    )
+
+    assert result.confidence == "UNMATCHED"
+    assert result.signals["personal_property_accounts"] == "P700000"
+    assert "EXACT_PROPERTY_MATCH" in result.signals["address"]
+
+
+def test_property_signals_appear_when_name_score_below_threshold(monkeypatch):
+    """Same bug, different code path: a real BPP candidate exists but scores
+    below the match threshold (UNMATCHED via _classify_confidence, not via
+    an empty candidate list)."""
+
+    set_records(monkeypatch, [record_row(owner_name="TOTALLY UNRELATED CO")])
+
+    result = matching.match_closure_to_account(
+        district_id="district-1", permit_legal_name="ACME HARDWARE LLC", permit_location_name="ACME HARDWARE",
+        property_match=make_property_match(personal_property_accounts=["P700000"]),
+    )
+
+    assert result.confidence == "UNMATCHED"
+    assert result.signals["personal_property_accounts"] == "P700000"
+
+
 # -- ownership-change hint: DBA/legal name divergence ------------------------
 
 
@@ -306,6 +342,7 @@ def make_property_match(*, classification="EXACT_PROPERTY_MATCH", personal_prope
     return PropertyMatchResult(
         classification=classification, confidence="HIGH", score=1.0,
         matched_property=None, candidate_count=1,
+        signals={"street_name": "MATCH", "zip": "MATCH", "suite": "NOT APPLICABLE"},
         personal_property_accounts=personal_property_accounts or [],
     )
 

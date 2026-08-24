@@ -313,16 +313,25 @@ def build_signal_breakdown(
         "suite_unit": "NOT AVAILABLE (RenditionPilot has no address data)",
         "property_account": "NOT AVAILABLE (no CRS/property linkage yet)",
     }
-    if candidate is None or cs is None:
+    have_bpp_candidate = candidate is not None and cs is not None
+    if have_bpp_candidate:
+        breakdown["business_dba_name"] = _signal_label(cs.dba_score)
+        breakdown["legal_entity_name"] = _signal_label(cs.legal_score)
+        breakdown["existing_rendition_record"] = f"FOUND ({candidate.record_id})"
+    else:
         breakdown["business_dba_name"] = "NO MATCH"
         breakdown["legal_entity_name"] = "NO MATCH"
         breakdown["existing_rendition_record"] = "NONE"
-        return breakdown
 
-    breakdown["business_dba_name"] = _signal_label(cs.dba_score)
-    breakdown["legal_entity_name"] = _signal_label(cs.legal_score)
-    breakdown["existing_rendition_record"] = f"FOUND ({candidate.record_id})"
-
+    # Property Enrichment's result is independent of whether a BPP name
+    # match was found -- deliberately evaluated even when have_bpp_candidate
+    # is False, since "no rendition on file to name-match against, but a
+    # personal-property account already exists at this address" is exactly
+    # the signal a reviewer most needs for a NO_ACCOUNT_FOUND item. This was
+    # a real bug: this block used to live inside the `if have_bpp_candidate`
+    # branch, so a property match never showed up on any item where name
+    # matching had nothing to compare against -- i.e. every item, in
+    # production, before real rendition data exists.
     if property_match is not None and getattr(property_match, "signals", None):
         pm_signals = property_match.signals
         breakdown["address"] = f"{property_match.classification} ({pm_signals.get('street_name', 'NO MATCH')})"
@@ -340,7 +349,8 @@ def build_signal_breakdown(
         # never match, which would make HIGH confidence permanently
         # unreachable even with a perfect address match.
         account_matches_personal = bool(
-            candidate.account_number
+            have_bpp_candidate
+            and candidate.account_number
             and any(_accounts_equal(candidate.account_number, p) for p in personal_accounts)
         )
         real_part = f"R-account: {matched_property.real_account_number}" if matched_property and matched_property.real_account_number else "R-account: NOT AVAILABLE"
@@ -450,7 +460,7 @@ def match_closure_to_account(
             score=round(best_score.score, 3),
             reason="No RenditionPilot record met the minimum name-similarity threshold.",
             candidate=None,
-            signals=build_signal_breakdown(None, None),
+            signals=build_signal_breakdown(None, None, property_match=property_match),
         )
 
     # Ambiguous: another candidate scored close enough to the winner that
