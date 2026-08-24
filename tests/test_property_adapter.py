@@ -175,6 +175,35 @@ def test_search_properties_paginates_through_every_row(fake_supabase):
     assert len(results) == 5
 
 
+def test_search_properties_paginates_past_a_server_side_row_cap(fake_supabase, monkeypatch):
+    """Regression test for a real production bug: a live Supabase project
+    silently caps every response at its own configured max-rows (found to
+    be 1000) regardless of the `limit` requested. Pagination must advance by
+    how many rows actually came back, not by the requested page_size, or it
+    stops after exactly one capped page -- found importing the real
+    234,059-row Lubbock property table (search_properties returned exactly
+    1000 candidates instead of all of them)."""
+
+    SERVER_CAP = 3
+    real_handler = fake_supabase.request_json
+
+    def capped(method, url, headers, *, params=None, json_payload=None):
+        if url.endswith("real_property_records") and method == "GET" and params and int(params.get("limit", 0)) > SERVER_CAP:
+            params = {**params, "limit": SERVER_CAP}
+        return real_handler(method, url, headers, params=params, json_payload=json_payload)
+
+    monkeypatch.setattr(property_adapter, "_request_json", capped)
+
+    jurisdiction = make_jurisdiction()
+    for i in range(10):
+        fake_supabase.real_property_records[f"row-{i}"] = _year_row(f"P{i}", None, "X", row_id=f"row-{i}")
+
+    adapter = get_property_adapter(jurisdiction)
+    results = adapter.search_properties(jurisdiction, limit=None)  # requests page_size=2000, server caps at 3
+
+    assert len(results) == 10
+
+
 def test_search_properties_with_explicit_limit_uses_single_fetch(fake_supabase):
     jurisdiction = make_jurisdiction()
     for i in range(3):

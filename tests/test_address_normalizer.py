@@ -79,8 +79,21 @@ def test_different_suites_do_not_collapse_to_the_same_base_and_unit():
 
 
 def test_punctuation_and_whitespace_normalized():
-    n = normalize_address("  123   Main,  St.  ")
+    n = normalize_address("  123   Main   St.  ")
     assert n.normalized == "123 MAIN STREET"
+
+
+def test_trailing_city_after_comma_is_stripped():
+    """Real CAD situs exports commonly give 'STREET, CITY[, STATE]' as one
+    field (e.g. Lubbock's SitusAddress column) rather than a clean
+    street-only line -- found importing the real 234k-row Lubbock export,
+    where this caused an exact property match to score as no match at all
+    (the property's own city name was being compared as if it were street
+    text)."""
+
+    assert normalize_address("5807 88TH PL, LUBBOCK, TX").normalized == "5807 88TH PLACE"
+    assert normalize_address("5501 ACUFF RD, LUBBOCK").normalized == "5501 ACUFF ROAD"
+    assert normalize_address("5807 88TH PL, LUBBOCK, TX  79424").zip5 == "79424"
 
 
 def test_capitalization_normalized():

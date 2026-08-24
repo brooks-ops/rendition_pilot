@@ -201,7 +201,17 @@ class ImportedPropertyAdapter:
         module's own `_request_json` binding directly (rather than
         service._paginated_get, which would call service.py's own separate
         binding) so tests that monkeypatch property_adapter._request_json
-        still intercept it -- see tests/comptroller_fakes.py convention."""
+        still intercept it -- see tests/comptroller_fakes.py convention.
+
+        Advances `offset` by however many rows actually came back, NOT by
+        the requested `page_size` -- a real Supabase project silently caps
+        every response at its own configured max-rows (commonly 1000)
+        regardless of what `limit` is requested. Found importing the real
+        234,059-row Lubbock property table: "stop when the page is shorter
+        than page_size" stopped after exactly 1000 rows, since the server
+        never once returned as many as the 2000 requested. Only an
+        EMPTY page means there's nothing left.
+        """
 
         try:
             supabase_url, service_role_key = get_supabase_config()
@@ -220,10 +230,10 @@ class ImportedPropertyAdapter:
             )
             if not isinstance(page, list):
                 raise PropertySourceError(f"Unexpected response fetching real_property_records: {page!r}")
-            rows.extend(page)
-            if len(page) < page_size:
+            if not page:
                 break
-            offset += page_size
+            rows.extend(page)
+            offset += len(page)
         return [_row_to_property(row) for row in rows]
 
     def get_property_by_id(self, jurisdiction: Jurisdiction, property_id: str) -> NormalizedRealProperty | None:

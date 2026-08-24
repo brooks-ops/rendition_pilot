@@ -89,6 +89,11 @@ def test_second_run_with_unchanged_input_hits_cache(fake_supabase):
     assert not any(call["method"] == "POST" for call in fake_supabase.calls)
     property_gets = [c for c in fake_supabase.calls if c["url"].endswith("real_property_records")]
     assert all("id" in c["params"] for c in property_gets)
+    # Regression: a cache hit must still populate normalized_input -- it
+    # was silently dropped (reconstructed as None), which made the CLI's
+    # "Normalized: ..." line print blank on every cached lookup.
+    assert outcome.result.normalized_input is not None
+    assert outcome.result.normalized_input.normalized == "5807 88TH PLACE"
 
 
 def test_changed_input_address_invalidates_cache(fake_supabase):
@@ -136,6 +141,16 @@ def test_dry_run_writes_nothing(fake_supabase):
     outcome = run_property_enrichment(jurisdiction, subject_type="AD_HOC_LOOKUP", subject_id="dryrun", input_address="5807 88th Pl", input_zip="79424", dry_run=True)
     assert outcome.result.classification == "EXACT_PROPERTY_MATCH"
     assert fake_supabase.property_enrichment_results == {}
+
+
+def test_cache_hit_with_no_match_still_populates_normalized_input(fake_supabase):
+    jurisdiction = make_jurisdiction()
+    run_property_enrichment(jurisdiction, subject_type="AD_HOC_LOOKUP", subject_id="x", input_address="999 Nowhere Rd")
+    outcome = run_property_enrichment(jurisdiction, subject_type="AD_HOC_LOOKUP", subject_id="x", input_address="999 Nowhere Rd")
+    assert outcome.from_cache is True
+    assert outcome.result.classification == "NO_PROPERTY_MATCH"
+    assert outcome.result.normalized_input is not None
+    assert outcome.result.normalized_input.normalized == "999 NOWHERE ROAD"
 
 
 def test_jurisdiction_isolation_never_matches_another_jurisdictions_property(fake_supabase):
