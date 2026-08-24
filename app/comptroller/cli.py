@@ -253,6 +253,7 @@ def cmd_property_import(args: argparse.Namespace) -> int:
         f"  Rows read: {result.rows_read}\n"
         f"  Rows imported: {result.rows_imported}\n"
         f"  Rows skipped (no source property id): {result.rows_skipped}\n"
+        f"  Rows deduplicated (duplicate PropertyID+tax_year, last wins): {result.rows_deduplicated}\n"
         f"  Import batch id: {result.import_id or '(dry-run, not recorded)'}"
     )
     return 0
@@ -276,6 +277,10 @@ def cmd_property_enrich(args: argparse.Namespace) -> int:
             input_zip=args.zip,
             candidates=candidates,
             dry_run=args.dry_run,
+            # A manual diagnostic run should reflect current code/data, not
+            # a possibly-stale prior cached result for the same address --
+            # opt into the cache explicitly with --use-cache instead.
+            force_refresh=not args.use_cache,
         )
     except PropertyEnrichmentError as exc:
         print(f"[property-enrich] {jurisdiction.slug}: {exc}", file=sys.stderr)
@@ -435,6 +440,10 @@ def build_parser() -> argparse.ArgumentParser:
     property_enrich_parser.add_argument("--zip", default=None, help="ZIP code, if known.")
     property_enrich_parser.add_argument(
         "--dry-run", action="store_true", help="Report the match without caching it in property_enrichment_results.",
+    )
+    property_enrich_parser.add_argument(
+        "--use-cache", action="store_true",
+        help="Reuse a prior cached result for this exact address if still fresh (default: always recompute).",
     )
     property_enrich_parser.set_defaults(func=cmd_property_enrich)
 

@@ -157,14 +157,14 @@ def run_property_enrichment(
         raise PropertyEnrichmentError(validation.message)
 
     latest_import_id = _latest_import_id(jurisdiction.id)
+    from app.comptroller.address_normalizer import normalize_address
+
+    normalized_input_obj = normalize_address(input_address, zip_code=input_zip)
     cached = None if force_refresh else _find_cached_result(jurisdiction.id, subject_type, subject_id)
 
     if cached is not None:
-        from app.comptroller.address_normalizer import normalize_address
-
-        normalized_now = normalize_address(input_address, zip_code=input_zip).normalized
         cache_fresh = (
-            cached.get("normalized_input_address") == normalized_now
+            cached.get("normalized_input_address") == normalized_input_obj.normalized
             and cached.get("source_import_id") == latest_import_id
         )
         if cache_fresh:
@@ -176,16 +176,14 @@ def run_property_enrichment(
                 candidate_count=cached.get("candidate_count") or 0,
                 reasons=[cached.get("match_reason") or ""],
                 signals=cached.get("signals") or {},
+                normalized_input=normalized_input_obj,
             )
             if cached.get("property_record_id"):
                 match = _rehydrate_matched_property(adapter, jurisdiction, cached, match)
             return PropertyEnrichmentOutcome(result=match, from_cache=True, stored_row_id=cached["id"])
 
     if candidates is None:
-        from app.comptroller.address_normalizer import normalize_address
-
-        base = normalize_address(input_address, zip_code=input_zip).base_address
-        candidates = adapter.find_properties_by_address(jurisdiction, base) if base else []
+        candidates = adapter.find_properties_by_address(jurisdiction, normalized_input_obj.base_address) if normalized_input_obj.base_address else []
 
     match = match_property(input_address, input_zip=input_zip, candidates=candidates)
 
@@ -211,6 +209,7 @@ def _rehydrate_matched_property(
         candidate_count=match.candidate_count,
         reasons=match.reasons,
         signals=match.signals,
+        normalized_input=match.normalized_input,
     )
 
 

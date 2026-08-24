@@ -125,6 +125,17 @@ def normalize_address(raw: str | None, *, zip_code: str | None = None) -> Normal
         embedded_zip5, embedded_zip4 = embedded_zip_match.group(1), embedded_zip_match.group(2)
         text = stripped[: embedded_zip_match.start()]
 
+    # Real CAD situs exports commonly give "STREET, CITY" or
+    # "STREET, CITY, STATE" as one field (e.g. Lubbock's SitusAddress:
+    # "5807 88TH PL, LUBBOCK, TX") rather than a clean street-only line.
+    # Keep only the portion before the first comma for matching -- without
+    # this, a real property's own city name (e.g. "LUBBOCK") gets treated
+    # as trailing street text and an otherwise-exact match scores as no
+    # match at all. Found importing the real 234k-row Lubbock export: the
+    # known 5807 88TH PL -> PropertyID 813538 example failed to match until
+    # this was added.
+    text = text.split(",")[0]
+
     text = re.sub(r"[.,]", " ", text)
     text = re.sub(r"[^A-Z0-9# ]", " ", text)
     text = " ".join(text.split())

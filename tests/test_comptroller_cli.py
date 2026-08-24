@@ -219,6 +219,42 @@ def test_property_enrich_command_reports_match(monkeypatch, capsys):
     assert "EXACT_PROPERTY_MATCH" in out
 
 
+def test_property_enrich_command_defaults_to_force_refresh(monkeypatch, capsys):
+    """Regression test: a manual diagnostic run must reflect current
+    code/data by default, not a possibly-stale cached result for the same
+    address (found via a real cached-1000-candidates result surviving a
+    pagination bugfix until the cache's own source-data-changed check
+    happened to also invalidate it)."""
+
+    from app.comptroller.address_normalizer import normalize_address
+    from app.comptroller.property_matching import PropertyMatchResult
+    from app.comptroller.property_enrichment import PropertyEnrichmentOutcome
+
+    jurisdiction = _make_jurisdiction()
+    monkeypatch.setattr(cli, "get_jurisdiction_by_slug", lambda slug: jurisdiction)
+    monkeypatch.setattr(cli.property_adapter, "get_property_adapter", lambda j: type("A", (), {"search_properties": staticmethod(lambda j2: [])})())
+
+    captured = {}
+
+    def fake_run(jurisdiction, **kwargs):
+        captured.update(kwargs)
+        return PropertyEnrichmentOutcome(
+            result=PropertyMatchResult(
+                classification="NO_PROPERTY_MATCH", confidence="NONE", score=0.0, matched_property=None,
+                candidate_count=0, reasons=[], signals={}, normalized_input=normalize_address("100 Main St"),
+            ),
+            from_cache=False, stored_row_id=None,
+        )
+
+    monkeypatch.setattr(cli.property_enrichment, "run_property_enrichment", fake_run)
+
+    cli.main(["property-enrich", "--jurisdiction", "lubbock", "--address", "100 Main St"])
+    assert captured["force_refresh"] is True
+
+    cli.main(["property-enrich", "--jurisdiction", "lubbock", "--address", "100 Main St", "--use-cache"])
+    assert captured["force_refresh"] is False
+
+
 def test_account_card_command_reports_card(monkeypatch, capsys):
     from app.comptroller.intelligence import SOURCE_TABLE_INTELLIGENCE, UnifiedIntelligenceItem
     from app.comptroller.new_account_enrichment import AccountCard, AppraiserAssignment
