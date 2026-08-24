@@ -134,6 +134,45 @@ def _result_to_payload(
     }
 
 
+def lookup_property_by_account_number(jurisdiction: Jurisdiction, account_number: str) -> PropertyMatchResult:
+    """Exact-key lookup by real-property account number (QuickRefID/R-account)
+    -- a different, simpler question than address matching (spec item added
+    after real-world use: staff often know the QuickRefID and want to look
+    a property up by it directly, not by re-typing its address). Not routed
+    through run_property_enrichment's caching -- this is already a single
+    indexed equality query, not the address fuzzy-matching path caching
+    exists to avoid recomputing."""
+
+    validation = validate_capability(jurisdiction, CAPABILITY, frozenset(jurisdiction.property_field_mapping.keys()))
+    if not validation.ok:
+        raise PropertyEnrichmentError(validation.message)
+
+    adapter = get_property_adapter(jurisdiction)
+    matches = adapter.find_properties_by_real_account(jurisdiction, account_number)
+
+    if not matches:
+        return PropertyMatchResult(
+            classification="NO_PROPERTY_MATCH", confidence="NONE", score=0.0,
+            matched_property=None, candidate_count=0,
+            reasons=[f"No real-property record found with account number '{account_number}'."],
+            signals={"account_number": "NO MATCH"},
+        )
+    if len(matches) > 1:
+        return PropertyMatchResult(
+            classification="AMBIGUOUS_PROPERTY_MATCH", confidence="LOW", score=0.0,
+            matched_property=None, candidate_count=len(matches),
+            reasons=[f"{len(matches)} property records share account number '{account_number}'."],
+            signals={"account_number": "MATCH"},
+            alternatives=matches,
+        )
+    return PropertyMatchResult(
+        classification="EXACT_PROPERTY_MATCH", confidence="HIGH", score=1.0,
+        matched_property=matches[0], candidate_count=1,
+        reasons=[f"Exact account number match for '{account_number}'."],
+        signals={"account_number": "MATCH"},
+    )
+
+
 def run_property_enrichment(
     jurisdiction: Jurisdiction,
     *,

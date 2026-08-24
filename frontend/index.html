@@ -738,7 +738,7 @@
       <div id="view-property" class="view">
         <section class="card">
           <h3>Property Lookup</h3>
-          <div class="subtle" style="margin-bottom:12px;">Look up the real-property record most likely associated with an address, independent of any intelligence item. Read-only against property data your CAD has loaded -- never writes to official CAD records.</div>
+          <div class="subtle" style="margin-bottom:12px;">Look up the real-property record most likely associated with an address, or by its QuickRefID/R-account number directly, independent of any intelligence item. Read-only against property data your CAD has loaded -- never writes to official CAD records.</div>
           <div class="layout-3" style="margin-bottom:12px;">
             <div class="field">
               <label for="property-lookup-address">Address</label>
@@ -751,6 +751,17 @@
             <div class="field">
               <label>&nbsp;</label>
               <button id="property-lookup-submit" type="button">Look Up</button>
+            </div>
+          </div>
+          <div class="subtle" style="margin:8px 0;">-- or --</div>
+          <div class="layout-3" style="margin-bottom:12px;">
+            <div class="field">
+              <label for="property-lookup-account">Account Number (QuickRefID / R-account)</label>
+              <input id="property-lookup-account" type="text" placeholder="R163313">
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <button id="property-lookup-account-submit" class="secondary" type="button">Look Up by Account</button>
             </div>
           </div>
           <div id="property-lookup-status" class="status hidden"></div>
@@ -2303,6 +2314,24 @@
         </div>`;
     }
 
+    async function submitPropertyLookup(payload) {
+      const statusEl = $("property-lookup-status");
+      try {
+        const result = await fetchJson("/api/admin/property/lookup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: appState.auth.access_token, ...payload })
+        });
+        statusEl.classList.add("hidden");
+        $("property-lookup-result").innerHTML = propertyLookupResultHtml(result);
+      } catch (error) {
+        statusEl.textContent = error.message;
+        statusEl.className = "status error";
+        statusEl.classList.remove("hidden");
+        $("property-lookup-result").innerHTML = "";
+      }
+    }
+
     async function runPropertyLookup() {
       const address = $("property-lookup-address").value.trim();
       const zip = $("property-lookup-zip").value.trim();
@@ -2313,20 +2342,19 @@
         statusEl.classList.remove("hidden");
         return;
       }
-      try {
-        const result = await fetchJson("/api/admin/property/lookup", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ access_token: appState.auth.access_token, address, zip: zip || null })
-        });
-        statusEl.classList.add("hidden");
-        $("property-lookup-result").innerHTML = propertyLookupResultHtml(result);
-      } catch (error) {
-        statusEl.textContent = error.message;
+      await submitPropertyLookup({ address, zip: zip || null });
+    }
+
+    async function runPropertyLookupByAccount() {
+      const accountNumber = $("property-lookup-account").value.trim();
+      const statusEl = $("property-lookup-status");
+      if (!accountNumber) {
+        statusEl.textContent = "Enter an account number to look up.";
         statusEl.className = "status error";
         statusEl.classList.remove("hidden");
-        $("property-lookup-result").innerHTML = "";
+        return;
       }
+      await submitPropertyLookup({ account_number: accountNumber });
     }
 
     const READINESS_STATUS_CLASS = {
@@ -2637,6 +2665,7 @@
         resolution_notes: $("intel-resolution-notes").value || null
       }));
       $("property-lookup-submit").addEventListener("click", () => { runPropertyLookup().catch((error) => showFlash(error.message, "error")); });
+      $("property-lookup-account-submit").addEventListener("click", () => { runPropertyLookupByAccount().catch((error) => showFlash(error.message, "error")); });
       $("readiness-refresh").addEventListener("click", () => { refreshReadiness().catch((error) => showFlash(error.message, "error")); });
       $("intel-action-account-card").addEventListener("click", () => { generateAccountCard().catch((error) => showFlash(error.message, "error")); });
       $("invite-submit").addEventListener("click", async () => {

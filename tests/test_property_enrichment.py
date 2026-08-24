@@ -7,6 +7,7 @@ from app.comptroller.jurisdictions import Jurisdiction
 from app.comptroller.property_adapter import NormalizedRealProperty
 from app.comptroller.property_enrichment import (
     PropertyEnrichmentError,
+    lookup_property_by_account_number,
     run_property_enrichment,
     same_property_accounts,
 )
@@ -73,6 +74,28 @@ def test_finds_exact_match_and_stores_result(fake_supabase):
     stored = fake_supabase.property_enrichment_results["jur-1::NEW_BUSINESS_CANDIDATE::tp1:loc1"]
     assert stored["real_account_number"] == "R163313"
     assert stored["review_status"] == "NOT_REVIEWED"
+
+
+def test_address_lookup_never_loads_the_full_property_table(fake_supabase):
+    """Regression test for a real production bug: the Property Lookup
+    endpoint/CLI used to prefetch adapter.search_properties() (every
+    property in the jurisdiction) before every single address lookup.
+    Against Lubbock's real 234,059-row table that took over a minute per
+    request and made the tool look hung. run_property_enrichment's default
+    (candidates=None) must always use the targeted, indexed address search."""
+
+    jurisdiction = make_jurisdiction()
+    seed_property(fake_supabase, "jur-1", "P1", "5807 88TH PL", "79424", "R163313")
+    run_property_enrichment(
+        jurisdiction, subject_type="AD_HOC_LOOKUP", subject_id="x",
+        input_address="5807 88th Pl", input_zip="79424",
+    )
+    real_property_gets = [c for c in fake_supabase.calls if c["url"].endswith("real_property_records") and c["method"] == "GET"]
+    assert real_property_gets, "expected at least one targeted GET to real_property_records"
+    for call in real_property_gets:
+        assert "situs_address_normalized" in call["params"], (
+            "address lookup must filter by address (targeted query), never fetch the whole table"
+        )
 
 
 def test_second_run_with_unchanged_input_hits_cache(fake_supabase):
@@ -188,3 +211,55 @@ def test_same_property_accounts_empty_when_no_match():
     from app.comptroller.property_matching import PropertyMatchResult
     property_match = PropertyMatchResult(classification="NO_PROPERTY_MATCH", confidence="NONE", score=0.0, matched_property=None, candidate_count=0)
     assert same_property_accounts(property_match, [FakeMatchCandidate("acc-1", "R1")]) == []
+
+
+# -- lookup_property_by_account_number ----------------------------------------
+#
+# Exact-key lookup by QuickRefID/R-account, added after real-world use
+# surfaced that staff often know the account number and want to search by
+# it directly rather than re-typing an address.
+
+def test_lookup_by_account_number_exact_match(fake_supabase):
+    jurisdiction = make_jurisdiction()
+    seed_property(fake_supabase, "jur-1", "P1", "5807 88TH PL", "79424", "R163313")
+    result = lookup_property_by_account_number(jurisdiction, "R163313")
+    assert result.classification == "EXACT_PROPERTY_MATCH"
+    assert result.confidence == "HIGH"
+    assert result.matched_property.real_account_number == "R163313"
+
+
+def test_lookup_by_account_number_no_match(fake_supabase):
+    jurisdiction = make_jurisdiction()
+    result = lookup_property_by_account_number(jurisdiction, "R999999")
+    assert result.classification == "NO_PROPERTY_MATCH"
+    assert result.matched_property is None
+
+
+def test_lookup_by_account_number_ambiguous_when_shared_by_multiple_properties(fake_supabase):
+    jurisdiction = make_jurisdiction()
+    seed_property(fake_supabase, "jur-1", "P1", "100 MAIN ST", "79401", "R500000")
+    seed_property(fake_supabase, "jur-1", "P2", "200 MAIN ST", "79401", "R500000")
+    result = lookup_property_by_account_number(jurisdiction, "R500000")
+    assert result.classification == "AMBIGUOUS_PROPERTY_MATCH"
+    assert result.candidate_count == 2
+    assert {a.property_id for a in result.alternatives} == {"row-P1", "row-P2"}
+
+
+def test_lookup_by_account_number_never_loads_the_full_property_table(fake_supabase):
+    """Regression test for the real production bug this endpoint had:
+    account-number lookup must be a single indexed equality query, never
+    the full-jurisdiction search_properties() scan address lookups
+    (correctly) use as a last resort."""
+
+    jurisdiction = make_jurisdiction()
+    seed_property(fake_supabase, "jur-1", "P1", "5807 88TH PL", "79424", "R163313")
+    lookup_property_by_account_number(jurisdiction, "R163313")
+    real_property_calls = [c for c in fake_supabase.calls if c["url"].endswith("real_property_records")]
+    assert len(real_property_calls) == 1
+    assert real_property_calls[0]["params"].get("real_account_number") == "eq.R163313"
+
+
+def test_lookup_by_account_number_raises_when_capability_not_configured(fake_supabase):
+    jurisdiction = make_jurisdiction(property_field_mapping={})
+    with pytest.raises(PropertyEnrichmentError):
+        lookup_property_by_account_number(jurisdiction, "R163313")
