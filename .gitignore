@@ -8,3 +8,4 @@ Output/
 .idea/
 .server-logs/
 write_test.txt
+.DS_Store
