@@ -232,16 +232,30 @@ RenditionPilot's normal tools.
 
 ## Real (R) vs. personal-property (P) accounts
 
-A real Texas CAD property export mixes two different account-number spaces
-under one column: `R`-prefixed numbers identify real property (the land/
-building), `P`-prefixed numbers identify business personal property (BPP).
-A single situs address routinely has one real-property record plus zero or
-more personal-property records for whatever businesses operate there --
-found in Lubbock's real 2027 export (e.g. `5807 88TH PL` carries both
-`R163313` and `P302866`).
+Lubbock's real Texas CAD property export (True Automation) mixes two
+different account-number spaces under one column: `R`-prefixed numbers
+identify real property (the land/building), `P`-prefixed numbers identify
+business personal property (BPP). A single situs address routinely has one
+real-property record plus zero or more personal-property records for
+whatever businesses operate there -- found in Lubbock's real 2027 export
+(e.g. `5807 88TH PL` carries both `R163313` and `P302866`).
+
+**This P/R prefix convention is a CAMA-vendor convention, not a universal
+Texas (or national) standard** -- confirmed via a portability audit as a
+real gap: it was originally hardcoded into `classify_account_type()`,
+meaning a county whose software uses different or no prefixes would have
+had every account silently classify `"UNKNOWN"`, quietly disabling HIGH
+confidence and the Account Card's P-account exception with no error raised.
+It is now `jurisdictions.account_type_prefixes` (jsonb, e.g.
+`{"personal": "P", "real": "R"}`), defaulting to Lubbock's real convention
+so nothing changed for Lubbock; a county with no such convention sets it to
+`{}` and gets an honest, always-`"UNKNOWN"` result -- which correctly makes
+every tied-address case `AMBIGUOUS_PROPERTY_MATCH` (surfaced for human
+review) rather than a silently wrong guess.
 
 `app/comptroller/property_matching.classify_account_type()` reads the
-prefix to tell them apart. This matters in two places:
+jurisdiction's configured prefixes to tell them apart. This matters in two
+places:
 
 - **Matching two records at the same address is not automatically
   ambiguous.** One real-property record plus any number of personal-property
@@ -272,9 +286,21 @@ at the top of this doc with the two pieces that didn't already exist:
   `appraiser_assignment_rules` jsonb mapping (`by_tug`, `by_neighborhood`,
   `default`), checked in that precedence order -- TUG is the more specific
   unit in the pipeline (PropertyID -> R account -> TUG -> Neighborhood ->
-  Map), so it's checked first. No real Lubbock assignment rules exist yet
-  (same honesty as `property_field_mapping`), so every card shows
-  `basis="unassigned"` until a CAD supplies real rules.
+  Map), so it's checked first. Real Lubbock rules are now loaded (129
+  neighborhood codes -> BP1-4, from LCAD's own assignment sheet); a
+  jurisdiction with none configured shows `basis="unassigned"`, never a
+  guess.
+  - `_normalize_neighborhood_code()` strips Lubbock's numeric-code
+    sub-designation suffixes (`'0718ARP2.RV5RV6'` -> `'0718'`) before
+    lookup. A portability audit found this originally silently returned
+    `None` (falling to "unassigned" with no error) for any letter-prefixed
+    scheme (e.g. `'NC-3'`); it now falls back to using such a code as-is
+    (trimmed, uppercased) rather than dropping it. This fallback is not yet
+    a fully jurisdiction-configurable normalization strategy (no county has
+    needed one beyond Lubbock's numeric+suffix and a plain exact-match
+    fallback) -- extend it here if a second county's scheme needs something
+    more specific (e.g. a different fixed width, or a suffix that's
+    meaningful rather than noise).
 - **Account card** (`build_account_card()`/`generate_account_card()`): bundles
   business identity, the Property Enrichment result, and the appraiser
   assignment into one staff-facing summary. This is a **report, not a new
@@ -316,3 +342,15 @@ button in the Intelligence detail view (shown only for `new_business` items).
   if that field is ever blank or non-standard for a given rendition, the
   corroboration path can't fire for that record, same as any other missing
   signal.
+- **`get_cad_adapter()` (`app/comptroller/cad_adapter.py`) is a stub that
+  always returns `RenditionPilotCadAdapter`, not a real dispatch mechanism.**
+  A county that wants to feed RenditionPilot an account list from its own
+  existing CAMA software (rather than RenditionPilot's own OCR pipeline)
+  cannot do this via configuration today, despite the module's docstring
+  describing a future `jurisdictions.cad_adapter_type` column as the
+  extension point -- that column doesn't exist, and `Jurisdiction.cad_field_mapping`
+  is declared and seeded but never read anywhere. Deliberately left
+  unbuilt (per a portability audit) rather than designed blind: the right
+  shape for a second CadAdapter depends on what that county's actual data
+  export looks like, which isn't known yet. When a real second CAMA
+  integration is needed, this is the seam to extend.

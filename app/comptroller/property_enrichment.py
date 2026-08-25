@@ -224,7 +224,10 @@ def run_property_enrichment(
     if candidates is None:
         candidates = adapter.find_properties_by_address(jurisdiction, normalized_input_obj.base_address) if normalized_input_obj.base_address else []
 
-    match = match_property(input_address, input_zip=input_zip, candidates=candidates)
+    match = match_property(
+        input_address, input_zip=input_zip, candidates=candidates,
+        account_type_prefixes=jurisdiction.account_type_prefixes,
+    )
 
     if dry_run:
         return PropertyEnrichmentOutcome(result=match, from_cache=False, stored_row_id=None)

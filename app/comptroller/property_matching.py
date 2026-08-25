@@ -35,23 +35,36 @@ def normalize_account_number(value: str | None) -> str | None:
     return cleaned or None
 
 
-def classify_account_type(account_number: str | None) -> str:
-    """Texas CAD account numbers encode account TYPE in their prefix --
-    'R' for real property (the land/building), 'P' for business personal
-    property (BPP). A single CRS export routinely mixes both under one
-    QuickRefID-style column, and a single situs address commonly has BOTH:
-    one real-property (land) account plus zero or more personal-property
-    accounts for whatever businesses operate there. Confusing the two
-    would be a real correctness bug -- a BPP rendition's account number
-    (always a P-account) can never equal a property's R-account, so
-    comparing them for corroboration must compare like with like."""
+def classify_account_type(account_number: str | None, *, prefixes: dict[str, str] | None = None) -> str:
+    """Some Texas CAD software (e.g. Lubbock's, True Automation) encodes
+    account TYPE in a leading-character prefix -- 'R' for real property
+    (the land/building), 'P' for business personal property (BPP). A
+    single CRS export routinely mixes both under one QuickRefID-style
+    column, and a single situs address commonly has BOTH: one real-property
+    (land) account plus zero or more personal-property accounts for
+    whatever businesses operate there. Confusing the two would be a real
+    correctness bug -- a BPP rendition's account number (always a
+    P-account under this convention) can never equal a property's
+    R-account, so comparing them for corroboration must compare like with
+    like.
 
-    if not account_number:
+    This prefix convention is NOT universal across CAMA vendors (confirmed
+    via portability audit) -- `prefixes` must come from the jurisdiction's
+    own `account_type_prefixes` config (see jurisdictions.py), never a
+    hardcoded default here. Passing `prefixes=None` (or `{}`, a
+    jurisdiction that declares it has no such convention) always returns
+    "UNKNOWN" -- an explicit, honest "this county's software doesn't work
+    this way" rather than silently guessing Lubbock's convention applies.
+    """
+
+    if not account_number or not prefixes:
         return "UNKNOWN"
     cleaned = account_number.strip().upper()
-    if cleaned.startswith("P"):
+    personal_prefix = (prefixes.get("personal") or "").strip().upper()
+    real_prefix = (prefixes.get("real") or "").strip().upper()
+    if personal_prefix and cleaned.startswith(personal_prefix):
         return "PERSONAL"
-    if cleaned.startswith("R"):
+    if real_prefix and cleaned.startswith(real_prefix):
         return "REAL"
     return "UNKNOWN"
 
@@ -211,6 +224,7 @@ def match_property(
     *,
     input_zip: str | None = None,
     candidates: list[NormalizedRealProperty],
+    account_type_prefixes: dict[str, str] | None = None,
 ) -> PropertyMatchResult:
     """Match one address against a jurisdiction's real-property candidates.
     Never auto-picks a winner when evidence is ambiguous (spec item 11) --
@@ -259,7 +273,9 @@ def match_property(
 
     if runner_up_ties:
         tied_group = [(best_candidate, best_score)] + runner_up_ties
-        account_types = [classify_account_type(cand.real_account_number) for cand, _ in tied_group]
+        account_types = [
+            classify_account_type(cand.real_account_number, prefixes=account_type_prefixes) for cand, _ in tied_group
+        ]
         real_records = [(cand, sc) for (cand, sc), t in zip(tied_group, account_types) if t == "REAL"]
         personal_accounts = [
             cand.real_account_number for (cand, _), t in zip(tied_group, account_types) if t == "PERSONAL"
@@ -317,7 +333,7 @@ def match_property(
     # something else.
     personal_property_accounts = (
         [best_candidate.real_account_number]
-        if classify_account_type(best_candidate.real_account_number) == "PERSONAL"
+        if classify_account_type(best_candidate.real_account_number, prefixes=account_type_prefixes) == "PERSONAL"
         else []
     )
     if personal_property_accounts:

@@ -4,6 +4,12 @@ from app.comptroller.property_adapter import NormalizedRealProperty
 from app.comptroller.property_matching import classify_account_type, match_property, normalize_account_number, score_property_candidate
 from app.comptroller.address_normalizer import normalize_address
 
+# Lubbock's real convention (True Automation) -- tests exercising the P/R
+# account-type distinction must pass this explicitly now that it's
+# jurisdiction-configurable rather than hardcoded (see
+# classify_account_type's docstring / the portability audit finding it fixed).
+LUBBOCK_ACCOUNT_TYPE_PREFIXES = {"personal": "P", "real": "R"}
+
 
 def make_property(pid, addr, zip_=None, acct=None, **overrides):
     defaults = dict(
@@ -129,13 +135,24 @@ def test_normalize_account_number_loose_equality():
 # corroboration, which depends on comparing like with like.
 
 def test_classify_account_type_real_and_personal():
-    assert classify_account_type("R163313") == "REAL"
-    assert classify_account_type("r-163313") == "REAL"
-    assert classify_account_type("P302866") == "PERSONAL"
-    assert classify_account_type("p-302866") == "PERSONAL"
-    assert classify_account_type("M101498") == "UNKNOWN"
-    assert classify_account_type(None) == "UNKNOWN"
-    assert classify_account_type("") == "UNKNOWN"
+    p = LUBBOCK_ACCOUNT_TYPE_PREFIXES
+    assert classify_account_type("R163313", prefixes=p) == "REAL"
+    assert classify_account_type("r-163313", prefixes=p) == "REAL"
+    assert classify_account_type("P302866", prefixes=p) == "PERSONAL"
+    assert classify_account_type("p-302866", prefixes=p) == "PERSONAL"
+    assert classify_account_type("M101498", prefixes=p) == "UNKNOWN"
+    assert classify_account_type(None, prefixes=p) == "UNKNOWN"
+    assert classify_account_type("", prefixes=p) == "UNKNOWN"
+
+
+def test_classify_account_type_without_jurisdiction_prefixes_is_always_unknown():
+    """A jurisdiction that hasn't declared (or explicitly has no) P/R-style
+    convention must never silently borrow Lubbock's -- see the portability
+    audit finding this fixed."""
+
+    assert classify_account_type("R163313", prefixes=None) == "UNKNOWN"
+    assert classify_account_type("R163313", prefixes={}) == "UNKNOWN"
+    assert classify_account_type("P302866") == "UNKNOWN"  # prefixes omitted entirely
 
 
 def test_one_real_and_one_personal_at_same_address_is_not_ambiguous():
@@ -149,7 +166,7 @@ def test_one_real_and_one_personal_at_same_address_is_not_ambiguous():
         make_property("LAND", "5807 88TH PL", "79424", acct="R163313"),
         make_property("BPP", "5807 88TH PL", "79424", acct="P302866"),
     ]
-    result = match_property("5807 88th Pl", input_zip="79424", candidates=candidates)
+    result = match_property("5807 88th Pl", input_zip="79424", candidates=candidates, account_type_prefixes=LUBBOCK_ACCOUNT_TYPE_PREFIXES)
     assert result.classification == "EXACT_PROPERTY_MATCH"
     assert result.confidence == "HIGH"
     assert result.matched_property.property_id == "LAND"
@@ -164,14 +181,14 @@ def test_one_real_and_multiple_personal_accounts_all_flagged():
         make_property("BPP1", "100 MAIN ST", "79401", acct="P700001"),
         make_property("BPP2", "100 MAIN ST", "79401", acct="P700002"),
     ]
-    result = match_property("100 Main St", input_zip="79401", candidates=candidates)
+    result = match_property("100 Main St", input_zip="79401", candidates=candidates, account_type_prefixes=LUBBOCK_ACCOUNT_TYPE_PREFIXES)
     assert result.classification == "EXACT_PROPERTY_MATCH"
     assert set(result.personal_property_accounts) == {"P700001", "P700002"}
 
 
 def test_personal_account_alone_with_no_land_record_still_surfaces_it():
     candidates = [make_property("BPP", "100 Main St", "79401", acct="P700000")]
-    result = match_property("100 Main St", input_zip="79401", candidates=candidates)
+    result = match_property("100 Main St", input_zip="79401", candidates=candidates, account_type_prefixes=LUBBOCK_ACCOUNT_TYPE_PREFIXES)
     assert result.classification == "EXACT_PROPERTY_MATCH"
     assert result.matched_property.property_id == "BPP"
     assert result.personal_property_accounts == ["P700000"]
@@ -187,10 +204,28 @@ def test_two_real_accounts_at_same_address_is_genuinely_ambiguous():
         make_property("LAND1", "5807 88TH PL", "79424", acct="R163313"),
         make_property("LAND2", "5807 88TH PL", "79424", acct="R999999"),
     ]
-    result = match_property("5807 88th Pl", input_zip="79424", candidates=candidates)
+    result = match_property(
+        "5807 88th Pl", input_zip="79424", candidates=candidates, account_type_prefixes=LUBBOCK_ACCOUNT_TYPE_PREFIXES,
+    )
     assert result.classification == "AMBIGUOUS_PROPERTY_MATCH"
     assert result.matched_property is None
     assert {a.property_id for a in result.alternatives} == {"LAND1", "LAND2"}
+
+
+def test_jurisdiction_with_no_account_type_convention_treats_tied_records_as_ambiguous():
+    """A jurisdiction that hasn't configured account_type_prefixes (or has
+    explicitly set it to {}) can't distinguish land vs. business records at
+    all -- rather than silently guessing, a tied address correctly falls to
+    AMBIGUOUS_PROPERTY_MATCH (surfaced for human review) instead of quietly
+    picking one, exactly the same as two genuinely competing real accounts."""
+
+    candidates = [
+        make_property("LAND", "5807 88TH PL", "79424", acct="R163313"),
+        make_property("BPP", "5807 88TH PL", "79424", acct="P302866"),
+    ]
+    result = match_property("5807 88th Pl", input_zip="79424", candidates=candidates)  # no account_type_prefixes
+    assert result.classification == "AMBIGUOUS_PROPERTY_MATCH"
+    assert result.matched_property is None
 
 
 def test_no_personal_accounts_reports_none_found():
