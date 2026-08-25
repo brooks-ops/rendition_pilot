@@ -20,10 +20,28 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.comptroller import admin as comptroller_admin
+from app.comptroller.new_business import SOURCE as NEW_BUSINESS_SOURCE
 from app.comptroller.service import _request_json, get_supabase_config, postgrest_headers
 
 SOURCE_TABLE_INTELLIGENCE = "bpp_intelligence_items"
 SOURCE_TABLE_CLOSURE_REVIEW = "comptroller_closure_reviews"
+
+# Human-readable label for an item's discovery source (spec: "say where it
+# was found -- helps with discovery"). Every item today comes from
+# `tx_comptroller_open_data` (the same statewide Comptroller sales-tax
+# dataset drives both New Business Detection and the closure monitor) --
+# this is a lookup table, not a hardcoded string, specifically so a future
+# second source (e.g. a county DBA/assumed-name filing feed) is a one-line
+# addition here, not a UI change.
+SOURCE_LABELS: dict[str, str] = {
+    "tx_comptroller_open_data": "Texas Comptroller (Sales Tax)",
+}
+
+
+def _source_label(source: str | None) -> str | None:
+    if not source:
+        return None
+    return SOURCE_LABELS.get(source, source)
 
 # comptroller_closure_reviews.workflow_status -> the shared 4-state lifecycle,
 # for display/filtering only. The real value is preserved as `resolution`.
@@ -120,6 +138,13 @@ class UnifiedIntelligenceItem:
     tug: str | None = None
     neighborhood: str | None = None
     map_id: str | None = None
+    # Discovery source (spec: "say where it was found -- helps with
+    # discovery"). `source` is the raw machine value (e.g.
+    # "tx_comptroller_open_data"); `source_label` is SOURCE_LABELS' display
+    # form, falling back to the raw value if a source is ever added here
+    # before its label is, so it's never blank.
+    source: str | None = None
+    source_label: str | None = None
 
 
 def _from_intelligence_row(row: dict[str, Any]) -> UnifiedIntelligenceItem:
@@ -160,6 +185,8 @@ def _from_intelligence_row(row: dict[str, Any]) -> UnifiedIntelligenceItem:
         tug=row.get("tug"),
         neighborhood=row.get("neighborhood"),
         map_id=row.get("map_id"),
+        source=row.get("source"),
+        source_label=_source_label(row.get("source")),
         raw=row,
     )
 
@@ -203,6 +230,12 @@ def _from_closure_review_row(row: dict[str, Any]) -> UnifiedIntelligenceItem:
         tug=None,
         neighborhood=None,
         map_id=None,
+        # comptroller_closure_reviews has no `source` column of its own --
+        # it has only ever had one source (this same statewide Comptroller
+        # feed) for its entire existence, so this is a known constant here,
+        # not a lookup.
+        source=NEW_BUSINESS_SOURCE,
+        source_label=_source_label(NEW_BUSINESS_SOURCE),
         raw=row,
     )
 

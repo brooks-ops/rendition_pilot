@@ -74,6 +74,29 @@ def test_queue_merges_both_sources(fake_supabase):
     assert signal_types == {"new_business", "sales_tax_inactive"}
 
 
+def test_items_from_both_sources_show_a_human_readable_source_label(fake_supabase):
+    """Spec: "say where it was found -- helps with discovery." Both signal
+    types come from the same Comptroller feed today, so both must show the
+    same label -- new_business reads its own `source` column;
+    comptroller_closure_reviews has no such column (it's only ever had one
+    source) so intelligence.py supplies the known constant instead."""
+
+    add_intelligence_item(fake_supabase)
+    add_closure_review(fake_supabase)
+
+    items = intelligence.list_intelligence_queue("district-1")
+
+    for item in items:
+        assert item.source == "tx_comptroller_open_data"
+        assert item.source_label == "Texas Comptroller (Sales Tax)"
+
+
+def test_unmapped_source_falls_back_to_the_raw_value_not_blank(fake_supabase):
+    add_intelligence_item(fake_supabase, source="future_dba_filing_feed")
+    items = intelligence.list_intelligence_queue("district-1")
+    assert items[0].source_label == "future_dba_filing_feed"
+
+
 def test_queue_scoped_to_district(fake_supabase):
     add_intelligence_item(fake_supabase, district_id="district-1")
     add_intelligence_item(fake_supabase, district_id="district-other")
