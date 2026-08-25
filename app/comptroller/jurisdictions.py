@@ -38,7 +38,8 @@ from app.comptroller.service import _request_json, get_supabase_config, postgres
 _SELECT = (
     "id,district_id,name,slug,county_name,state,timezone,active,"
     "comptroller_county_code,comptroller_dataset_id,capabilities,cad_field_mapping,"
-    "property_field_mapping,appraiser_assignment_rules,current_tax_year"
+    "property_field_mapping,appraiser_assignment_rules,current_tax_year,"
+    "account_type_prefixes"
 )
 
 
@@ -63,6 +64,16 @@ class Jurisdiction:
     property_field_mapping: dict[str, str] = field(default_factory=dict)
     appraiser_assignment_rules: dict[str, Any] = field(default_factory=dict)
     current_tax_year: int | None = None
+    # {"personal": "<prefix>", "real": "<prefix>"} -- which leading
+    # characters distinguish a business-personal-property (BPP) account
+    # number from a real-property (land) account number in this
+    # jurisdiction's CAMA export. Defaults to Lubbock's actual convention
+    # (True Automation's P/R prefixes) so nothing changes unless a
+    # jurisdiction is explicitly reconfigured; a jurisdiction whose CAMA
+    # has no such convention should set this to {} (see
+    # property_matching.classify_account_type -- an unset/empty mapping
+    # means every account classifies "UNKNOWN" rather than guessing).
+    account_type_prefixes: dict[str, str] = field(default_factory=lambda: {"personal": "P", "real": "R"})
 
     def has_capability(self, capability: str) -> bool:
         return bool(self.capabilities.get(capability))
@@ -85,6 +96,7 @@ def _row_to_jurisdiction(row: dict[str, Any]) -> Jurisdiction:
         property_field_mapping=row.get("property_field_mapping") or {},
         appraiser_assignment_rules=row.get("appraiser_assignment_rules") or {},
         current_tax_year=row.get("current_tax_year"),
+        account_type_prefixes=row.get("account_type_prefixes") or {"personal": "P", "real": "R"},
     )
 
 

@@ -96,14 +96,29 @@ def _normalize_neighborhood_code(value: str | None) -> str | None:
     different suffixes. The appraiser-assignment sheet only lists the base
     number ('for BPP we just need the first 4 digits, anything after does
     not matter'), so assignment must match on that prefix, not require an
-    exact string match against the full code."""
+    exact string match against the full code.
+
+    Not every CAMA's neighborhood-code scheme is numeric-first, though --
+    confirmed as a real portability gap via audit: a letter-prefixed code
+    (e.g. 'NC-3') used to normalize to None here and silently fall through
+    to "unassigned" with no error raised. A code that doesn't start with
+    digits is used as-is (trimmed, uppercased) instead of assuming
+    Lubbock's numeric convention applies -- correct for an as-is
+    exact-match scheme, and at minimum never silently drops the code
+    entirely. (A jurisdiction whose numeric codes aren't 4 digits wide, or
+    whose suffix IS meaningful, would still need this made properly
+    jurisdiction-configurable -- not yet needed since no such county has
+    onboarded, but this is the seam to extend when one does.)"""
 
     if not value:
         return None
-    match = re.match(r"0*(\d+)", value.strip())
-    if not match:
+    stripped = value.strip()
+    if not stripped:
         return None
-    return match.group(1).zfill(4)
+    match = re.match(r"0*(\d+)", stripped)
+    if match:
+        return match.group(1).zfill(4)
+    return stripped.upper()
 
 
 def assign_appraiser(jurisdiction: Jurisdiction, *, tug: str | None, neighborhood: str | None) -> AppraiserAssignment:

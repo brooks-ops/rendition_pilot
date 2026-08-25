@@ -130,6 +130,20 @@ def test_assign_appraiser_zero_pads_short_neighborhood_numbers():
     assert assign_appraiser(jurisdiction, tug=None, neighborhood="0018CND1-4").appraiser == "BP2"
 
 
+def test_assign_appraiser_matches_letter_prefixed_neighborhood_codes():
+    """Portability regression: a county whose neighborhood codes don't
+    start with digits (e.g. 'NC-3', matching this codebase's own
+    OTHER_COUNTY_MAPPING portability fixture in test_property_portability.py)
+    used to normalize to None here and silently fall through to
+    "unassigned" with no error. It must resolve via exact (case-insensitive)
+    match instead."""
+
+    jurisdiction = make_jurisdiction(appraiser_assignment_rules={"by_neighborhood": {"NC-3": "BP1"}})
+    assert assign_appraiser(jurisdiction, tug=None, neighborhood="NC-3").appraiser == "BP1"
+    assert assign_appraiser(jurisdiction, tug=None, neighborhood="nc-3").appraiser == "BP1"
+    assert assign_appraiser(jurisdiction, tug=None, neighborhood="NC-4").basis == "unassigned"
+
+
 def test_assign_appraiser_does_not_confuse_different_base_neighborhoods():
     jurisdiction = make_jurisdiction(appraiser_assignment_rules={"by_neighborhood": {"0018": "BP2", "0022": "BP3"}})
     assert assign_appraiser(jurisdiction, tug=None, neighborhood="0022APM").appraiser == "BP3"
