@@ -148,6 +148,48 @@ def assess_production_readiness(jurisdiction: Jurisdiction) -> ProductionReadine
         if account_card_ready else "BLOCKED: New Business Detection is not ready, so no new-business items exist to card.",
     ))
 
+    # Mailing Address Intelligence
+    mailing_capability_ready = jurisdiction.has_capability("mailing_address_monitoring") and bool(jurisdiction.comptroller_county_code)
+    checks.append(ReadinessCheck(
+        "Mailing Address Monitoring", READY if mailing_capability_ready else BLOCKED,
+        "Comptroller-vs-own-history comparison is available." if mailing_capability_ready
+        else "mailing_address_monitoring capability disabled or no Comptroller county code configured.",
+    ))
+
+    has_mailing_observations = _has_any_row("mailing_address_observations", {"jurisdiction_id": f"eq.{jurisdiction.id}"})
+    checks.append(ReadinessCheck(
+        "Current CAD mailing addresses", READY if has_mailing_observations else NOT_READY,
+        "At least one taxpayer mailing address has been observed and recorded." if has_mailing_observations
+        else "No mailing_address_observations rows yet -- run mailing-address-scan to establish a baseline.",
+    ))
+
+    checks.append(ReadinessCheck(
+        "Rendition mailing addresses", NOT_READY,
+        "The rendition OCR pipeline does not currently extract a mailing address from the form -- "
+        "this comparison path is built (record_observation/compare_against_latest_observation both "
+        "accept account_identifier_type='bpp_account') but has no real data to run against yet. "
+        "See docs/mailing_address_intelligence.md.",
+    ))
+
+    checks.append(ReadinessCheck(
+        "Other mailing sources", NOT_CONFIGURED,
+        "None configured beyond the Texas Comptroller feed.",
+    ))
+
+    checks.append(ReadinessCheck("Comparison engine", READY, "compare_mailing_addresses() is available and tested."))
+
+    checks.append(ReadinessCheck(
+        "Automatic rendition trigger", "DISABLED",
+        "Locking a rendition does not yet trigger a mailing-address comparison -- run mailing-address-scan "
+        "manually or via the run-intelligence cron dispatcher instead (deliberately not wired into the "
+        "review/lock request path, to avoid adding latency there).",
+    ))
+
+    checks.append(ReadinessCheck(
+        "Review queue", READY,
+        "mailing_address_change items appear in the existing BPP Intelligence Queue.",
+    ))
+
     return ProductionReadiness(jurisdiction_id=jurisdiction.id, jurisdiction_name=jurisdiction.name, checks=checks)
 
 

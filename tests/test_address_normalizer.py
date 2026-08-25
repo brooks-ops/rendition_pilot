@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.comptroller.address_normalizer import normalize_address
+from app.comptroller.address_normalizer import normalize_address, normalize_mailing_address
 
 
 def test_preserves_raw_value():
@@ -106,3 +106,60 @@ def test_empty_and_none_address_do_not_crash():
     assert normalize_address(None).normalized == ""
     assert normalize_address("").normalized == ""
     assert normalize_address("   ").normalized == ""
+
+
+# -- normalize_mailing_address / PO Box handling ------------------------------
+
+def test_po_box_variants_normalize_to_the_same_form():
+    variants = ["PO Box 500", "P.O. Box 500", "P O BOX 500", "po box 500"]
+    normalized = {normalize_mailing_address(v).normalized_line for v in variants}
+    assert normalized == {"PO BOX 500"}
+
+
+def test_po_box_address_type_is_po_box():
+    n = normalize_mailing_address("PO Box 500")
+    assert n.address_type == "PO_BOX"
+    assert n.po_box_number == "500"
+
+
+def test_street_address_type_is_street():
+    n = normalize_mailing_address("123 Main St")
+    assert n.address_type == "STREET"
+    assert n.po_box_number is None
+
+
+def test_mailing_address_preserves_city_state_zip_as_separate_fields():
+    n = normalize_mailing_address("123 Main St", city="Lubbock", state="tx", zip_code="79401")
+    assert n.city == "LUBBOCK"
+    assert n.state == "TX"
+    assert n.zip5 == "79401"
+    assert n.full_normalized == "123 MAIN STREET LUBBOCK TX 79401"
+
+
+def test_mailing_address_does_not_drop_city_via_comma_splitting():
+    """Unlike normalize_address() (situs), a mailing address's city/state
+    passed as separate fields must survive -- this is the exact behavior
+    that would break if normalize_mailing_address ever delegated straight
+    to normalize_address()."""
+
+    n = normalize_mailing_address("PO Box 456", city="Lubbock", state="TX", zip_code="79408")
+    assert n.city == "LUBBOCK"
+    assert "LUBBOCK" in n.full_normalized
+
+
+def test_mailing_address_suite_extracted_like_situs():
+    n = normalize_mailing_address("7610 Milwaukee Ave Ste 300")
+    assert n.unit == "300"
+    assert n.normalized_line == "7610 MILWAUKEE AVENUE"
+
+
+def test_mailing_address_blank_line_is_unknown_type():
+    n = normalize_mailing_address(None)
+    assert n.address_type == "UNKNOWN"
+    assert n.normalized_line == ""
+
+
+def test_mailing_address_blank_line_still_keeps_city_if_given():
+    n = normalize_mailing_address(None, city="Lubbock", state="TX")
+    assert n.city == "LUBBOCK"
+    assert n.normalized_line == ""

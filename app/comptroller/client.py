@@ -59,6 +59,22 @@ class PermitRecord:
     permit_end_date: date | None
     current_status: str
     raw: dict[str, Any]
+    # The TAXPAYER's mailing address (Socrata tp_address/tp_city/tp_state/
+    # tp_zip) -- an independently-sourced field from `address`/`city`/
+    # `state`/`zip` above (the outlet's physical/situs address, from
+    # address_number+address_text/loc_city/loc_state/loc_zip). Confirmed via
+    # live query that these genuinely differ for real records, including
+    # PO-Box-vs-street-address cases (e.g. a national retailer's Lubbock
+    # store location vs. its out-of-state corporate mailing address) --
+    # never conflate the two. Was previously read from `raw` only and
+    # discarded before reaching this dataclass; see docs/mailing_address_intelligence.md.
+    # Defaulted (rather than required) so this is a purely additive change
+    # for any existing PermitRecord construction site.
+    mailing_address: str | None = None
+    mailing_city: str | None = None
+    mailing_state: str | None = None
+    mailing_zip: str | None = None
+    mailing_zip4: str | None = None
 
     @property
     def key(self) -> tuple[str, str]:
@@ -143,6 +159,11 @@ def _parse_row(row: dict[str, Any]) -> PermitRecord | None:
         city=_clean_text(row.get("loc_city")),
         state=_clean_text(row.get("loc_state")),
         zip=_clean_text(row.get("loc_zip")),
+        mailing_address=_clean_text(row.get("tp_address")),
+        mailing_city=_clean_text(row.get("tp_city")),
+        mailing_state=_clean_text(row.get("tp_state")),
+        mailing_zip=_clean_text(row.get("tp_zip")),
+        mailing_zip4=_clean_text(row.get("tp_zip4")),
         county_code=_clean_text(row.get("loc_county")),
         permit_start_date=_parse_socrata_date(row.get("permit_date")),
         permit_end_date=out_of_business_date,

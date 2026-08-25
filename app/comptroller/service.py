@@ -414,6 +414,14 @@ def _build_location_payload(
         "city": record.city,
         "state": record.state,
         "zip": record.zip,
+        # Taxpayer mailing address -- distinct from address/city/state/zip
+        # above (the outlet's situs address). See client.py's PermitRecord
+        # docstring and docs/mailing_address_intelligence.md.
+        "mailing_address": record.mailing_address,
+        "mailing_city": record.mailing_city,
+        "mailing_state": record.mailing_state,
+        "mailing_zip": record.mailing_zip,
+        "mailing_zip4": record.mailing_zip4,
         "permit_start_date": record.permit_start_date.isoformat() if record.permit_start_date else None,
         "permit_end_date": record.permit_end_date.isoformat() if record.permit_end_date else None,
         "current_status": record.current_status,

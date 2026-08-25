@@ -173,6 +173,15 @@ CAPABILITY_FIELD_REQUIREMENTS: dict[str, dict[str, list[str]]] = {
         "required": ["source_property_id", "situs_address"],
         "optional": ["real_account_number", "situs_zip", "tug", "neighborhood", "map_id", "tax_year"],
     },
+    # Checked against a fixed frozenset the caller supplies (always
+    # {"mailing_address"} today, since the Comptroller client always
+    # captures it once fetched -- see client.py's PermitRecord) rather than
+    # a per-jurisdiction adapter/mapping, because this capability's only
+    # real source today is structurally the same for every TX county.
+    "mailing_address_monitoring": {
+        "required": ["mailing_address"],
+        "optional": [],
+    },
 }
 
 FIELD_LABELS: dict[str, str] = {
@@ -216,7 +225,7 @@ def validate_capability(jurisdiction: Jurisdiction, capability: str, available_f
             message=f"{label} is not enabled for {jurisdiction.name}.",
         )
 
-    if capability in ("new_business_detection", "sales_tax_monitoring") and not jurisdiction.comptroller_county_code:
+    if capability in ("new_business_detection", "sales_tax_monitoring", "mailing_address_monitoring") and not jurisdiction.comptroller_county_code:
         return CapabilityValidation(
             ok=False, missing_required=["comptroller_county_code"], missing_optional=[],
             message=(

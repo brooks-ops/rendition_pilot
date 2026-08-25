@@ -2099,7 +2099,8 @@
 
     const INTEL_RESOLUTION_OPTIONS = {
       new_business: ["ACCOUNT_EXISTS", "NEW_ACCOUNT_NEEDED", "OWNERSHIP_CHANGE", "RELOCATION", "DUPLICATE", "NO_TAXABLE_BPP", "FALSE_MATCH", "OTHER"],
-      sales_tax_inactive: ["ACCOUNT_EXISTS", "BUSINESS_CLOSED", "OWNERSHIP_CHANGE", "RELOCATION", "DUPLICATE", "FALSE_MATCH", "OTHER"]
+      sales_tax_inactive: ["ACCOUNT_EXISTS", "BUSINESS_CLOSED", "OWNERSHIP_CHANGE", "RELOCATION", "DUPLICATE", "FALSE_MATCH", "OTHER"],
+      mailing_address_change: ["ADDRESS_UPDATED", "CURRENT_ADDRESS_CORRECT", "SOURCE_OUTDATED", "DUPLICATE_SIGNAL", "ACCOUNT_MISMATCH", "INSUFFICIENT_EVIDENCE", "OTHER"]
     };
 
     function intelResolutionLabel(code) {
@@ -2132,9 +2133,15 @@
     }
 
     function intelCardHtml(item) {
-      const title = item.signal_type === "new_business" ? "NEW BUSINESS" : "SALES TAX INACTIVE";
-      const addressLine = [item.source_address, item.source_city, item.source_state, item.source_zip].filter(Boolean).join(", ");
-      const matched = item.matched_owner_name
+      const title = item.signal_type === "new_business" ? "NEW BUSINESS"
+        : item.signal_type === "mailing_address_change" ? "MAILING ADDRESS CHANGE"
+        : "SALES TAX INACTIVE";
+      const addressLine = item.signal_type === "mailing_address_change"
+        ? (item.mailing_address_observed || "Address not available")
+        : [item.source_address, item.source_city, item.source_state, item.source_zip].filter(Boolean).join(", ");
+      const matched = item.signal_type === "mailing_address_change"
+        ? `Current on file: ${formatText(item.mailing_address_current || "UNKNOWN -- no prior observation")}`
+        : item.matched_owner_name
         ? `Matched: ${formatText(item.matched_owner_name)} (${formatText(item.confidence)})`
         : "CAD Match: No matching RenditionPilot record found";
       return `
@@ -2181,6 +2188,35 @@
         <div>Map: ${formatText(item.map_id)}</div>`;
     }
 
+    function mailingAddressDetailHtml(item) {
+      const signals = item.match_signals || {};
+      const differenceRows = Object.keys(signals).length
+        ? Object.entries(signals).map(([key, value]) => `<div>${formatText(key.replaceAll("_", " "))}: <strong>${formatText(value)}</strong></div>`).join("")
+        : `<div class="subtle">No per-component differences recorded.</div>`;
+      return `
+        <div class="layout-3">
+          <div>
+            <h4>Current (On File)</h4>
+            <div>${formatText(item.mailing_address_current || "UNKNOWN -- no prior observation on record")}</div>
+            <div class="subtle">Business/Taxpayer: ${formatText(item.business_name)}</div>
+          </div>
+          <div>
+            <h4>New Observation</h4>
+            <div>${formatText(item.mailing_address_observed || "N/A")}</div>
+            <div class="subtle">Source: ${formatText(item.source_label || item.source)}</div>
+            <div class="subtle">Detected: ${formatText(item.first_detected_at)}</div>
+          </div>
+          <div>
+            <h4>What Changed</h4>
+            ${differenceRows}
+          </div>
+        </div>
+        <div style="margin-top:10px;">Classification: <strong>${formatText(item.classification)}</strong> | Confidence: <strong>${formatText(item.confidence)}</strong></div>
+        <div class="subtle">${formatText(item.match_reason)}</div>
+        <div style="margin-top:10px;"><strong>Recommended:</strong> ${formatText(item.recommended_action)}</div>
+        <div class="subtle" style="margin-top:8px;">This is a review recommendation only -- RenditionPilot has not changed any official CAD mailing address. Confirm or correct below.</div>`;
+    }
+
     function openIntelligenceDetail(itemId, sourceTable) {
       const item = appState.intelligence.items.find((candidate) => candidate.id === itemId && candidate.source_table === sourceTable);
       if (!item) return;
@@ -2191,7 +2227,7 @@
         ? Object.entries(signals).map(([key, value]) => `<div>${formatText(key.replaceAll("_", " "))}: <strong>${formatText(value)}</strong></div>`).join("")
         : `<div class="subtle">No per-signal breakdown available for this item.</div>`;
 
-      $("intel-detail-body").innerHTML = `
+      $("intel-detail-body").innerHTML = item.signal_type === "mailing_address_change" ? mailingAddressDetailHtml(item) : `
         <div class="layout-3">
           <div>
             <h4>External Source (Comptroller)</h4>

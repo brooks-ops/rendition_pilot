@@ -28,6 +28,7 @@ class FakeSupabase:
         self.rendition_uploads: dict[str, dict[str, Any]] = {}
         self.rendition_jobs: dict[str, dict[str, Any]] = {}
         self.parsed_rendition_results: dict[str, dict[str, Any]] = {}
+        self.mailing_address_observations: dict[str, dict[str, Any]] = {}
         self._next_id = 0
         self.calls: list[dict[str, Any]] = []
 
@@ -441,6 +442,40 @@ class FakeSupabase:
                 row.update(json_payload)
             return [row] if row else []
         raise AssertionError(f"Unhandled method {method} for parsed_rendition_results")
+
+    # -- mailing_address_observations ------------------------------------------
+
+    def _handle_mailing_address_observations(self, method, params, json_payload):
+        if method == "GET":
+            rows = self._apply_simple_filters(list(self.mailing_address_observations.values()), params, skip=set())
+            order = str(params.get("order") or "")
+            if "observed_at.desc" in order:
+                rows = sorted(rows, key=lambda r: r.get("observed_at", ""), reverse=True)
+            return self._paginate(rows, params)
+        if method == "POST":
+            payload_rows = json_payload if isinstance(json_payload, list) else [json_payload]
+            results = []
+            for incoming in payload_rows:
+                # ignore-duplicates dedup key: (jurisdiction_id,
+                # account_identifier_type, account_identifier, source,
+                # normalized_full_address) -- mirrors the real unique index;
+                # a repeat of the exact same address for this identity+source
+                # is a no-op, preserving the original observed_at.
+                key = "::".join([
+                    str(incoming.get("jurisdiction_id")), str(incoming.get("account_identifier_type")),
+                    str(incoming.get("account_identifier")), str(incoming.get("source")),
+                    str(incoming.get("normalized_full_address")),
+                ])
+                if key in self.mailing_address_observations:
+                    continue  # resolution=ignore-duplicates
+                row = dict(incoming)
+                row["id"] = self._new_id("mailobs")
+                row.setdefault("observed_at", f"2000-01-01T00:00:{len(self.mailing_address_observations):02d}Z")
+                row.setdefault("created_at", row["observed_at"])
+                self.mailing_address_observations[key] = row
+                results.append(row)
+            return results
+        raise AssertionError(f"Unhandled method {method} for mailing_address_observations")
 
     # -- shared helpers ----------------------------------------------------
 

@@ -52,6 +52,9 @@ _UNIT_PATTERN = re.compile(
 )
 
 
+_PO_BOX_PATTERN = re.compile(r"^P[.\s]*O[.\s]*BOX[.\s#]*([A-Z0-9-]+)")
+
+
 @dataclass(frozen=True)
 class NormalizedAddress:
     raw: str | None
@@ -148,3 +151,97 @@ def normalize_address(raw: str | None, *, zip_code: str | None = None) -> Normal
     zip4 = explicit_zip4 or embedded_zip4
 
     return NormalizedAddress(raw=raw, normalized=text, base_address=base, unit=unit, zip5=zip5, zip4=zip4)
+
+
+@dataclass(frozen=True)
+class NormalizedMailingAddress:
+    """A mailing address's normalized components -- kept separate from
+    NormalizedAddress (situs matching) because that dataclass's normalizer
+    deliberately keeps only the text before the first comma, discarding
+    city/state; a mailing address's city/state are load-bearing for
+    comparison (Mailing Address Intelligence spec item 8), so they must
+    survive as their own fields, not be dropped.
+    """
+
+    raw: str | None
+    address_type: str  # "STREET" | "PO_BOX" | "UNKNOWN"
+    normalized_line: str  # normalized street line, or "PO BOX <number>"
+    po_box_number: str | None
+    unit: str | None
+    city: str | None
+    state: str | None
+    zip5: str | None
+    zip4: str | None
+
+    @property
+    def has_unit(self) -> bool:
+        return self.unit is not None
+
+    @property
+    def full_normalized(self) -> str:
+        """One comparable string: line + city + state + zip5, skipping any
+        piece that's missing (including the unit, e.g. "STE 200" -- a suite
+        addition/change must never look identical to the same address with
+        no suite, which comparing on the base line/city/state/zip alone
+        would silently do). Two addresses with an identical
+        `full_normalized` are the same address; anything else needs
+        component-level comparison to explain what actually changed."""
+
+        unit_part = f"UNIT {self.unit}" if self.unit else None
+        parts = [self.normalized_line, unit_part, self.city, self.state, self.zip5]
+        return " ".join(p for p in parts if p)
+
+
+def normalize_mailing_address(
+    raw_line: str | None,
+    *,
+    city: str | None = None,
+    state: str | None = None,
+    zip_code: str | None = None,
+) -> NormalizedMailingAddress:
+    """Normalizes a mailing address's line/city/state/zip as SEPARATE
+    components -- unlike `normalize_address()` (situs matching), which
+    intentionally keeps only the text before the first comma. Pass
+    city/state explicitly when the source already has them as separate
+    fields (e.g. the Comptroller feed's tp_address/tp_city/tp_state) rather
+    than relying on comma-splitting a single combined string, which this
+    function only does as a fallback for `raw_line` itself (anything after
+    the first comma in `raw_line` is ignored -- pass city/state separately
+    instead of relying on that).
+
+    Recognizes PO Box variants ("PO BOX 500", "P.O. Box 500", "P O BOX 500")
+    as the same `address_type="PO_BOX"` -- confirmed as a real gap in the
+    existing normalizer, which treats each of those as a different string.
+    """
+
+    zip5, zip4 = _normalize_zip(zip_code)
+    normalized_city = " ".join(city.upper().split()) if city and city.strip() else None
+    normalized_state = state.strip().upper() if state and state.strip() else None
+
+    if not raw_line or not raw_line.strip():
+        return NormalizedMailingAddress(
+            raw=raw_line, address_type="UNKNOWN", normalized_line="", po_box_number=None,
+            unit=None, city=normalized_city, state=normalized_state, zip5=zip5, zip4=zip4,
+        )
+
+    text = raw_line.upper().split(",")[0]
+    text = re.sub(r"[.,]", " ", text)
+    text = re.sub(r"[^A-Z0-9# ]", " ", text)
+    text = " ".join(text.split())
+
+    po_box_match = _PO_BOX_PATTERN.match(text)
+    if po_box_match:
+        po_box_number = po_box_match.group(1)
+        return NormalizedMailingAddress(
+            raw=raw_line, address_type="PO_BOX", normalized_line=f"PO BOX {po_box_number}",
+            po_box_number=po_box_number, unit=None,
+            city=normalized_city, state=normalized_state, zip5=zip5, zip4=zip4,
+        )
+
+    expanded = _expand_tokens(text)
+    base, unit = extract_unit(expanded)
+    return NormalizedMailingAddress(
+        raw=raw_line, address_type="STREET" if base else "UNKNOWN", normalized_line=base,
+        po_box_number=None, unit=unit,
+        city=normalized_city, state=normalized_state, zip5=zip5, zip4=zip4,
+    )

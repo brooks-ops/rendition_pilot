@@ -118,3 +118,44 @@ def test_jurisdiction_isolation_readiness_never_sees_another_jurisdictions_data(
     result = assess_production_readiness(jurisdiction_a)
     assert check(result, "Persisted BPP accounts").status == NOT_READY
     assert check(result, "Property data").status == NOT_READY
+
+
+def test_mailing_address_monitoring_blocked_without_capability(fake_supabase):
+    jurisdiction = make_jurisdiction(capabilities={})
+    result = assess_production_readiness(jurisdiction)
+    assert check(result, "Mailing Address Monitoring").status == BLOCKED
+
+
+def test_mailing_address_monitoring_ready_with_capability_and_county_code(fake_supabase):
+    jurisdiction = make_jurisdiction(capabilities={"mailing_address_monitoring": True})
+    result = assess_production_readiness(jurisdiction)
+    assert check(result, "Mailing Address Monitoring").status == READY
+
+
+def test_current_cad_mailing_addresses_not_ready_with_no_observations(fake_supabase):
+    jurisdiction = make_jurisdiction()
+    result = assess_production_readiness(jurisdiction)
+    assert check(result, "Current CAD mailing addresses").status == NOT_READY
+
+
+def test_current_cad_mailing_addresses_ready_once_observed(fake_supabase):
+    jurisdiction = make_jurisdiction()
+    fake_supabase.mailing_address_observations["obs-1"] = {"id": "obs-1", "jurisdiction_id": "jur-1"}
+    result = assess_production_readiness(jurisdiction)
+    assert check(result, "Current CAD mailing addresses").status == READY
+
+
+def test_rendition_mailing_addresses_always_not_ready_today(fake_supabase):
+    """Honest limitation: OCR doesn't extract this field yet -- must never
+    silently claim readiness it doesn't have."""
+
+    jurisdiction = make_jurisdiction()
+    result = assess_production_readiness(jurisdiction)
+    assert check(result, "Rendition mailing addresses").status == NOT_READY
+
+
+def test_mailing_address_jurisdiction_isolation(fake_supabase):
+    jurisdiction_a = make_jurisdiction(id="jur-a")
+    fake_supabase.mailing_address_observations["obs-1"] = {"id": "obs-1", "jurisdiction_id": "jur-b"}
+    result = assess_production_readiness(jurisdiction_a)
+    assert check(result, "Current CAD mailing addresses").status == NOT_READY
