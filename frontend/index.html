@@ -2144,7 +2144,7 @@
             <span class="status ${item.priority === "HIGH" ? "error" : "warn"}" style="display:inline-block;">${formatText(item.priority)} PRIORITY</span>
           </div>
           <div class="subtle">${formatText(addressLine || "Address not available")}</div>
-          <div class="subtle">Detected: ${formatText(item.first_detected_at)} | Status: ${formatText(item.status)}</div>
+          <div class="subtle">Source: ${formatText(item.source_label)} | Detected: ${formatText(item.first_detected_at)} | Status: ${formatText(item.status)}</div>
           <div class="subtle">${matched}</div>
           <div class="subtle">Reason: ${formatText(item.match_reason)}</div>
         </div>`;
@@ -2195,6 +2195,7 @@
         <div class="layout-3">
           <div>
             <h4>External Source (Comptroller)</h4>
+            <div>Source: ${formatText(item.source_label)}</div>
             <div>Business/DBA: ${formatText(item.business_name)}</div>
             <div>Legal/Taxpayer Name: ${formatText(item.legal_name)}</div>
             <div>Address: ${formatText([item.source_address, item.source_city, item.source_state, item.source_zip].filter(Boolean).join(", "))}</div>
