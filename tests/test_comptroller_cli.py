@@ -141,6 +141,45 @@ def test_export_command_reports_failure_with_nonzero_exit(monkeypatch, capsys):
     assert "FAILED" in capsys.readouterr().err
 
 
+def test_mailing_address_scan_command_reports_summary(monkeypatch, capsys):
+    from app.comptroller.mailing_address_intelligence import MailingAddressIntelligenceResult
+
+    monkeypatch.setattr(cli, "get_jurisdiction_by_slug", lambda slug: _make_jurisdiction())
+    monkeypatch.setattr(
+        cli.mailing_address_intelligence,
+        "run_mailing_address_intelligence",
+        lambda jurisdiction_id, **kw: MailingAddressIntelligenceResult(
+            jurisdiction_id=jurisdiction_id, dry_run=kw.get("dry_run", False), evaluated=10,
+            same_address=6, format_only=1, possible_change=1, likely_change=2, insufficient_data=0,
+            baseline_established=0, items_created=2, items_updated=0, duplicates_suppressed=0,
+        ),
+    )
+
+    exit_code = cli.main(["mailing-address-scan", "--jurisdiction", "lubbock"])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Accounts evaluated: 10" in out
+    assert "Likely changes: 2" in out
+    assert "Intelligence items created: 2" in out
+
+
+def test_mailing_address_scan_command_reports_capability_error(monkeypatch, capsys):
+    from app.comptroller.mailing_address_intelligence import MailingAddressIntelligenceError
+
+    monkeypatch.setattr(cli, "get_jurisdiction_by_slug", lambda slug: _make_jurisdiction())
+
+    def fail(jurisdiction_id, **kw):
+        raise MailingAddressIntelligenceError("Mailing Address Monitoring is not enabled for Lubbock Central Appraisal District.")
+
+    monkeypatch.setattr(cli.mailing_address_intelligence, "run_mailing_address_intelligence", fail)
+
+    exit_code = cli.main(["mailing-address-scan", "--jurisdiction", "lubbock"])
+
+    assert exit_code == 1
+    assert "not enabled" in capsys.readouterr().err
+
+
 def test_property_import_command_reports_summary(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(cli, "get_jurisdiction_by_slug", lambda slug: _make_jurisdiction())
     monkeypatch.setattr(

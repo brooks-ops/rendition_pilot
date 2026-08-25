@@ -97,6 +97,21 @@ def test_unmapped_source_falls_back_to_the_raw_value_not_blank(fake_supabase):
     assert items[0].source_label == "future_dba_filing_feed"
 
 
+def test_mailing_address_change_items_appear_in_the_unified_queue(fake_supabase):
+    add_intelligence_item(
+        fake_supabase, signal_type="mailing_address_change", classification="LIKELY_MAILING_ADDRESS_CHANGE",
+        mailing_address_current="123 MAIN STREET LUBBOCK TX 79401", mailing_address_observed="PO BOX 900 LUBBOCK TX 79401",
+    )
+
+    all_items = intelligence.list_intelligence_queue("district-1")
+    filtered = intelligence.list_intelligence_queue("district-1", signal_type="mailing_address_change")
+
+    assert {i.signal_type for i in all_items} == {"mailing_address_change"}
+    assert len(filtered) == 1
+    assert filtered[0].mailing_address_current == "123 MAIN STREET LUBBOCK TX 79401"
+    assert filtered[0].mailing_address_observed == "PO BOX 900 LUBBOCK TX 79401"
+
+
 def test_queue_scoped_to_district(fake_supabase):
     add_intelligence_item(fake_supabase, district_id="district-1")
     add_intelligence_item(fake_supabase, district_id="district-other")

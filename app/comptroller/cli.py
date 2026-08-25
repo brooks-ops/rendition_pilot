@@ -11,6 +11,8 @@ Examples:
   python -m app.comptroller.cli export      # defaults to the previous calendar month, all districts
   python -m app.comptroller.cli detect-new-business --jurisdiction lubbock --dry-run
   python -m app.comptroller.cli detect-new-business --jurisdiction lubbock
+  python -m app.comptroller.cli mailing-address-scan --jurisdiction lubbock --dry-run
+  python -m app.comptroller.cli mailing-address-scan --jurisdiction lubbock
   python -m app.comptroller.cli run-intelligence --jurisdiction lubbock --dry-run
   python -m app.comptroller.cli property-import --jurisdiction lubbock --file lubbock_properties.csv
   python -m app.comptroller.cli property-import --jurisdiction lubbock --file lubbock_properties.csv --dry-run
@@ -38,9 +40,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from app.comptroller import admin, export, intelligence, new_account_enrichment, new_business, property_adapter, property_enrichment, property_import, readiness, service
+from app.comptroller import admin, export, intelligence, mailing_address_intelligence, new_account_enrichment, new_business, property_adapter, property_enrichment, property_import, readiness, service
 from app.comptroller.counties import get_monitored_counties
 from app.comptroller.jurisdictions import JurisdictionError, get_jurisdiction_by_slug
+from app.comptroller.mailing_address_intelligence import MailingAddressIntelligenceError
 from app.comptroller.month_end import process_month_end, resolve_target_month
 from app.comptroller.new_account_enrichment import NewAccountEnrichmentError, account_card_to_dict
 from app.comptroller.new_business import NewBusinessDetectionError
@@ -195,6 +198,41 @@ def cmd_detect_new_business(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mailing_address_scan(args: argparse.Namespace) -> int:
+    try:
+        jurisdiction = get_jurisdiction_by_slug(args.jurisdiction)
+    except JurisdictionError as exc:
+        print(f"[mailing-address-scan] {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        result = mailing_address_intelligence.run_mailing_address_intelligence(
+            jurisdiction.id, dry_run=args.dry_run,
+        )
+    except MailingAddressIntelligenceError as exc:
+        print(f"[mailing-address-scan] {jurisdiction.slug}: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"[mailing-address-scan] {jurisdiction.slug}: FAILED - {exc}", file=sys.stderr)
+        return 1
+
+    prefix = "[mailing-address-scan:dry-run]" if args.dry_run else "[mailing-address-scan]"
+    print(
+        f"{prefix} {jurisdiction.name}\n"
+        f"  Accounts evaluated: {result.evaluated}\n"
+        f"  Same address: {result.same_address}\n"
+        f"  Formatting only: {result.format_only}\n"
+        f"  Likely changes: {result.likely_change}\n"
+        f"  Possible changes: {result.possible_change}\n"
+        f"  Insufficient data: {result.insufficient_data}\n"
+        f"  Baseline established (first observation): {result.baseline_established}\n"
+        f"  Intelligence items created: {result.items_created}\n"
+        f"  Intelligence items updated: {result.items_updated}\n"
+        f"  Duplicates suppressed: {result.duplicates_suppressed}"
+    )
+    return 0
+
+
 def cmd_run_intelligence(args: argparse.Namespace) -> int:
     """Runs every intelligence module the jurisdiction has enabled. Only
     new_business_detection exists today; this dispatcher is the extension
@@ -214,6 +252,12 @@ def cmd_run_intelligence(args: argparse.Namespace) -> int:
         ran_any = True
         exit_code = max(exit_code, cmd_detect_new_business(argparse.Namespace(
             jurisdiction=args.jurisdiction, dry_run=args.dry_run, reevaluate=False,
+        )))
+
+    if jurisdiction.has_capability("mailing_address_monitoring"):
+        ran_any = True
+        exit_code = max(exit_code, cmd_mailing_address_scan(argparse.Namespace(
+            jurisdiction=args.jurisdiction, dry_run=args.dry_run,
         )))
 
     if not ran_any:
@@ -425,6 +469,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Re-run against already-evaluated permits too (normally skipped once evaluated).",
     )
     detect_parser.set_defaults(func=cmd_detect_new_business)
+
+    mailing_scan_parser = subparsers.add_parser(
+        "mailing-address-scan", help="Compare Comptroller-reported taxpayer mailing addresses against RenditionPilot's own observation history."
+    )
+    mailing_scan_parser.add_argument("--jurisdiction", required=True, help="Jurisdiction slug, e.g. 'lubbock'.")
+    mailing_scan_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Report classification counts without writing intelligence items or observation history.",
+    )
+    mailing_scan_parser.set_defaults(func=cmd_mailing_address_scan)
 
     run_intelligence_parser = subparsers.add_parser(
         "run-intelligence", help="Run every intelligence module a jurisdiction has enabled."

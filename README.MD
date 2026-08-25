@@ -136,3 +136,14 @@ python -m app.comptroller.cli account-card --jurisdiction lubbock --source-table
 python -m app.comptroller.cli readiness --jurisdiction lubbock
 ```
 Also available as `POST /api/admin/production-readiness` (district admin only).
+
+## Mailing Address Intelligence
+
+Fifth signal type on the same BPP Intelligence Queue: has a taxpayer's mailing address probably changed, and does a human need to update the CAD record? Compares the Texas Comptroller's taxpayer-level mailing address (`tp_address`, confirmed genuinely distinct from the situs address Property Enrichment uses) against RenditionPilot's own previously observed value for that taxpayer -- never against rendition data, since OCR doesn't extract a mailing address yet. Disabled by default for every jurisdiction, including Lubbock (`mailing_address_monitoring` capability); requires `supabase/migrations/20260827_mailing_address_intelligence.sql` applied, **not yet applied to production**.
+
+```bash
+python -m app.comptroller.cli mailing-address-scan --jurisdiction lubbock --dry-run
+python -m app.comptroller.cli mailing-address-scan --jurisdiction lubbock
+```
+
+RenditionPilot never writes to an official CAD mailing address -- every output is a review recommendation in the existing Intelligence Queue detail view. See [docs/mailing_address_intelligence.md](docs/mailing_address_intelligence.md) for the comparison engine, source-trust model, and known limitations (most notably: no real production data exists for this yet, and rendition-driven comparison is built but dormant pending OCR extraction work).

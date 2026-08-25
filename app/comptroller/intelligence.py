@@ -87,6 +87,15 @@ RESOLUTION_OPTIONS_BY_SIGNAL_TYPE = {
         "FALSE_MATCH",
         "OTHER",
     ],
+    "mailing_address_change": [
+        "ADDRESS_UPDATED",
+        "CURRENT_ADDRESS_CORRECT",
+        "SOURCE_OUTDATED",
+        "DUPLICATE_SIGNAL",
+        "ACCOUNT_MISMATCH",
+        "INSUFFICIENT_EVIDENCE",
+        "OTHER",
+    ],
 }
 
 
@@ -145,6 +154,11 @@ class UnifiedIntelligenceItem:
     # before its label is, so it's never blank.
     source: str | None = None
     source_label: str | None = None
+    # Mailing Address Intelligence evidence (see
+    # app/comptroller/mailing_address_intelligence.py) -- always None for
+    # every other signal type.
+    mailing_address_current: str | None = None
+    mailing_address_observed: str | None = None
 
 
 def _from_intelligence_row(row: dict[str, Any]) -> UnifiedIntelligenceItem:
@@ -187,6 +201,8 @@ def _from_intelligence_row(row: dict[str, Any]) -> UnifiedIntelligenceItem:
         map_id=row.get("map_id"),
         source=row.get("source"),
         source_label=_source_label(row.get("source")),
+        mailing_address_current=row.get("mailing_address_current"),
+        mailing_address_observed=row.get("mailing_address_observed"),
         raw=row,
     )
 
@@ -272,7 +288,7 @@ def list_intelligence_queue(
 ) -> list[UnifiedIntelligenceItem]:
     items: list[UnifiedIntelligenceItem] = []
 
-    if signal_type in (None, "new_business"):
+    if signal_type in (None, "new_business", "mailing_address_change"):
         items.extend(_from_intelligence_row(row) for row in _fetch_intelligence_items(district_id, signal_type=signal_type))
     if signal_type in (None, "sales_tax_inactive"):
         items.extend(_from_closure_review_row(row) for row in _fetch_closure_reviews(district_id))
