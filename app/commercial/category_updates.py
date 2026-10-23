@@ -38,5 +38,9 @@ def category_summary(store, filters):
         for name,count in sorted(Counter(str(r['values'].get('category') or '') for r in rows).items()):
             members=[r for r in rows if str(r['values'].get('category') or '')==name]
             rates=Counter(r['values'].get('cap_rate') for r in members if isinstance(r['values'].get('cap_rate'),(int,float)))
-            categories.append(dict(name=name,count=count,cap_rates=[{'value':value,'count':n} for value,n in sorted(rates.items())],missing_cap_rates=count-sum(rates.values())))
+            inputs={}
+            for field in fields:
+                values=Counter(r['values'].get(field['key']) for r in members if isinstance(r['values'].get(field['key']),(int,float)))
+                inputs[field['key']]={'values':[{'value':v,'count':n} for v,n in sorted(values.items())],'missing':count-sum(values.values())}
+            categories.append(dict(name=name,count=count,inputs=inputs,cap_rates=[{'value':value,'count':n} for value,n in sorted(rates.items())],missing_cap_rates=count-sum(rates.values())))
         return dict(model=model,categories=categories,count=len(rows),accounts=len({r['account'] for r in rows}),fields=fields,revision=db.execute('SELECT revision FROM state').fetchone()[0],sheet=store.definitions[model]['sheet'])
