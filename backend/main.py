@@ -60,6 +60,7 @@ from app.comptroller import readiness as comptroller_readiness
 from app.comptroller.service import ComptrollerServiceError
 from app.rendition_persistence import RenditionPersistenceError, persist_locked_review
 from app.commercial.api import commercial_router
+from app.workspace_access import access_for, read_access, require_access, save_access
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "app" / ".env", override=True)
@@ -238,6 +239,14 @@ class DistrictSetupRequest(SignupRequest):
 class DistrictInviteRequest(SessionRequest):
     email: str
     role: Literal["admin", "member"] = "member"
+    bpp_access: bool = True
+    commercial_access: bool = True
+
+
+class WorkspaceAccessRequest(SessionRequest):
+    email: str
+    bpp_access: bool
+    commercial_access: bool
 
 
 class CadDistrictInfoRequest(BaseModel):
@@ -539,6 +548,7 @@ def _district_to_dict(district: DistrictContext | None) -> dict[str, Any] | None
         "email": district.email,
         "user_id": district.user_id,
         "role": district.role,
+        "workspace_access": access_for(district),
     }
 
 
@@ -550,7 +560,30 @@ def get_authenticated_district_context(access_token: str) -> DistrictContext:
     return district
 
 
-app.include_router(commercial_router(get_authenticated_district_context))
+def get_commercial_context(access_token):
+    return require_access(get_authenticated_district_context(access_token),'commercial')
+
+app.include_router(commercial_router(get_commercial_context))
+
+
+@app.middleware('http')
+async def enforce_bpp_workspace(request,call_next):
+    path=request.url.path
+    protected=path.startswith(('/api/review/','/api/cad-profile/','/api/cad-schedules/')) or path in ('/api/review-queue','/api/calculate','/api/batch/run')
+    if protected:
+        from fastapi.responses import JSONResponse
+        from starlette.concurrency import run_in_threadpool
+        token=request.headers.get('authorization','').removeprefix('Bearer ').strip()
+        if not token and request.method in ('POST','PUT','PATCH'):
+            try:token=(await request.json()).get('access_token','')
+            except (ValueError,AttributeError):pass
+        try:
+            if not token:raise HTTPException(401,'Sign in required.')
+            district=await run_in_threadpool(get_authenticated_district_context,token)
+            await run_in_threadpool(require_access,district,'bpp')
+        except HTTPException as exc:return JSONResponse({'detail':exc.detail},status_code=exc.status_code)
+    return await call_next(request)
+
 
 
 def require_district_admin(access_token: str) -> DistrictContext:
@@ -1690,6 +1723,25 @@ def cad_schedule_delete(schedule_id: str) -> dict[str, Any]:
     return {"schedule": to_jsonable(updated[0] if isinstance(updated, list) and updated else {**existing, "is_active": False})}
 
 
+def users_with_access(users,district_id):
+    from concurrent.futures import ThreadPoolExecutor
+    def decorate(user):
+        return {**user,'workspace_access':{'bpp':True,'commercial':True} if user.get('role')=='admin' else read_access(district_id,user['email'])}
+    with ThreadPoolExecutor(max_workers=8) as pool:return list(pool.map(decorate,to_jsonable(users)))
+
+
+@app.post('/api/district/users/access')
+def district_user_access(request: WorkspaceAccessRequest):
+    district=require_district_admin(request.access_token)
+    url,_=get_supabase_config()
+    users=list_district_users(supabase_url=url,service_role_key=get_supabase_service_role_key(),district_id=district.district_id)
+    target=next((u for u in to_jsonable(users) if normalize_email(u['email'])==normalize_email(request.email)),None)
+    if not target:raise HTTPException(404,'User is not a member of your district.')
+    if target.get('role')=='admin':raise HTTPException(400,'District admins retain access to both workspaces.')
+    save_access(district.district_id,target['email'],request.bpp_access,request.commercial_access,district.email)
+    return {'users':users_with_access(users,district.district_id)}
+
+
 @app.post("/api/district/users")
 def district_user_list(request: SessionRequest) -> dict[str, Any]:
     service_role_key = get_supabase_service_role_key()
@@ -1705,7 +1757,7 @@ def district_user_list(request: SessionRequest) -> dict[str, Any]:
         )
     except DistrictServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"district": _district_to_dict(district), "users": to_jsonable(users)}
+    return {"district": _district_to_dict(district), "users": users_with_access(users,district.district_id)}
 
 
 @app.post("/api/district/users/invite")
@@ -1718,6 +1770,11 @@ def district_user_invite(request: DistrictInviteRequest) -> dict[str, Any]:
     email = normalize_email(request.email)
     if "@" not in email:
         raise HTTPException(status_code=400, detail="Enter a valid email address.")
+    if not (request.bpp_access or request.commercial_access):raise HTTPException(400,'Select BPP, Commercial, or both.')
+    existing=list_district_users(supabase_url=supabase_url,service_role_key=service_role_key,district_id=district.district_id)
+    target=next((u for u in to_jsonable(existing) if normalize_email(u['email'])==email),None)
+    if target:raise HTTPException(409,'This user is already listed. Update workspace access in the user table.')
+    save_access(district.district_id,email,True if request.role=='admin' else request.bpp_access,True if request.role=='admin' else request.commercial_access,district.email)
     try:
         link_user_to_district(
             supabase_url=supabase_url,
@@ -1733,7 +1790,7 @@ def district_user_invite(request: DistrictInviteRequest) -> dict[str, Any]:
         )
     except DistrictServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"district": _district_to_dict(district), "users": to_jsonable(users)}
+    return {"district": _district_to_dict(district), "users": users_with_access(users,district.district_id)}
 
 
 @app.post("/api/pdf/render")
