@@ -136,7 +136,7 @@ def test_automatic_equity_excludes_subject_and_updates_with_saved_values(store):
     e=generate_equity(store,'R1')
     assert [r['account'] for r in e['comparables']]==['R2']
     assert e['median_unit_value']==5
-    assert e['status']=='limited'
+    assert e['status']=='ready'
     p=preview(store,filters={'ids':['R2']});store.commit(p['token'],'appraiser','Revised rate')
     assert generate_equity(store,'R1')['median_unit_value']==2.5
 
@@ -146,7 +146,8 @@ def test_automatic_equity_rejects_invalid_size_and_other_categories(store):
     store.create('R1',{'account':'R3','category':'Different use'},'appraiser')
     p=preview(store,filters={'ids':['R2']},field='area_sq_ft',value=0)
     store.commit(p['token'],'appraiser','Zero area')
-    assert generate_equity(store,'R1')['comparables']==[]
+    assert [r['account'] for r in generate_equity(store,'R1')['comparables']]==['R3']
+    assert generate_equity(store,'R1')['comparables'][0]['match_tier']==3
     assert generate_equity(store,'R2')['subject']['unit_value'] is None
 
 
@@ -176,9 +177,11 @@ def test_equity_uses_model_basis_and_one_row_per_account(model,basis):
         def detail(self,id):return next(r for r in records if r['id']==id)
         def records(self):return records
         def snapshot(self,r):return r
-    e=generate_equity(FakeStore(),'s')
+    from app.commercial.equity import select_equity
+    e=select_equity(records[0],records)
     assert e['basis']==basis
-    assert [r['id'] for r in e['comparables']]==['a']
+    assert [r['id'] for r in e['comparables']]==['a','wrong-size','wrong-class']
+    assert e['comparables'][1]['match_tier']==1
     assert e['median_unit_value']==10
 
 
@@ -195,3 +198,15 @@ def test_equity_details_preserve_rates_zero_missing_and_errors():
     assert rows['primary_rent']['label'].endswith('(source basis)')
     assert not rows['projected_gross_rent']['label'].endswith('(source basis)')
     assert rows['projected_gross_rent']['cells'][0]['error']=='#REF!'
+
+
+def test_equity_always_fills_peers_for_missing_subject_and_sparse_category():
+    from app.commercial.equity import select_equity
+    subject={'id':'s','account':'R1','model':'office','source_row':2,'values':{'category':'Only property'},'errors':{}}
+    pool=[subject]+[{'id':str(i),'account':'R'+str(i),'model':'office','source_row':i,'values':{'category':'Office B','leasable_area_sq_ft':100*i,'total_value':10000*i},'errors':{}} for i in range(2,10)]
+    e=select_equity(subject,pool)
+    assert len(e['comparables'])==6
+    assert e['subject']['unit_value'] is None
+    assert e['unadjusted_indication'] is None
+    assert all(r['match_tier']==3 for r in e['comparables'])
+    assert e['status']=='review'

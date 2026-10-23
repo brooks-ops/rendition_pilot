@@ -73,10 +73,10 @@ def build_packet(store,ids,comparison_ids=None,notes=''):
         rows=[['Account / property',unit.title(),'Year built','Model value','Value / '+unit]]
         for comp in [subject]+equity['comparables']:
             cv=comp['values']
-            rows.append([('SUBJECT / ' if comp is subject else '')+comp['account']+'\n'+str(cv.get('name') or comp['label'])+'\n'+str(cv.get('address') or 'Address not supplied'),display(comp['size']),str(cv.get('year_built') or 'Not supplied'),currency(comp['comparison_value']),display(comp['unit_value'],'unit_value')])
+            rows.append([('SUBJECT / ' if comp is subject else '')+comp['account']+'\n'+str(cv.get('name') or comp['label'])+'\n'+str(cv.get('address') or 'Address not supplied')+('\n'+comp['match_label'] if comp is not subject else ''),display(comp['size']),str(cv.get('year_built') or 'Not supplied'),currency(comp['comparison_value']),display(comp['unit_value'],'unit_value')])
         story.extend([Spacer(1,12),table(rows,[190,70,65,105,92],compact=True),Spacer(1,14),p('How the comparisons were selected','Heading2'),p(equity['rules'],'SmallSource')])
         story.append(p('Comparable source rows: '+'; '.join(comp['account']+' / '+comp['source_sheet']+' '+str(comp['source_row']) for comp in equity['comparables'])+'.','SmallSource'))
-        story.extend([Spacer(1,12),p('Interpreting the comparison','Heading2'),p('Median × subject size = '+currency(equity['unadjusted_indication'])+'. '+equity['explanation'],'SmallSource'),Spacer(1,10),p(f"Source: {detail['source_file']} / {detail['source_sheet']} / {source_row}. Source version: {detail['source_hash'][:12]}.",'SmallSource')])
+        story.extend([Spacer(1,12),p('Interpreting the comparison','Heading2'),p('Median × subject size = '+currency(equity['unadjusted_indication'])+'. '+equity['explanation'],'SmallSource')])
         # Separate readable detail sheets preserve every supplied assumption and result.
         peers=[subject]+equity['comparables']
         for group_indexes in ((0,1),(2,3,4)):
