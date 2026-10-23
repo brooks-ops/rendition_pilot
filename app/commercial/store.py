@@ -50,16 +50,19 @@ class Store:
         return db
 
     def graph(self,model):
-        if model not in self.graphs:
-            with gzip.open(self.directory/self.manifest['graphs'][model],'rt') as stream:self.graphs[model]=json.load(stream)
-            if model=='cost':
-                cells=self.graphs[model][self.definitions[model]['sheet']]
-                for r in self.manifest['records']:
-                    if r['model']!=model:continue
-                    row=r['source_row'];land=cells.get(f'G{row}',{}).get('v');imp=cells.get(f'I{row}',{}).get('v');total=cells.get(f'K{row}',{}).get('v')
-                    if all(isinstance(v,(int,float)) for v in (land,imp,total)) and abs(land+imp-total)<.01:
-                        cells[f'K{row}']={**cells[f'K{row}'],'f':f'G{row}+I{row}','workspace_formula':True}
-        return self.graphs[model]
+        with self.lock:
+            if model not in self.graphs:
+                with gzip.open(self.directory/self.manifest['graphs'][model],'rt') as stream:self.graphs[model]=json.load(stream)
+                if model=='cost':
+                    cells=self.graphs[model][self.definitions[model]['sheet']]
+                    for r in self.manifest['records']:
+                        if r['model']!=model:continue
+                        row=r['source_row'];land=cells.get(f'G{row}',{}).get('v');imp=cells.get(f'I{row}',{}).get('v');total=cells.get(f'K{row}',{}).get('v')
+                        if all(isinstance(v,(int,float)) for v in (land,imp,total)) and abs(land+imp-total)<.01:
+                            cells[f'K{row}']={**cells[f'K{row}'],'f':f'G{row}+I{row}','workspace_formula':True}
+            while len(self.graphs)>2:
+                self.graphs.pop(next(iter(self.graphs)))
+            return self.graphs[model]
 
     def records(self,db=None):
         if db is None:
