@@ -193,9 +193,9 @@ def test_unmatched_when_name_similarity_below_threshold(monkeypatch):
     assert result.candidate is None
 
 
-def test_address_signature_args_are_accepted_and_ignored(monkeypatch):
-    """RenditionPilot has no address data; callers built against the earlier
-    address-aware signature should still work without raising."""
+def test_address_lookup_without_imported_candidates_preserves_name_fallback(monkeypatch):
+    """Name-only rendition matching remains available without a CAD hit."""
+    monkeypatch.setattr(matching, "match_imported_bpp_accounts", lambda **kwargs: None)
 
     set_records(monkeypatch, [record_row(owner_name="ACME HARDWARE")])
 

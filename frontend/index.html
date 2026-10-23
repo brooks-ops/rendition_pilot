@@ -2222,9 +2222,9 @@
         : [item.source_address, item.source_city, item.source_state, item.source_zip].filter(Boolean).join(", ");
       const matched = item.signal_type === "mailing_address_change"
         ? `Current on file: ${formatText(item.mailing_address_current || "UNKNOWN -- no prior observation")}`
-        : item.matched_owner_name
-        ? `Matched: ${formatText(item.matched_owner_name)} (${formatText(item.confidence)})`
-        : "CAD Match: No matching RenditionPilot record found";
+        : item.matched_account_number
+        ? `CAD Match: ${formatText(item.matched_account_number)} — ${formatText(item.matched_owner_name || "Business name unavailable")} (${formatText(item.confidence)})`
+        : item.is_ambiguous ? "CAD Match: Multiple possible BPP accounts — review required" : "CAD Match: No matching BPP account found";
       return `
         <div class="card" style="margin-bottom:10px;cursor:pointer;" data-intel-id="${item.id}" data-intel-table="${item.source_table}">
           <div style="display:flex;justify-content:space-between;">
