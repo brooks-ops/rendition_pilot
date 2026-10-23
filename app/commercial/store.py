@@ -174,25 +174,36 @@ class Store:
     def preview(self,payload):
         with self.lock,self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            records=self.records(db);field=payload['field'];operation=payload.get('operation','set');changes=[];skipped=[]
-            if operation not in ('set','add','percent'):raise ValueError('Unsupported update operation')
-            amount=payload['value'];filters=payload.get('filters',{})
+            records=self.records(db);changes=[];skipped=[]
+            updates=payload.get('updates')
+            if updates is None:updates=[{'field':payload['field'],'operation':payload.get('operation','set'),'value':payload['value']}]
+            if not updates or len(updates)>200:raise ValueError('Choose between 1 and 200 inputs to update')
+            fields=[u['field'] for u in updates]
+            if len(set(fields))!=len(fields):raise ValueError('Each input may only appear once')
+            field=fields[0];filters=payload.get('filters',{})
+            for u in updates:
+                if u.get('operation','set') not in ('set','add','percent'):raise ValueError('Unsupported update operation')
             for r in records:
                 if r.get('reference_only'):continue
                 snap=self.snapshot(r)
                 if not self.match(snap,filters):continue
-                spec=self.definitions[r['model']]['fields'];col=spec.get(field)
-                if not col or not self.editable(r['model'],field):continue
-                if col in r['overrides'] and not payload.get('include_overrides',False):skipped.append(r['id']);continue
-                old=snap['values'].get(field)
-                if operation!='set' and not isinstance(old,(int,float)):raise ValueError(f'{r["account"]}: current value is not numeric')
-                proposed=amount if operation=='set' else old+amount if operation=='add' else old*(1+amount/100)
-                proposed=self.validate(field,proposed)
-                if old!=proposed:changes.append((r,col,proposed))
+                spec=self.definitions[r['model']]['fields']
+                for u in updates:
+                    field=u['field'];operation=u.get('operation','set');amount=u['value'];col=spec.get(field)
+                    if not col or not self.editable(r['model'],field):continue
+                    if col in r['overrides'] and not payload.get('include_overrides',False):skipped.append(r['id']);continue
+                    old=snap['values'].get(field)
+                    if operation!='set' and not isinstance(old,(int,float)):raise ValueError(f'{r["account"]}: current value is not numeric')
+                    proposed=amount if operation=='set' else old+amount if operation=='add' else old*(1+amount/100)
+                    proposed=self.validate(field,proposed)
+                    if old!=proposed:changes.append((r,col,proposed))
+            field=fields[0]
             if not changes:raise ValueError('No eligible values would change. Check the field, filters and override setting.')
             engines={model:self.effective_engine(model,records,[c for c in changes if c[0]['model']==model]) for model in {r['model'] for r,_,_ in changes}}
             proposed_records=[];preview=[]
             changed_ids={r['id'] for r,_,_ in changes}
+            changed_columns={}
+            for r,col,_ in changes:changed_columns.setdefault(r['id'],set()).add(col)
             # Recalculate every source row in affected models, including dependent
             # comparison/median rows outside the selection.
             for r in records:
@@ -203,11 +214,11 @@ class Store:
                 if r['id'] in changed_ids:
                     output='total_value' if 'total_value' in after['values'] else 'indicated_value'
                     base=(r.get('calculated') or {}).get('values',{}).get(output,before['values'].get(output));new=after['values'].get(output)
-                    preview.append({'id':r['id'],'account':r['account'],'name':before['values'].get('name'),'model':r['model'],'category':before['values'].get('category'),'source_row':r['source_row'],'old':before['values'].get(field),'new':after['values'].get(field),'before_value':base,'after_value':new,'difference':new-base if isinstance(new,(int,float)) and isinstance(base,(int,float)) else None,'errors':after['errors']})
+                    preview.append({'id':r['id'],'account':r['account'],'name':before['values'].get('name'),'model':r['model'],'category':before['values'].get('category'),'source_row':r['source_row'],'field_changes':[{'field':f,'old':before['values'].get(f),'new':after['values'].get(f)} for f in fields if self.definitions[r['model']]['fields'].get(f) in changed_columns[r['id']]],'old':before['values'].get(field),'new':after['values'].get(field),'before_value':base,'after_value':new,'difference':new-base if isinstance(new,(int,float)) and isinstance(base,(int,float)) else None,'errors':after['errors']})
             token=uuid.uuid4().hex;revision=db.execute('SELECT revision FROM state').fetchone()[0]
             stored={'changes':[{'id':r['id'],'column':col,'value':v} for r,col,v in changes],'calculated':proposed_records,'preview':preview}
             db.execute('INSERT INTO previews VALUES(?,?,?,?)',(token,revision,json.dumps(stored),datetime.now(timezone.utc).isoformat()))
-            return {'token':token,'revision':revision,'count':len(preview),'skipped_overrides':len(skipped),'items':preview,'affected_accounts':len({r['account'] for r in preview})}
+            return {'token':token,'revision':revision,'count':len(preview),'skipped_overrides':len(set(skipped)),'skipped_inputs':len(skipped),'items':preview,'affected_accounts':len({r['account'] for r in preview})}
 
     def commit(self,token,actor,reason):
         if not reason.strip():raise ValueError('Add a reason for the change')
@@ -217,12 +228,12 @@ class Store:
             if not row:raise Conflict('Preview is no longer available. Preview again.')
             if row['revision']!=db.execute('SELECT revision FROM state').fetchone()[0]:raise Conflict('The workspace changed. Preview again before applying.')
             if (datetime.now(timezone.utc)-datetime.fromisoformat(row['created_at'])).total_seconds()>1800:raise Conflict('Preview expired. Preview again.')
-            stored=json.loads(row['payload']);by_id={c['id']:c for c in stored['changes']};history=[]
+            stored=json.loads(row['payload']);by_id={};history=[]
+            for change in stored['changes']:by_id.setdefault(change['id'],[]).append(change)
             for update in stored['calculated']:
                 r=db.execute('SELECT * FROM records WHERE id=?',(update['id'],)).fetchone();meta=json.loads(r['metadata']);overrides=json.loads(r['overrides'])
                 before={'metadata':json.loads(r['metadata']),'overrides':overrides.copy()}
-                change=by_id.get(update['id'])
-                if change:overrides[change['column']]=change['value']
+                for change in by_id.get(update['id'],[]):overrides[change['column']]=change['value']
                 meta['calculated']=update['calculated']
                 db.execute('UPDATE records SET metadata=?,overrides=? WHERE id=?',(json.dumps(meta),json.dumps(overrides),update['id']))
                 history.append({'id':update['id'],'before':before,'after':{'metadata':meta,'overrides':overrides}})

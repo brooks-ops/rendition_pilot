@@ -25,6 +25,13 @@ def commercial_router(resolve_context):
         store,c=context(payload)
         return store.catalog(payload.get('filters'),max(0,int(payload.get('offset',0))),min(200,max(1,int(payload.get('limit',60)))))
 
+    @router.post('/category-summary')
+    def category_summary(payload:dict):
+        store,c=context(payload)
+        from .category_updates import category_summary
+        try:return category_summary(store,payload.get('filters',{}))
+        except (ValueError,KeyError) as exc:raise HTTPException(400,str(exc))
+
     @router.post('/property')
     def detail(payload:dict):
         store,c=context(payload)
