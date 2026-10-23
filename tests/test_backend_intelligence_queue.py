@@ -55,15 +55,15 @@ def make_item(item_id="intel-1", district_id="district-1", **overrides):
 
 @pytest.fixture(autouse=True)
 def stub_auth(monkeypatch):
-    monkeypatch.setattr("backend.main.require_district_admin", lambda access_token: make_district())
+    monkeypatch.setattr("backend.main.require_bpp_access", lambda access_token: make_district())
     monkeypatch.setattr("backend.main.get_supabase_user", lambda access_token: {"id": "user-1", "email": "admin@lubbockcad.org"})
 
 
-def test_summary_requires_admin(monkeypatch):
+def test_summary_requires_bpp_access(monkeypatch):
     def deny(access_token):
         raise HTTPException(status_code=403, detail="Only district admins can manage authorized users.")
 
-    monkeypatch.setattr("backend.main.require_district_admin", deny)
+    monkeypatch.setattr("backend.main.require_bpp_access", deny)
     monkeypatch.setattr(comptroller_intelligence, "get_queue_summary", lambda district_id: {"new": 0})
 
     with pytest.raises(HTTPException) as exc_info:

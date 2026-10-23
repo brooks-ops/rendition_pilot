@@ -112,7 +112,7 @@ def test_property_from_other_jurisdiction_cannot_be_confirmed(store):
     (backend.intelligence_cad_decision,backend.CadDecisionRequest(access_token='x',source_table='bpp_intelligence_items',item_id='item',property_record_id='prop',decision='CONFIRMED')),
 ])
 def test_new_review_endpoints_block_cross_district_items(monkeypatch,endpoint,payload):
-    monkeypatch.setattr(backend,'require_district_admin',lambda _:make_district())
+    monkeypatch.setattr(backend,'require_bpp_access',lambda _:make_district())
     monkeypatch.setattr(backend.comptroller_intelligence,'get_intelligence_item',lambda *a:make_item(district_id='other'))
     with pytest.raises(HTTPException) as error:endpoint(payload)
     assert error.value.status_code==403
@@ -123,9 +123,9 @@ def test_new_review_endpoints_block_cross_district_items(monkeypatch,endpoint,pa
     (backend.intelligence_cad_import_preview,backend.CadImportRequest(access_token='x',filename='x.csv',file_base64='')),
     (backend.intelligence_cad_import,backend.CadImportRequest(access_token='x',filename='x.csv',file_base64='')),
 ])
-def test_data_endpoints_require_district_admin(monkeypatch,endpoint,payload):
-    def deny(_):raise HTTPException(status_code=403,detail='Admin required')
-    monkeypatch.setattr(backend,'require_district_admin',deny)
+def test_data_endpoints_require_bpp_access(monkeypatch,endpoint,payload):
+    def deny(_):raise HTTPException(status_code=403,detail='BPP access required')
+    monkeypatch.setattr(backend,'require_bpp_access',deny)
     with pytest.raises(HTTPException) as error:
         endpoint(payload, backend.BackgroundTasks()) if endpoint == backend.intelligence_cad_import else endpoint(payload)
     assert error.value.status_code==403
@@ -228,7 +228,7 @@ def test_rejection_comparison_normalizes_account_punctuation(store):
 def test_admin_import_saves_mapping_and_schedules_matching_refresh(store,monkeypatch):
     import base64
     fake,j=store
-    monkeypatch.setattr(backend,'require_district_admin',lambda _:make_district())
+    monkeypatch.setattr(backend,'require_bpp_access',lambda _:make_district())
     payload=backend.CadImportRequest(access_token='x',filename='test.csv',source_as_of_date='2026-10-01',
         file_base64=base64.b64encode(b'ID,Account,Address,Owner\n1,P1,100 MAIN ST,ACME\n').decode(),
         mapping={'source_property_id':'ID','real_account_number':'Account','situs_address':'Address','owner_name':'Owner'})
