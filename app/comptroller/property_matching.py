@@ -110,6 +110,8 @@ def score_property_candidate(
     input_addr: NormalizedAddress, candidate: NormalizedRealProperty
 ) -> PropertyCandidateScore:
     candidate_addr = normalize_address(candidate.situs_address_raw, zip_code=candidate.situs_zip)
+    if candidate.situs_unit and not candidate_addr.unit:
+        candidate_addr = normalize_address(candidate_addr.base_address + " STE " + candidate.situs_unit, zip_code=candidate.situs_zip)
 
     input_number, input_street = _split_street_number(input_addr.base_address)
     cand_number, cand_street = _split_street_number(candidate_addr.base_address)

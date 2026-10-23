@@ -310,7 +310,7 @@ def _classify_confidence(cs: CandidateScore) -> str:
     return "UNMATCHED"
 
 
-def match_imported_bpp_accounts(*, district_id, address, zip_code, legal_name, business_name):
+def match_imported_bpp_accounts(*, district_id, address, zip_code, legal_name, business_name, permit_location_id=None):
     """Resolve imported personal-property accounts using both situs and owner.
 
     Land accounts are excluded, and each business at a shared situs is
@@ -324,9 +324,25 @@ def match_imported_bpp_accounts(*, district_id, address, zip_code, legal_name, b
     jurisdiction = get_jurisdiction_by_district_id(district_id)
     if not jurisdiction or not jurisdiction.has_capability("real_property_linkage"):
         return None
+    from app.comptroller.cad_review import decision_history, current_decisions
+    history = decision_history(jurisdiction.id, permit_location_id) if permit_location_id else []
+    confirmed, decisions = current_decisions(history)
+    rejected = {account for account, row in decisions.items() if row['decision'] == 'REJECTED'}
+    adapter = get_property_adapter(jurisdiction)
+    if confirmed:
+        records = adapter.find_properties_by_real_account(jurisdiction, confirmed['account_number'])
+        prop = next((p for p in records if classify_account_type(p.real_account_number, prefixes=jurisdiction.account_type_prefixes) == 'PERSONAL'), None)
+        if prop:
+            candidate = MatchCandidate(prop.property_id, prop.real_account_number, prop.owner_name or prop.business_name or prop.dba_name, prop.tax_year)
+            signals = {'cad_account_source': 'real_property_records', 'human_decision': 'CONFIRMED',
+                       'reviewed_by': confirmed['reviewed_by'], 'reviewed_at': confirmed['reviewed_at'],
+                       'source_import_id': prop.source_import_id or 'UNKNOWN', 'tax_year': str(prop.tax_year or 'UNKNOWN'),
+                       'rejected_accounts': ', '.join(sorted(rejected)), 'existing_rendition_record': 'NOT CHECKED (human-reviewed CAD account)'}
+            return MatchResult('HIGH', 1.0, f"Appraiser confirmed CAD account {prop.real_account_number} on {confirmed['reviewed_at']}; {confirmed.get('notes') or 'saved match decision'}", candidate, signals=signals)
+    rejected_signals = {'rejected_accounts': ', '.join(sorted(rejected)), 'cad_account_source': 'real_property_records'}
     normalized = normalize_address(address, zip_code=zip_code)
     if not normalized.normalized:
-        return None
+        return MatchResult("UNMATCHED", 0.0, "No address available; rejected accounts remain excluded.", None, signals=rejected_signals) if rejected else None
     properties = get_property_adapter(jurisdiction).find_properties_by_address(
         jurisdiction, normalized.base_address, limit=500,
     )
@@ -336,22 +352,31 @@ def match_imported_bpp_accounts(*, district_id, address, zip_code, legal_name, b
     for prop in properties:
         if classify_account_type(prop.real_account_number, prefixes=jurisdiction.account_type_prefixes) != "PERSONAL":
             continue
+        if _clean_account_number(prop.real_account_number or "") in rejected:
+            continue
         address_score = score_property_candidate(normalized, prop)
         if (not address_score.street_number_match or address_score.street_name_signal not in ("MATCH", "NORMALIZED MATCH")
                 or address_score.suite_conflict or address_score.zip_signal == "NO MATCH"):
             continue
-        candidate = MatchCandidate(prop.property_id, prop.real_account_number, prop.owner_name, prop.tax_year)
-        name_score = score_candidate(candidate, permit_legal_name=legal_name, permit_location_name=business_name)
+        candidate = MatchCandidate(prop.property_id, prop.real_account_number, prop.owner_name or prop.business_name or prop.dba_name, prop.tax_year)
+        comparisons = [score_candidate(MatchCandidate(prop.property_id, prop.real_account_number, name, prop.tax_year),
+                                      permit_legal_name=legal_name, permit_location_name=business_name)
+                       for name in (prop.owner_name, prop.business_name, prop.dba_name)]
+        dba_score = max(c.dba_score for c in comparisons)
+        legal_score = max(c.legal_score for c in comparisons)
+        best = max(comparisons, key=lambda c:c.score)
+        name_score = CandidateScore(best.score, ["strong CAD owner/business/DBA name match" if best.name_strong else "partial CAD name match" if best.name_partial else "CAD names unavailable or differ"], best.name_strong, best.name_partial, dba_score, legal_score)
         address_only.append((candidate, address_score))
         if name_score.score >= NAME_PARTIAL_THRESHOLD:
             scored.append((candidate, name_score, address_score))
     if not scored:
         if not address_only:
-            return None
+            return MatchResult("UNMATCHED", 0.0, "No eligible CAD account remains after appraiser rejections.", None, signals=rejected_signals) if rejected else None
         accounts = sorted({c.account_number for c, _ in address_only})
         ambiguous = len(accounts) > 1 or truncated
         candidate, address_score = address_only[0]
         signals = build_signal_breakdown(None, None)
+        signals.update(rejected_signals)
         signals.update({"cad_account_source": "real_property_records",
                         "address": address_score.street_name_signal,
                         "zip": address_score.zip_signal, "suite_unit": address_score.suite_signal,
@@ -368,6 +393,7 @@ def match_imported_bpp_accounts(*, district_id, address, zip_code, legal_name, b
                     for other, score, _ in scored[1:])
     confidence = "HIGH" if name_score.name_strong and not ambiguous and address_score.suite_signal != "MISSING" else "LOW" if ambiguous else "MEDIUM"
     signals = build_signal_breakdown(candidate, name_score)
+    signals.update(rejected_signals)
     signals.update({"existing_rendition_record": "NOT CHECKED (imported CAD account)",
                     "cad_account_source": "real_property_records",
                     "address": address_score.street_name_signal, "zip": address_score.zip_signal,
@@ -390,6 +416,7 @@ def match_closure_to_account(
     permit_address: str | None = None,
     permit_city: str | None = None,
     permit_zip: str | None = None,
+    permit_location_id: str | None = None,
     # Optional independent corroboration from Property Enrichment (see
     # property_matching.PropertyMatchResult). None (the default) means "no
     # property data loaded for this jurisdiction" and reproduces the exact
@@ -416,11 +443,12 @@ def match_closure_to_account(
         )
 
     imported_match = None
-    if permit_address:
+    if permit_address or permit_location_id:
         try:
             imported_match = match_imported_bpp_accounts(
                 district_id=district_id, address=permit_address, zip_code=permit_zip,
                 legal_name=permit_legal_name, business_name=permit_location_name,
+                permit_location_id=permit_location_id,
             )
         except (RuntimeError, requests.RequestException) as exc:
             return MatchResult("UNMATCHED", 0.0, f"Imported CAD account lookup failed: {exc}", None, signals=empty_signals)
@@ -433,6 +461,9 @@ def match_closure_to_account(
         except MatchingConfigError as exc:
             return MatchResult(confidence="UNMATCHED", score=0.0, reason=str(exc), candidate=None, signals=empty_signals)
 
+    if imported_match:
+        rejected = set(filter(None, (imported_match.signals.get('rejected_accounts') or '').split(', ')))
+        candidates = [candidate for candidate in candidates if _clean_account_number(candidate.account_number or "") not in rejected]
     if not candidates:
         if imported_match is not None:
             return imported_match

@@ -6,15 +6,15 @@ import json
 import os
 import sys
 import tempfile
-from dataclasses import asdict
-from datetime import datetime, timezone
+from dataclasses import asdict, replace
+from datetime import date, datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal
 
 import requests
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -47,6 +47,8 @@ from app.review_workflow import (
     safe_stem,
     stamp_reviewed_pdf_bytes,
 )
+from app.comptroller import cad_review as comptroller_cad_review
+from app.comptroller import property_import as comptroller_property_import
 from app.comptroller import admin as comptroller_admin
 from app.comptroller import export as comptroller_export
 from app.comptroller import intelligence as comptroller_intelligence
@@ -316,8 +318,27 @@ class IntelligenceQueueRequest(BaseModel):
 
 class IntelligenceItemRequest(BaseModel):
     access_token: str
-    source_table: str
+    source_table: Literal["bpp_intelligence_items", "comptroller_closure_reviews"]
     item_id: str
+
+
+class CadCandidatesRequest(IntelligenceItemRequest):
+    account_number: str | None = Field(default=None, max_length=80)
+    offset: int = Field(default=0, ge=0, le=500)
+
+
+class CadDecisionRequest(IntelligenceItemRequest):
+    property_record_id: str
+    decision: Literal["CONFIRMED", "REJECTED"]
+    notes: str | None = Field(default=None, max_length=4000)
+
+
+class CadImportRequest(BaseModel):
+    access_token: str
+    filename: str = Field(max_length=255)
+    file_base64: str = Field(max_length=46000000)
+    mapping: dict[str, str] | None = None
+    source_as_of_date: str | None = None
 
 
 class IntelligenceInvestigateRequest(IntelligenceItemRequest):
@@ -2018,6 +2039,134 @@ def intelligence_item_detail(request: IntelligenceItemRequest) -> dict[str, Any]
     district = require_district_admin(request.access_token)
     item = _require_own_district_item(district, request.source_table, request.item_id)
     return {"item": to_jsonable(asdict(item))}
+
+
+def _cad_item_context(request):
+    district = require_district_admin(request.access_token)
+    item = _require_own_district_item(district, request.source_table, request.item_id)
+    jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
+    if not jurisdiction:
+        raise HTTPException(status_code=404, detail="No CAD jurisdiction is configured for this district.")
+    if item.signal_type not in ("new_business", "sales_tax_inactive"):
+        raise HTTPException(status_code=400, detail="CAD account review applies to business and closure items.")
+    return district, item, jurisdiction
+
+
+@app.post("/api/admin/intelligence/cad-candidates")
+def intelligence_cad_candidates(request: CadCandidatesRequest):
+    _, item, jurisdiction = _cad_item_context(request)
+    try:
+        return to_jsonable(comptroller_cad_review.candidate_review(jurisdiction, item, account_number=request.account_number, offset=request.offset))
+    except ComptrollerServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/intelligence/cad-decision")
+def intelligence_cad_decision(request: CadDecisionRequest):
+    _, item, jurisdiction = _cad_item_context(request)
+    user = get_supabase_user(request.access_token)
+    try:
+        decision = comptroller_cad_review.save_decision(jurisdiction, item, property_record_id=request.property_record_id,
+                    decision=request.decision, notes=request.notes, reviewed_by=str(user.get("id") or ""))
+        try:
+            comptroller_cad_review.refresh_item_match(item)
+            warning = None
+        except ComptrollerServiceError:
+            warning = "Decision saved. Queue evidence could not refresh; refresh the queue or retry later."
+        return {"decision": to_jsonable(decision), "warning": warning}
+    except comptroller_cad_review.CadReviewError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ComptrollerServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/intelligence/cad-health")
+def intelligence_cad_health(request: ComptrollerStatusRequest):
+    district = require_district_admin(request.access_token)
+    jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
+    if not jurisdiction:
+        return {"configured": False}
+    try:
+        health = comptroller_cad_review.match_health(jurisdiction, comptroller_intelligence.list_intelligence_queue(district.district_id))
+        return {"configured": True, **to_jsonable(health)}
+    except ComptrollerServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/intelligence/cad-refresh")
+def intelligence_cad_refresh(request: ComptrollerStatusRequest, background_tasks: BackgroundTasks):
+    district = require_district_admin(request.access_token)
+    jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
+    if not jurisdiction:
+        raise HTTPException(status_code=404, detail="No CAD jurisdiction is configured.")
+    latest = comptroller_cad_review.latest_completed_import(jurisdiction.id)
+    if not latest:
+        raise HTTPException(status_code=400, detail="Import CAD records before refreshing matches.")
+    quality = latest.get("quality_summary") or {}
+    started = quality.get("matching_started_at")
+    if quality.get("matching_refresh_status") == "PENDING" and started:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(started.replace("Z", "+00:00"))).total_seconds()
+        if age < 900:
+            return {"matching_refresh_status":"PENDING", "message":"Match refresh is already running."}
+    quality = {**quality, "matching_refresh_status":"PENDING", "matching_started_at":datetime.now(timezone.utc).isoformat()}
+    comptroller_cad_review._request("PATCH", "property_source_imports", params={"id":f"eq.{latest['id']}", "jurisdiction_id":f"eq.{jurisdiction.id}"}, payload={"quality_summary":quality})
+    background_tasks.add_task(comptroller_cad_review.refresh_after_import,jurisdiction,latest['id'],quality)
+    return {"matching_refresh_status":"PENDING", "message":"Refreshing open queue matches from CAD data."}
+
+
+def _cad_import_context(request):
+    district = require_district_admin(request.access_token)
+    jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
+    if not jurisdiction:
+        raise HTTPException(status_code=404, detail="No CAD jurisdiction is configured for this district.")
+    try:
+        file_bytes = base64.b64decode(request.file_base64, validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise HTTPException(status_code=400, detail="The uploaded file could not be read.") from exc
+    if len(file_bytes) > 32 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Upload a file smaller than 32 MB.")
+    return jurisdiction, file_bytes
+
+
+@app.post("/api/admin/intelligence/cad-import-preview")
+def intelligence_cad_import_preview(request: CadImportRequest):
+    jurisdiction, file_bytes = _cad_import_context(request)
+    try:
+        preview = comptroller_property_import.preview_property_file(jurisdiction, file_bytes, request.filename, mapping=request.mapping)
+        return {"columns": preview["columns"], "fields": preview["fields"], "mapping": preview["mapping"], "result": to_jsonable(asdict(preview["result"])) if preview["result"] else None, "validation_error": preview["validation_error"]}
+    except (comptroller_property_import.PropertyImportError, ValueError, UnicodeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/intelligence/cad-import")
+def intelligence_cad_import(request: CadImportRequest, background_tasks: BackgroundTasks):
+    jurisdiction, file_bytes = _cad_import_context(request)
+    try:
+        as_of = date.fromisoformat(request.source_as_of_date or "")
+        if as_of > datetime.now(timezone.utc).date():
+            raise ValueError("future date")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Enter the CAD export's actual as-of date, today or earlier.") from exc
+    if request.mapping is None:
+        raise HTTPException(status_code=400, detail="Preview the export and confirm the field mapping first.")
+    try:
+        preview = comptroller_property_import.preview_property_file(jurisdiction, file_bytes, request.filename, mapping=request.mapping)
+        if preview['validation_error']:
+            raise comptroller_property_import.PropertyImportError(preview['validation_error'])
+        configured = replace(jurisdiction, property_field_mapping=request.mapping)
+        result = comptroller_property_import.import_property_csv(configured, preview['csv_text'], source_as_of_date=as_of.isoformat(), notes=f"Admin upload: {Path(request.filename).name}")
+        # Keep this district's mappings for the next export; never another district's.
+        url, key = comptroller_property_import.get_supabase_config()
+        comptroller_property_import._request_json("PATCH", f"{url}/rest/v1/jurisdictions", comptroller_property_import.postgrest_headers(key),
+                     params={"id": f"eq.{jurisdiction.id}"}, json_payload={"property_field_mapping": request.mapping})
+        quality = {**result.quality_summary, "matching_refresh_status": "PENDING", "matching_started_at":datetime.now(timezone.utc).isoformat()}
+        comptroller_cad_review._request("PATCH", "property_source_imports", params={"id": f"eq.{result.import_id}", "jurisdiction_id": f"eq.{jurisdiction.id}"}, payload={"quality_summary": quality})
+        background_tasks.add_task(comptroller_cad_review.refresh_after_import, configured, result.import_id, quality)
+        return {"result": to_jsonable(asdict(result)), "matching_refresh_status": "PENDING"}
+    except (comptroller_property_import.PropertyImportError, ValueError, UnicodeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ComptrollerServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.post("/api/admin/intelligence/investigate")

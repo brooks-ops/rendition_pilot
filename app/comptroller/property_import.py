@@ -12,8 +12,10 @@ config and running this import -- no new adapter class, no code change.
 from __future__ import annotations
 
 import csv
+import re
+from datetime import datetime, timezone
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO, StringIO
 
 import requests
@@ -44,6 +46,8 @@ class PropertyImportResult:
     # PropertyID/QuickRefID repeated across many individually-addressed
     # platted lots) -- reported explicitly, never silently discarded.
     rows_deduplicated: int = 0
+    quality_summary: dict = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
 
 
 def _headers(prefer: str | None = None) -> dict[str, str]:
@@ -69,6 +73,7 @@ def _create_import_record(jurisdiction_id: str, *, source_as_of_date: str | None
             "source_as_of_date": source_as_of_date,
             "notes": notes,
             "row_count": 0,
+            "import_status": "IN_PROGRESS",
         }],
     )
     if not isinstance(rows, list) or not rows:
@@ -76,13 +81,14 @@ def _create_import_record(jurisdiction_id: str, *, source_as_of_date: str | None
     return rows[0]["id"]
 
 
-def _finalize_import_record(import_id: str, row_count: int) -> None:
+def _finalize_import_record(import_id: str, row_count: int, quality: dict) -> None:
     _request_json(
         "PATCH",
         f"{_base_url()}/rest/v1/property_source_imports",
         _headers(),
         params={"id": f"eq.{import_id}"},
-        json_payload={"row_count": row_count},
+        json_payload={"row_count": row_count, "quality_summary": quality, "import_status": "COMPLETED",
+                      "completed_at": datetime.now(timezone.utc).isoformat()},
     )
 
 
@@ -134,9 +140,9 @@ def import_property_csv(
         raise PropertyImportError(validation.message)
 
     reader = csv.DictReader(StringIO(csv_text))
-    import_id = None if dry_run else _create_import_record(
-        jurisdiction.id, source_as_of_date=source_as_of_date, notes=notes
-    )
+    columns = reader.fieldnames or []
+    validate_mapping(columns, jurisdiction.property_field_mapping)
+    import_id = None
 
     rows_read = 0
     rows_skipped = 0
@@ -165,17 +171,37 @@ def import_property_csv(
         deduped[key] = normalized  # last occurrence in the file wins
 
     rows = list(deduped.values())
+    quality = import_quality(rows, jurisdiction)
+    warnings = quality["warnings"]
+    # A sparse export must not erase identity learned from a richer export.
+    for row in rows:
+        for key in ("owner_name", "business_name", "dba_name", "account_status", "situs_unit", "source_updated_at"):
+            if not row.get(key):
+                row.pop(key, None)
     imported = 0
     if dry_run:
         imported = len(rows)
     else:
-        for offset in range(0, len(rows), batch_size):
-            batch = rows[offset:offset + batch_size]
-            _upsert_property_rows(batch)
-            imported += len(batch)
-
-    if not dry_run and import_id:
-        _finalize_import_record(import_id, imported)
+        if not rows:
+            raise PropertyImportError("No usable property records were found; nothing was imported.")
+        import_id = _create_import_record(jurisdiction.id, source_as_of_date=source_as_of_date, notes=notes)
+        try:
+            # PostgREST batches require identical object keys. Group sparse
+            # identity fields so missing names preserve previous values.
+            groups = {}
+            for row in rows:
+                row["source_import_id"] = import_id
+                groups.setdefault(tuple(sorted(row)), []).append(row)
+            for group in groups.values():
+                for offset in range(0, len(group), batch_size):
+                    batch = group[offset:offset + batch_size]
+                    _upsert_property_rows(batch)
+                    imported += len(batch)
+            _finalize_import_record(import_id, imported, quality)
+        except Exception:
+            _request_json("PATCH", f"{_base_url()}/rest/v1/property_source_imports", _headers(),
+                          params={"id": f"eq.{import_id}"}, json_payload={"row_count": imported, "import_status": "FAILED"})
+            raise
 
     return PropertyImportResult(
         jurisdiction_id=jurisdiction.id,
@@ -184,6 +210,7 @@ def import_property_csv(
         rows_skipped=rows_skipped,
         rows_deduplicated=rows_deduplicated,
         import_id=import_id,
+        quality_summary=quality, warnings=warnings,
     )
 
 
@@ -193,8 +220,19 @@ def excel_bytes_to_csv_text(file_bytes: bytes, *, sheet_name: str | int = 0) -> 
     dependencies (already used by app/comptroller/export.py), so Excel
     support is one small conversion step, not a second import path."""
 
+    if file_bytes.startswith(b"PK"):
+        import openpyxl
+        workbook = openpyxl.load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
+        try:
+            sheet = workbook.worksheets[sheet_name] if isinstance(sheet_name, int) else workbook[sheet_name]
+            output = StringIO()
+            writer = csv.writer(output)
+            for values in sheet.iter_rows(values_only=True):
+                writer.writerow([int(v) if isinstance(v, float) and v.is_integer() else v for v in values])
+            return output.getvalue()
+        finally:
+            workbook.close()
     import pandas as pd
-
     frame = pd.read_excel(BytesIO(file_bytes), sheet_name=sheet_name, dtype=str)
     return frame.to_csv(index=False)
 
@@ -223,3 +261,83 @@ def import_property_file(
     return import_property_csv(
         jurisdiction, csv_text, source_as_of_date=source_as_of_date, notes=notes, dry_run=dry_run,
     )
+
+
+IMPORT_FIELDS = {
+    'source_property_id': ['PropertyID','PropertyId','PropertyKey','ParcelID'],
+    'real_account_number': ['QuickRefID','AccountNumber','AccountNo'],
+    'tax_year': ['AdHocTaxYear','TaxYear'],
+    'situs_address': ['SitusAddress','PropertyAddress'],
+    'situs_city': ['SitusCity'], 'situs_state': ['SitusState'], 'situs_zip': ['SitusZip','Zip','SitusZipCode'],
+    'owner_name': ['OwnerName','Owner','LegalName'], 'business_name': ['BusinessName'],
+    'dba_name': ['DBA','DBAName','DoingBusinessAs'], 'situs_unit': ['SitusUnit','Suite','Unit'],
+    'account_status': ['AccountStatus','PropertyStatus'], 'source_updated_at': ['SourceUpdatedAt'],
+    'tug': ['TaxingUnitGroupCode','TUG','TaxingUnitGroupID'],
+    'neighborhood': ['NeighborhoodCode','NBHD'], 'map_id': ['MapNumber','MapID'],
+}
+
+
+def suggest_mapping(columns: list[str], configured: dict[str,str]) -> dict[str,str]:
+    def key(value):return re.sub(r'[^a-z0-9]', '', value.lower())
+    lookup = {key(c): c for c in columns}
+    result = {}
+    for field_name, aliases in IMPORT_FIELDS.items():
+        if configured.get(field_name) in columns:
+            result[field_name] = configured[field_name]
+        else:
+            matches = [lookup[key(a)] for a in [field_name, *aliases] if key(a) in lookup]
+            if matches: result[field_name] = matches[0]
+    return result
+
+
+def validate_mapping(columns, mapping):
+    for key in ('source_property_id', 'real_account_number', 'situs_address'):
+        if not mapping.get(key):
+            raise PropertyImportError(f'Map the {key.replace("_", " ")} column before importing.')
+    for field_name, column in mapping.items():
+        if field_name not in IMPORT_FIELDS and field_name not in ('latitude','longitude'):
+            raise PropertyImportError(f'Unsupported field: {field_name}.')
+        if column not in columns:
+            raise PropertyImportError(f'Mapped column "{column}" is missing from this file.')
+
+
+def import_quality(rows, jurisdiction):
+    from app.comptroller.property_matching import classify_account_type
+    personal = [r for r in rows if classify_account_type(r.get('real_account_number'), prefixes=jurisdiction.account_type_prefixes) == 'PERSONAL']
+    named = sum(bool(r.get('owner_name') or r.get('business_name') or r.get('dba_name')) for r in personal)
+    warnings = []
+    if personal and named < len(personal):warnings.append(f'{len(personal)-named:,} of {len(personal):,} P-account records have no owner, business, or DBA name; those matches need manual verification.')
+    if any(not r.get('tax_year') for r in rows):warnings.append('Some records have no tax year; the importer cannot distinguish annual versions for those records.')
+    return {'record_count': len(rows), 'bpp_record_count': len(personal), 'named_bpp_record_count': named,
+            'missing_address_count': sum(not r.get('situs_address_normalized') for r in rows),
+            'tax_years': sorted({r['tax_year'] for r in rows if r.get('tax_year')}), 'warnings': warnings}
+
+
+def file_to_csv(file_bytes: bytes, filename: str) -> str:
+    if filename.lower().endswith('.csv'):
+        return file_bytes.decode('utf-8-sig')
+    if filename.lower().endswith(('.xlsx','.xls')):
+        try:
+            return excel_bytes_to_csv_text(file_bytes)
+        except Exception as exc:
+            raise PropertyImportError('Unable to read this Excel export. Save it as CSV or a valid .xlsx file and retry.') from exc
+    raise PropertyImportError('Use a CSV or Excel export.')
+
+
+def preview_property_file(jurisdiction, file_bytes, filename, *, mapping=None):
+    csv_text = file_to_csv(file_bytes, filename)
+    reader = csv.DictReader(StringIO(csv_text))
+    columns = reader.fieldnames or []
+    if not columns or len(columns) != len(set(columns)):
+        raise PropertyImportError('The export needs a header row with distinct column names.')
+    selected = mapping if mapping is not None else suggest_mapping(columns, jurisdiction.property_field_mapping)
+    from dataclasses import replace
+    preview_jurisdiction = replace(jurisdiction, property_field_mapping=selected)
+    try:
+        result = import_property_csv(preview_jurisdiction, csv_text, dry_run=True)
+        validation_error = None
+    except PropertyImportError as exc:
+        result = None
+        validation_error = str(exc)
+    return {'columns': columns, 'mapping': selected, 'fields': list(IMPORT_FIELDS),
+            'result': result, 'csv_text': csv_text, 'validation_error': validation_error}
