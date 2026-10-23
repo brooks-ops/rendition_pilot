@@ -362,6 +362,7 @@ def run_new_business_detection(
             district_id=jurisdiction.district_id,
             permit_legal_name=candidate.legal_name,
             permit_location_name=candidate.location_name,
+            permit_location_id=candidate.permit_location_id,
             permit_address=candidate.address,
             permit_zip=candidate.zip,
             candidates=match_candidates,

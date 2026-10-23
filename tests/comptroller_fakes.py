@@ -29,6 +29,7 @@ class FakeSupabase:
         self.rendition_jobs: dict[str, dict[str, Any]] = {}
         self.parsed_rendition_results: dict[str, dict[str, Any]] = {}
         self.mailing_address_observations: dict[str, dict[str, Any]] = {}
+        self.cad_match_decisions: dict[str, dict[str, Any]] = {}
         self._next_id = 0
         self.calls: list[dict[str, Any]] = []
 
@@ -253,6 +254,11 @@ class FakeSupabase:
         if method == "GET":
             rows = self._apply_simple_filters(list(self.jurisdictions.values()), params, skip=set())
             return self._paginate(rows, params)
+        if method == "PATCH":
+            rows = self._apply_simple_filters(list(self.jurisdictions.values()), params, skip=set())
+            for row in rows:
+                row.update(json_payload)
+            return rows
         raise AssertionError(f"Unhandled method {method} for jurisdictions")
 
     # -- bpp_intelligence_items --------------------------------------------------
@@ -493,3 +499,16 @@ class FakeSupabase:
         if limit is None:
             return rows[offset:]
         return rows[offset : offset + int(limit)]
+
+    def _handle_cad_match_decisions(self, method, params, json_payload):
+        if method == "GET":
+            rows = self._apply_simple_filters(list(self.cad_match_decisions.values()), params, skip=set())
+            rows.sort(key=lambda r: (r['reviewed_at'], r['id']), reverse=True)
+            return self._paginate(rows, params)
+        if method == "POST":
+            row = dict(json_payload)
+            row['id'] = self._new_id('decision')
+            row.setdefault('reviewed_at', f"2026-10-23T12:00:{self._next_id:02d}Z")
+            self.cad_match_decisions[row['id']] = row
+            return [row]
+        raise AssertionError(f"Unexpected decision mutation: {method}")

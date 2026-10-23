@@ -122,7 +122,7 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: min(720px, 92vw);
+      width: min(1100px, 94vw);
       max-height: 85vh;
       overflow-y: auto;
       z-index: 901;
@@ -720,6 +720,23 @@
               <button id="intel-refresh" class="secondary" type="button">Refresh Queue</button>
             </div>
           </div>
+          <details class="card" style="margin-bottom:16px;" open>
+            <summary><strong>CAD data and match coverage</strong></summary>
+            <div class="button-row"><button id="cad-refresh-matches" class="secondary" type="button">Refresh matches from CAD</button><span id="cad-refresh-status" class="subtle" role="status"></span></div>
+            <div id="cad-health" class="subtle" style="margin-top:10px;">Loading CAD data quality…</div>
+            <details style="margin-top:12px;">
+              <summary>Import a CAD export</summary>
+              <p class="subtle">Upload CSV or Excel with account number, property ID and situs address. Include owner, business/DBA, suite, account status and tax year when available. Blank identity fields preserve existing names.</p>
+              <div class="layout-3">
+                <div class="field"><label for="cad-import-file">CAD export (up to 32 MB)</label><input id="cad-import-file" type="file" accept=".csv,.xlsx,.xls"></div>
+                <div class="field"><label for="cad-import-date">Export as-of date</label><input id="cad-import-date" type="date"></div>
+                <div class="field"><label>&nbsp;</label><button id="cad-import-preview" class="secondary" type="button">Preview and map columns</button></div>
+              </div>
+              <div id="cad-import-mapping" class="layout-3"></div>
+              <div id="cad-import-result" class="subtle" role="status"></div>
+              <div class="button-row"><button id="cad-import-validate" class="secondary hidden" type="button">Check mapping</button><button id="cad-import-save" class="hidden" type="button" disabled>Import mapped records</button></div>
+            </details>
+          </details>
           <div id="intel-list"></div>
         </section>
 
@@ -727,6 +744,16 @@
         <section class="card modal-panel hidden" id="intel-detail-card">
           <h3>Item Detail</h3>
           <div id="intel-detail-body"></div>
+          <section id="cad-review-panel" class="card hidden" style="margin-top:12px;">
+            <h4>Compare CAD BPP accounts</h4>
+            <div class="subtle">Compare each account with the Comptroller details above. Confirming or rejecting a match saves an advisory decision and leaves the alert open.</div>
+            <div class="button-row"><input id="cad-account-search" aria-label="Search CAD P account" placeholder="Find a P account by number"><button id="cad-account-find" class="secondary" type="button">Find account</button><button id="cad-account-address" class="secondary" type="button">Accounts at this address</button></div>
+            <div id="cad-review-status" role="status" class="subtle"></div>
+            <div id="cad-review-candidates" style="overflow-x:auto;"></div>
+            <div class="button-row"><button id="cad-review-prev" class="secondary hidden" type="button">Previous accounts</button><button id="cad-review-next" class="secondary hidden" type="button">More accounts</button></div>
+            <div class="field"><label for="cad-review-notes">Match review notes</label><textarea id="cad-review-notes" rows="2" placeholder="Evidence supporting your decision; required when confirming an address or suite conflict"></textarea></div>
+            <details><summary>Saved match decisions</summary><div id="cad-review-history" class="subtle"></div></details>
+          </section>
           <div class="layout-3" style="margin-top:12px;">
             <div class="field">
               <label>&nbsp;</label>
@@ -2145,6 +2172,125 @@
 
     // -- BPP Intelligence Queue -----------------------------------------------
 
+    function cadHtml(value) { return formatText(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;"); }
+    const cadUi = { offset: 0, search: null, upload: null, mapping: null, validMapping: null, busy: false, healthLoading: false };
+    const cadApi = (path, payload = {}) => fetchJson(`/api/admin/intelligence/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ access_token: appState.auth.access_token, ...payload }) });
+    function cadDate(value) { return value ? new Date(value.includes("T") ? value : value + "T12:00:00").toLocaleDateString() : "Unknown"; }
+    async function refreshCadHealth() {
+      if (cadUi.healthLoading) return;
+      cadUi.healthLoading = true;
+      try {
+        const h = await cadApi("cad-health");
+        if (!h.configured) { $("cad-health").textContent = "No CAD data source is configured for this district."; return; }
+        const q = h.queue, total = q.total || 0;
+        const rate = n => total ? `${Math.round(n * 100 / total)}%` : "0%";
+        const latest = h.latest_import;
+        const stale = h.freshness === "STALE" || h.freshness === "UNKNOWN" || h.freshness === "FUTURE_DATE";
+        $("cad-health").innerHTML = `
+          <div class="status ${stale ? "warn" : "success"}">CAD export: ${cadHtml(latest?.source_as_of_date || "as-of date unknown")} · Imported ${cadHtml(cadDate(latest?.imported_at))} · ${cadHtml(h.freshness.replaceAll("_", " "))}${h.source_age_days != null ? ` (${h.source_age_days} days old)` : ""}. Exports older than ${h.stale_after_days} days are flagged.</div>
+          ${h.recent_imports[0] && ["FAILED","IN_PROGRESS"].includes(h.recent_imports[0].import_status) ? `<p class="status warn">The most recent import is ${cadHtml(h.recent_imports[0].import_status.replaceAll("_"," "))}. Records may be partially updated; review the import history before relying on the matches.</p>` : ""}
+          <div class="layout-3" style="margin-top:10px;">
+            <div><strong>${cadHtml(h.bpp_record_count?.toLocaleString() || "Unknown")}</strong> P-account records<br>Owner/business/DBA coverage: <strong>${h.name_coverage_percent == null ? "Unknown" : h.name_coverage_percent + "%"}</strong></div>
+            <div>High confidence: <strong>${q.high_confidence} (${rate(q.high_confidence)})</strong><br>Possible: ${q.possible} (${rate(q.possible)})<br>Ambiguous: ${q.ambiguous} (${rate(q.ambiguous)})<br>Unmatched: ${q.unmatched} (${rate(q.unmatched)})</div>
+            <div>Appraiser-confirmed permits: <strong>${h.human_confirmed_permits}</strong><br>Saved decisions: ${h.decision_count}<br><span class="subtle">Match rates cover all business/closure queue items, independent of the filters below.</span></div>
+          </div>
+          ${h.name_coverage_percent === 0 ? '<p class="status warn">CAD names are missing. Include owner, business or DBA names in the next export to strengthen automatic matching.</p>' : ""}
+          <details style="margin-top:8px;"><summary>Recent imports and data coverage</summary>${h.recent_imports.map(i => `<div style="padding:5px 0;">${cadHtml(cadDate(i.imported_at))} · as of ${cadHtml(i.source_as_of_date || "unknown")} · ${cadHtml(i.import_status)} · ${(i.row_count || 0).toLocaleString()} records${i.quality_summary ? ` · ${i.quality_summary.named_bpp_record_count || 0}/${i.quality_summary.bpp_record_count || 0} P records with names${i.quality_summary.matching_refresh_status ? ` · Matching: ${cadHtml(i.quality_summary.matching_refresh_status)}` : ""}${i.quality_summary.queue_match_snapshot ? ` · After import: ${i.quality_summary.queue_match_snapshot.high_confidence || 0} high, ${i.quality_summary.queue_match_snapshot.possible || 0} possible, ${i.quality_summary.queue_match_snapshot.ambiguous || 0} ambiguous, ${i.quality_summary.queue_match_snapshot.unmatched || 0} unmatched` : ""}` : " · coverage not recorded on this earlier import"}</div>`).join("") || "No imports recorded."}</details>`;
+      } catch (error) { $("cad-health").textContent = `CAD data quality could not load: ${error.message}`; }
+      finally { cadUi.healthLoading = false; }
+    }
+    async function loadCadCandidates(offset = 0, search = null) {
+      const item = appState.intelligence.selected;
+      if (!item) return;
+      const key = item.source_table + item.id;
+      const sequence = cadUi.sequence = (cadUi.sequence || 0) + 1;
+      cadUi.offset = offset; cadUi.search = search;
+      $("cad-review-status").textContent = "Loading CAD candidates…";
+      $("cad-review-candidates").innerHTML = "";
+      $("cad-review-history").textContent = "";
+      $("cad-review-prev").classList.add("hidden"); $("cad-review-next").classList.add("hidden");
+      try {
+        const data = await cadApi("cad-candidates", { source_table: item.source_table, item_id: item.id, offset, account_number: search });
+        const selected = appState.intelligence.selected;
+        if (!selected || selected.source_table + selected.id !== key || sequence !== cadUi.sequence) return;
+        $("cad-review-status").textContent = `${data.candidate_count}${data.truncated ? "+" : ""} P-account candidates${data.truncated ? " (large address; search a specific P account to narrow the list)" : ""}.${data.confirmed ? ` Appraiser-confirmed account: ${data.confirmed.account_number}.` : ""}${!data.can_review ? " This item has no source permit; decisions cannot be saved." : ""}`;
+        $("cad-review-candidates").innerHTML = data.candidates.length ? `<table style="width:100%;font-size:13px;text-align:left;border-collapse:collapse;"><thead><tr><th>CAD account / identity</th><th>Situs / suite / ZIP</th><th>Evidence</th><th>Review</th></tr></thead><tbody>${data.candidates.map(c => `<tr style="border-top:1px solid var(--line,#ddd);"><td style="padding:10px;vertical-align:top;"><strong>${cadHtml(c.real_account_number)}</strong><br>Owner: ${cadHtml(c.owner_name || "Missing")}<br>Business: ${cadHtml(c.business_name || "Missing")}<br>DBA: ${cadHtml(c.dba_name || "Missing")}<br>Tax year: ${cadHtml(c.tax_year)} · Status: ${cadHtml(c.account_status || "Not supplied")}</td><td style="padding:10px;vertical-align:top;">${cadHtml(c.situs_address_raw)}<br>Suite: ${cadHtml(c.situs_unit || "See address")}<br>ZIP: ${cadHtml(c.situs_zip)}<br>${c.address_conflict ? '<strong style="color:#a23d28;">Address conflict — verify</strong>' : ""}</td><td style="padding:10px;vertical-align:top;">Street: ${cadHtml(c.address_signal)}<br>ZIP: ${cadHtml(c.zip_signal)}<br>Suite: ${cadHtml(c.suite_signal)}<br>Name: ${cadHtml(c.name_signal)}<br>${c.is_confirmed ? "<strong>APPRAISER CONFIRMED</strong>" : c.decision?.decision === "REJECTED" ? "<strong>REJECTED</strong>" : "Awaiting review"}</td><td style="padding:10px;"><button type="button" class="secondary" data-cad-property="${cadHtml(c.property_id)}" data-cad-decision="CONFIRMED" ${!data.can_review || c.is_confirmed ? "disabled" : ""}>Confirm match</button><button type="button" class="secondary" data-cad-property="${cadHtml(c.property_id)}" data-cad-decision="REJECTED" ${!data.can_review || c.decision?.decision === "REJECTED" ? "disabled" : ""}>Reject match</button></td></tr>`).join("")}</tbody></table>` : '<p class="subtle">No P accounts found in this search. Search a known account number, or import a newer CAD export.</p>';
+        $("cad-review-history").innerHTML = data.history.map(d => `<div style="padding:6px 0;">${cadHtml(d.account_number)} · <strong>${cadHtml(d.decision)}</strong> · ${cadHtml(new Date(d.reviewed_at).toLocaleString())}<br>Reviewer: ${cadHtml(d.reviewed_by)}${d.notes ? `<br>${cadHtml(d.notes)}` : ""}</div>`).join("") || "No appraiser match decisions saved yet.";
+        $("cad-review-prev").classList.toggle("hidden", offset === 0);
+        $("cad-review-next").classList.toggle("hidden", !data.has_more);
+      } catch (error) { if (appState.intelligence.selected?.id === item.id) $("cad-review-status").textContent = error.message; }
+    }
+    async function saveCadDecision(button) {
+      if (cadUi.busy) return;
+      const item = appState.intelligence.selected;
+      if (!item) return;
+      cadUi.busy = true; button.disabled = true;
+      try {
+        const result = await cadApi("cad-decision", { source_table: item.source_table, item_id: item.id, property_record_id: button.dataset.cadProperty, decision: button.dataset.cadDecision, notes: $("cad-review-notes").value.trim() });
+        await refreshIntelligenceQueue();
+        const fresh = findIntelligenceItem(item.id,item.source_table);
+        if (appState.intelligence.selected?.id === item.id && fresh) { openIntelligenceDetail(item.id,item.source_table); }
+        if (appState.intelligence.selected?.id !== item.id || appState.intelligence.selected?.source_table !== item.source_table) return;
+        await loadCadCandidates(0);
+        $("cad-review-status").textContent += result.warning ? ` ${result.warning}` : " Decision saved; it will be reused on future matching runs.";
+      } catch (error) { $("cad-review-status").textContent = error.message; button.disabled = false; }
+      finally { cadUi.busy = false; }
+    }
+    function cadMapping() { return Object.fromEntries([...document.querySelectorAll("[data-cad-field]")].filter(el => el.value).map(el => [el.dataset.cadField, el.value])); }
+    async function previewCadImport(useMapping = false) {
+      const button = $(useMapping ? "cad-import-validate" : "cad-import-preview"); button.disabled = true;
+      $("cad-import-save").disabled = true; cadUi.validMapping = null;
+      try {
+        const file = $("cad-import-file").files[0];
+        if (!file) throw new Error("Choose a CAD export first.");
+        if (file.size > 32 * 1024 * 1024) throw new Error("Choose a file smaller than 32 MB.");
+        if (!cadUi.upload || cadUi.upload.file !== file) {
+          const encoded = await new Promise((resolve,reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1]); reader.onerror = reject; reader.readAsDataURL(file); });
+          cadUi.upload = { file, encoded };
+        }
+        $("cad-import-result").textContent = "Checking export…";
+        const data = await cadApi("cad-import-preview", { filename:file.name, file_base64:cadUi.upload.encoded, mapping:useMapping ? cadMapping() : null });
+        $("cad-import-mapping").innerHTML = data.fields.map(field => `<div class="field"><label for="cad-map-${field}">${cadHtml(field.replaceAll("_"," "))}${["source_property_id","real_account_number","situs_address"].includes(field) ? " *" : ""}</label><select id="cad-map-${field}" data-cad-field="${field}"><option value="">Not supplied</option>${data.columns.map(column => `<option value="${cadHtml(column)}" ${data.mapping[field] === column ? "selected" : ""}>${cadHtml(column)}</option>`).join("")}</select></div>`).join("");
+        $("cad-import-validate").classList.remove("hidden"); $("cad-import-save").classList.remove("hidden");
+        if (data.validation_error) { $("cad-import-result").textContent = data.validation_error + " Update the mapping and choose Check mapping."; return; }
+        const r = data.result, q = r.quality_summary;
+        $("cad-import-result").textContent = `${r.rows_read.toLocaleString()} rows read; ${r.rows_imported.toLocaleString()} records; ${r.rows_skipped} skipped; ${r.rows_deduplicated} duplicates collapsed. ${q.named_bpp_record_count}/${q.bpp_record_count} P records have names. ${r.warnings.join(" ")}`;
+        cadUi.validMapping = JSON.stringify(cadMapping());
+        $("cad-import-save").disabled = !r.rows_imported;
+      } catch (error) { $("cad-import-result").textContent = error.message; }
+      finally { button.disabled = false; }
+    }
+    async function importCadExport() {
+      const button = $("cad-import-save"); button.disabled = true;
+      try {
+        const file = $("cad-import-file").files[0], mapping = cadMapping();
+        if (!cadUi.upload || cadUi.upload.file !== file || cadUi.validMapping !== JSON.stringify(mapping)) throw new Error("Check the current file and mapping before importing.");
+        const asOf = $("cad-import-date").value;
+        if (!asOf) throw new Error("Enter the export's actual as-of date.");
+        $("cad-import-result").textContent = "Importing CAD records… Keep this page open until the import completes.";
+        const data = await cadApi("cad-import", { filename:file.name, file_base64:cadUi.upload.encoded, mapping, source_as_of_date:asOf });
+        $("cad-import-result").textContent = `Imported ${data.result.rows_imported.toLocaleString()} records. Existing match decisions were preserved. Matching is refreshing in the background; refresh the queue to see progress. ${data.result.warnings.join(" ")}`;
+        await refreshCadHealth();
+      } catch (error) { $("cad-import-result").textContent = error.message; }
+      finally { button.disabled = false; }
+    }
+    $("cad-refresh-matches").addEventListener("click", async () => {
+      const button = $("cad-refresh-matches"); button.disabled = true;
+      try { const result = await cadApi("cad-refresh"); $("cad-refresh-status").textContent = result.message; await refreshCadHealth(); }
+      catch(error) { $("cad-refresh-status").textContent = error.message; }
+      finally { button.disabled = false; }
+    });
+    $("cad-review-candidates").addEventListener("click", event => { const button = event.target.closest("[data-cad-decision]"); if (button) saveCadDecision(button); });
+    $("cad-account-find").addEventListener("click", () => { const value = $("cad-account-search").value.trim(); if (value) loadCadCandidates(0,value); });
+    $("cad-account-address").addEventListener("click", () => loadCadCandidates(0));
+    $("cad-review-prev").addEventListener("click", () => loadCadCandidates(Math.max(0,cadUi.offset-20),cadUi.search));
+    $("cad-review-next").addEventListener("click", () => loadCadCandidates(cadUi.offset+20,cadUi.search));
+    $("cad-import-preview").addEventListener("click", () => previewCadImport(false));
+    $("cad-import-validate").addEventListener("click", () => previewCadImport(true));
+    $("cad-import-save").addEventListener("click", importCadExport);
+    $("cad-import-mapping").addEventListener("change", () => { cadUi.validMapping=null; $("cad-import-save").disabled=true; });
+    $("cad-import-file").addEventListener("change", () => { cadUi.upload=null; cadUi.validMapping=null; $("cad-import-save").disabled=true; $("cad-import-mapping").innerHTML=""; });
+
     const INTEL_RESOLUTION_OPTIONS = {
       new_business: ["ACCOUNT_EXISTS", "NEW_ACCOUNT_NEEDED", "OWNERSHIP_CHANGE", "RELOCATION", "DUPLICATE", "NO_TAXABLE_BPP", "FALSE_MATCH", "OTHER"],
       sales_tax_inactive: ["ACCOUNT_EXISTS", "BUSINESS_CLOSED", "OWNERSHIP_CHANGE", "RELOCATION", "DUPLICATE", "FALSE_MATCH", "OTHER"],
@@ -2178,6 +2324,7 @@
 
       appState.intelligence.items = queue.items || [];
       renderIntelligenceQueue(appState.intelligence.items);
+      refreshCadHealth();
     }
 
     async function refreshMailingQueue() {
@@ -2221,20 +2368,20 @@
         ? (item.mailing_address_observed || "Address not available")
         : [item.source_address, item.source_city, item.source_state, item.source_zip].filter(Boolean).join(", ");
       const matched = item.signal_type === "mailing_address_change"
-        ? `Current on file: ${formatText(item.mailing_address_current || "UNKNOWN -- no prior observation")}`
+        ? `Current on file: ${cadHtml(item.mailing_address_current || "UNKNOWN -- no prior observation")}`
         : item.matched_account_number
-        ? `CAD Match: ${formatText(item.matched_account_number)} — ${formatText(item.matched_owner_name || "Business name unavailable")} (${formatText(item.confidence)})`
+        ? `CAD Match: ${cadHtml(item.matched_account_number)} — ${cadHtml(item.matched_owner_name || "Business name unavailable")} (${cadHtml(item.confidence)})`
         : item.is_ambiguous ? "CAD Match: Multiple possible BPP accounts — review required" : "CAD Match: No matching BPP account found";
       return `
         <div class="card" style="margin-bottom:10px;cursor:pointer;" data-intel-id="${item.id}" data-intel-table="${item.source_table}">
           <div style="display:flex;justify-content:space-between;">
-            <strong>${formatText(title)} -- ${formatText(item.business_name)}</strong>
-            <span class="status ${item.priority === "HIGH" ? "error" : "warn"}" style="display:inline-block;">${formatText(item.priority)} PRIORITY</span>
+            <strong>${cadHtml(title)} -- ${cadHtml(item.business_name)}</strong>
+            <span class="status ${item.priority === "HIGH" ? "error" : "warn"}" style="display:inline-block;">${cadHtml(item.priority)} PRIORITY</span>
           </div>
-          <div class="subtle">${formatText(addressLine || "Address not available")}</div>
-          <div class="subtle">Source: ${formatText(item.source_label)} | Detected: ${formatText(item.first_detected_at)} | Status: ${formatText(item.status)}</div>
+          <div class="subtle">${cadHtml(addressLine || "Address not available")}</div>
+          <div class="subtle">Source: ${cadHtml(item.source_label)} | Detected: ${cadHtml(item.first_detected_at)} | Status: ${cadHtml(item.status)}</div>
           <div class="subtle">${matched}</div>
-          <div class="subtle">Reason: ${formatText(item.match_reason)}</div>
+          <div class="subtle">Reason: ${cadHtml(item.match_reason)}</div>
         </div>`;
     }
 
@@ -2252,7 +2399,7 @@
 
     function propertyEvidenceHtml(item) {
       if (!item.property_match_status) {
-        return `<div class="subtle">Property Match: NONE -- no property data loaded for this jurisdiction, or no address was available to check.</div>`;
+        return `<div class="subtle">Property enrichment has not been recorded for this item. Review the CAD account candidates below.</div>`;
       }
       if (item.property_match_status === "AMBIGUOUS_PROPERTY_MATCH") {
         return `<div>Property Match: <strong>AMBIGUOUS</strong></div><div class="subtle">Multiple candidate properties scored similarly -- review manually.</div>`;
@@ -2261,12 +2408,12 @@
         return `<div>Property Match: <strong>NONE</strong></div>`;
       }
       return `
-        <div>Property Match: <strong>${formatText(item.property_match_status.replace("_PROPERTY_MATCH", ""))}</strong></div>
-        <div>Situs Address: ${formatText(item.matched_address)}</div>
-        <div>Real Account: ${formatText(item.property_account_number)}</div>
-        <div>TUG: ${formatText(item.tug)}</div>
-        <div>Neighborhood: ${formatText(item.neighborhood)}</div>
-        <div>Map: ${formatText(item.map_id)}</div>`;
+        <div>Property Match: <strong>${cadHtml(item.property_match_status.replace("_PROPERTY_MATCH", ""))}</strong></div>
+        <div>Situs Address: ${cadHtml(item.matched_address)}</div>
+        <div>Real Account: ${cadHtml(item.property_account_number)}</div>
+        <div>TUG: ${cadHtml(item.tug)}</div>
+        <div>Neighborhood: ${cadHtml(item.neighborhood)}</div>
+        <div>Map: ${cadHtml(item.map_id)}</div>`;
     }
 
     function mailingAddressDetailHtml(item) {
@@ -2305,27 +2452,27 @@
 
       const signals = item.match_signals || {};
       const signalRows = Object.keys(signals).length
-        ? Object.entries(signals).map(([key, value]) => `<div>${formatText(key.replaceAll("_", " "))}: <strong>${formatText(value)}</strong></div>`).join("")
+        ? Object.entries(signals).map(([key, value]) => `<div>${cadHtml(key.replaceAll("_", " "))}: <strong>${cadHtml(value)}</strong></div>`).join("")
         : `<div class="subtle">No per-signal breakdown available for this item.</div>`;
 
       $("intel-detail-body").innerHTML = item.signal_type === "mailing_address_change" ? mailingAddressDetailHtml(item) : `
         <div class="layout-3">
           <div>
             <h4>External Source (Comptroller)</h4>
-            <div>Source: ${formatText(item.source_label)}</div>
-            <div>Business/DBA: ${formatText(item.business_name)}</div>
-            <div>Legal/Taxpayer Name: ${formatText(item.legal_name)}</div>
-            <div>Address: ${formatText([item.source_address, item.source_city, item.source_state, item.source_zip].filter(Boolean).join(", "))}</div>
-            <div>Permit Start: ${formatText(item.permit_start_date)}</div>
-            <div>First Detected: ${formatText(item.first_detected_at)}</div>
+            <div>Source: ${cadHtml(item.source_label)}</div>
+            <div>Business/DBA: ${cadHtml(item.business_name)}</div>
+            <div>Legal/Taxpayer Name: ${cadHtml(item.legal_name)}</div>
+            <div>Address: ${cadHtml([item.source_address, item.source_city, item.source_state, item.source_zip].filter(Boolean).join(", "))}</div>
+            <div>Permit Start: ${cadHtml(item.permit_start_date)}</div>
+            <div>First Detected: ${cadHtml(item.first_detected_at)}</div>
           </div>
           <div>
-            <h4>RenditionPilot Match</h4>
-            <div>Matched Owner Name: ${formatText(item.matched_owner_name)}</div>
-            <div>Matched Account #: ${formatText(item.matched_account_number)}</div>
-            <div>Confidence: ${formatText(item.confidence)} (${formatText(item.confidence_score)})</div>
+            <h4>CAD Account Match</h4>
+            <div>Matched Owner Name: ${cadHtml(item.matched_owner_name)}</div>
+            <div>Matched Account #: ${cadHtml(item.matched_account_number)}</div>
+            <div>Confidence: ${cadHtml(item.confidence)} (${cadHtml(item.confidence_score)})</div>
             <div>Ambiguous: ${item.is_ambiguous ? "YES -- multiple similarly-scored records" : "No"}</div>
-            <div>Classification: ${formatText(item.classification)}</div>
+            <div>Classification: ${cadHtml(item.classification)}</div>
           </div>
           <div>
             <h4>Match Analysis</h4>
@@ -2336,8 +2483,8 @@
             ${propertyEvidenceHtml(item)}
           </div>
         </div>
-        <div style="margin-top:10px;"><strong>Reason:</strong> ${formatText(item.match_reason)}</div>
-        <div><strong>Recommended:</strong> ${formatText(item.recommended_action)}</div>`;
+        <div style="margin-top:10px;"><strong>Reason:</strong> ${cadHtml(item.match_reason)}</div>
+        <div><strong>Recommended:</strong> ${cadHtml(item.recommended_action)}</div>`;
 
       const resolutionSelect = $("intel-resolution");
       const options = INTEL_RESOLUTION_OPTIONS[item.signal_type] || INTEL_RESOLUTION_OPTIONS.new_business;
@@ -2349,6 +2496,10 @@
       $("intel-account-card").innerHTML = "";
       $("intel-detail-backdrop").classList.remove("hidden");
       $("intel-detail-card").classList.remove("hidden");
+      $("cad-review-panel").classList.toggle("hidden", item.signal_type === "mailing_address_change");
+      $("cad-review-notes").value = "";
+      $("cad-account-search").value = "";
+      if (item.signal_type !== "mailing_address_change") loadCadCandidates(0);
     }
 
     function closeIntelligenceDetail() {
@@ -2388,25 +2539,25 @@
       const appraiser = card.appraiser || {};
       const exceptions = card.exceptions || [];
       const exceptionsBlock = exceptions.length
-        ? `<div class="status warn" style="margin-bottom:8px;">${exceptions.map((e) => `<div>${formatText(e)}</div>`).join("")}</div>`
+        ? `<div class="status warn" style="margin-bottom:8px;">${exceptions.map((e) => `<div>${cadHtml(e)}</div>`).join("")}</div>`
         : `<div class="status success" style="margin-bottom:8px;">No exceptions -- this card is ready to use.</div>`;
       return `
         <div class="card">
           <h4>New Account Card</h4>
           <div class="subtle" style="margin-bottom:8px;">Advisory only -- use this to manually create the account in your CAD's own system. Nothing here has been written to official CAD data.</div>
           ${exceptionsBlock}
-          <div>Business/DBA: ${formatText(card.business_name)}</div>
-          <div>Legal Name: ${formatText(card.legal_name)}</div>
-          <div>Address: ${formatText([card.source_address, card.source_city, card.source_state, card.source_zip].filter(Boolean).join(", "))}</div>
-          <div>Permit Start: ${formatText(card.permit_start_date)}</div>
-          <div style="margin-top:8px;">Property Match: ${formatText(card.property_match_status)}</div>
-          <div>Situs Address: ${formatText(card.situs_address)}</div>
-          <div>Suggested Property Link (R-account): ${formatText(card.suggested_property_link)}</div>
-          <div class="subtle">${formatText(card.suggested_property_link_reason)}</div>
-          <div>Personal Property (P) Accounts on File: ${formatText((card.personal_property_accounts || []).join(", "))}</div>
-          <div>TUG: ${formatText(card.tug)} | Neighborhood: ${formatText(card.neighborhood)} | Map: ${formatText(card.map_id)}</div>
-          <div style="margin-top:8px;">Suggested Appraiser: <strong>${formatText(appraiser.appraiser || "UNASSIGNED")}</strong> (${formatText(appraiser.basis)})</div>
-          <div class="subtle">${formatText(appraiser.reason)}</div>
+          <div>Business/DBA: ${cadHtml(card.business_name)}</div>
+          <div>Legal Name: ${cadHtml(card.legal_name)}</div>
+          <div>Address: ${cadHtml([card.source_address, card.source_city, card.source_state, card.source_zip].filter(Boolean).join(", "))}</div>
+          <div>Permit Start: ${cadHtml(card.permit_start_date)}</div>
+          <div style="margin-top:8px;">Property Match: ${cadHtml(card.property_match_status)}</div>
+          <div>Situs Address: ${cadHtml(card.situs_address)}</div>
+          <div>Suggested Property Link (R-account): ${cadHtml(card.suggested_property_link)}</div>
+          <div class="subtle">${cadHtml(card.suggested_property_link_reason)}</div>
+          <div>Personal Property (P) Accounts on File: ${cadHtml((card.personal_property_accounts || []).join(", "))}</div>
+          <div>TUG: ${cadHtml(card.tug)} | Neighborhood: ${cadHtml(card.neighborhood)} | Map: ${cadHtml(card.map_id)}</div>
+          <div style="margin-top:8px;">Suggested Appraiser: <strong>${cadHtml(appraiser.appraiser || "UNASSIGNED")}</strong> (${cadHtml(appraiser.basis)})</div>
+          <div class="subtle">${cadHtml(appraiser.reason)}</div>
         </div>`;
     }
 

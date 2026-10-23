@@ -306,6 +306,8 @@ def cmd_property_import(args: argparse.Namespace) -> int:
         f"  Rows deduplicated (duplicate PropertyID+tax_year, last wins): {result.rows_deduplicated}\n"
         f"  Import batch id: {result.import_id or '(dry-run, not recorded)'}"
     )
+    for warning in result.warnings:
+        print(f"  Data quality: {warning}")
     return 0
 
 

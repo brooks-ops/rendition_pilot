@@ -226,6 +226,7 @@ def process_month_end(target_month: date, *, dry_run: bool = False) -> MonthEndR
                         district_id=district_id,
                         permit_legal_name=location.get("legal_name"),
                         permit_location_name=location.get("location_name"),
+                        permit_location_id=event.get("permit_location_id"),
                         permit_address=location.get("address"),
                         permit_zip=location.get("zip"),
                         candidates=candidates_by_district[district_id],

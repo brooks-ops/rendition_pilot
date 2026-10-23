@@ -256,26 +256,27 @@ def _from_closure_review_row(row: dict[str, Any]) -> UnifiedIntelligenceItem:
     )
 
 
-def _fetch_intelligence_items(district_id: str, *, signal_type: str | None) -> list[dict[str, Any]]:
-    supabase_url, service_role_key = get_supabase_config()
-    headers = postgrest_headers(service_role_key)
-    params: dict[str, Any] = {"select": "*", "district_id": f"eq.{district_id}", "order": "created_at.desc", "limit": "500"}
+def _fetch_queue_rows(table: str, district_id: str, *, signal_type: str | None = None) -> list[dict[str, Any]]:
+    url, key = get_supabase_config()
+    params = {"select": "*", "district_id": f"eq.{district_id}", "order": "created_at.desc,id.desc", "limit": 500}
     if signal_type:
         params["signal_type"] = f"eq.{signal_type}"
-    rows = _request_json("GET", f"{supabase_url}/rest/v1/bpp_intelligence_items", headers, params=params)
-    return rows if isinstance(rows, list) else []
+    rows = []
+    while True:
+        page = _request_json("GET", f"{url}/rest/v1/{table}", postgrest_headers(key), params={**params, "offset": len(rows)})
+        if not isinstance(page, list):
+            raise IntelligenceQueueError("Unexpected response reading intelligence queue.")
+        if not page:
+            return rows
+        rows.extend(page)
+
+
+def _fetch_intelligence_items(district_id: str, *, signal_type: str | None) -> list[dict[str, Any]]:
+    return _fetch_queue_rows("bpp_intelligence_items", district_id, signal_type=signal_type)
 
 
 def _fetch_closure_reviews(district_id: str) -> list[dict[str, Any]]:
-    supabase_url, service_role_key = get_supabase_config()
-    headers = postgrest_headers(service_role_key)
-    rows = _request_json(
-        "GET",
-        f"{supabase_url}/rest/v1/comptroller_closure_reviews",
-        headers,
-        params={"select": "*", "district_id": f"eq.{district_id}", "order": "created_at.desc", "limit": "500"},
-    )
-    return rows if isinstance(rows, list) else []
+    return _fetch_queue_rows("comptroller_closure_reviews", district_id)
 
 
 def list_intelligence_queue(
