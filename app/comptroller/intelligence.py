@@ -304,6 +304,14 @@ def list_intelligence_queue(
                 record_id=item.raw.get('matched_record_id') or item.raw.get('matched_account_id'),
                 signals=item.match_signals,reason=item.match_reason,ambiguous=item.is_ambiguous,confidence=item.confidence)
             item = replace(item, priority=priority, priority_reason=reason, priority_rank=rank)
+        elif item.signal_type == 'mailing_address_change':
+            linked_pid = (item.matched_account_number or item.property_account_number
+                or item.raw.get('matched_record_id') or item.raw.get('matched_account_id'))
+            if not linked_pid:
+                item = replace(item, priority='HIGH', priority_rank=0,
+                    priority_reason='No PID linked — prioritize business/address matching')
+            else:
+                item = replace(item, priority_rank=1 if item.priority == 'HIGH' else 2)
         ranked.append(item)
     items = ranked
 
@@ -319,6 +327,8 @@ def list_intelligence_queue(
     # signal types keep their established order and priority.
     inactive = iter(sorted((i for i in items if i.signal_type == "sales_tax_inactive"),key=lambda i:i.priority_rank))
     items = [next(inactive) if i.signal_type == "sales_tax_inactive" else i for i in items]
+    mailing = iter(sorted((i for i in items if i.signal_type == "mailing_address_change"),key=lambda i:i.priority_rank))
+    items = [next(mailing) if i.signal_type == "mailing_address_change" else i for i in items]
     return items
 
 
