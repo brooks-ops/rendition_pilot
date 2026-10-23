@@ -1,21 +1,23 @@
 from __future__ import annotations
 import os
 import re
+import threading
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from .store import Store,Conflict
+from .remote import load_store
 
 
 def commercial_router(resolve_context):
-    router=APIRouter(prefix='/api/commercial');stores={}
+    router=APIRouter(prefix='/api/commercial');stores={};store_lock=threading.RLock()
     def context(payload):
         c=resolve_context(payload.get('access_token',''))
         district=c.district_id
         if not re.fullmatch(r'[a-zA-Z0-9_-]+',district):raise HTTPException(403,'Invalid district')
         directory=Path(os.environ.get('COMMERCIAL_DATA_DIR','commercial-data'))/district
-        if not (directory/'manifest.json').exists():raise HTTPException(409,'Commercial models have not been imported for your district.')
-        if district not in stores:stores[district]=Store(directory)
+        with store_lock:
+            if district not in stores:stores[district]=load_store(directory,district)
         return stores[district],c
 
     @router.post('/catalog')

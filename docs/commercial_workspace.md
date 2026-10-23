@@ -129,3 +129,10 @@ Coverage audit of the imported register: all 10,472 active model rows have at le
 The median and median-times-subject-size are unadjusted model comparisons, not sales or a certified equity conclusion. No inferred dollar adjustments or geographic proximity claims are made. Criteria, current source rows, model version and exceptions remain visible. Every new request reads current saved model results, including category changes and undo.
 
 Equity detail grids compare every subject/comp's available property characteristics, capitalization and tax rates, vacancy, expense/reserve/management assumptions, rent and area components, annual income/expense/NOI, and value adjustments. Browser and PDF use the same section schema and source values. Detailed operating and income/value sheets follow the summary in every packet. Missing mapped fields remain “Not supplied”; calculation errors remain “Unavailable” with exception details. Zero assumptions remain zero.
+
+
+## Separate commercial entry and existing login
+
+`/commercial` is a standalone entry with its own sign-in screen. It uses the existing `/api/auth/login` and `/api/auth/restore` endpoints, account identity, district membership, and `appraisalpilot_auth` session. No duplicate commercial account or password is created. Signed-in users on the same origin can move directly between Rendition Pilot and Commercial. Expired sessions return to sign-in; signing out removes the shared browser session. Local preview alone retains its loopback-only bypass.
+
+Production uses the existing Supabase project and a private `commercial-workspace` Storage bucket. Object keys are scoped by the server-authenticated district ID. Graphs and the manifest are private; no public storage policy or link is created. The single Render instance restores a SQLite snapshot on first use and uploads a consistent snapshot before acknowledging each create/apply/undo. Failed uploads roll the local change back and return 503. Preview-only tokens need not survive restarts. Do not horizontally scale this implementation: multiple instances need a shared transactional database rather than snapshot synchronization.

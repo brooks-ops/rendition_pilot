@@ -210,3 +210,75 @@ def test_equity_always_fills_peers_for_missing_subject_and_sparse_category():
     assert e['unadjusted_indication'] is None
     assert all(r['match_tier']==3 for r in e['comparables'])
     assert e['status']=='review'
+
+
+def test_remote_storage_persists_changes_and_rolls_back_failed_writes(store,monkeypatch):
+    import requests
+    from fastapi import HTTPException
+    from app.commercial.remote import RemoteStore
+    remote=RemoteStore(store.directory,'district-one');uploads=[]
+    class OK:
+        def raise_for_status(self):pass
+    def upload(method,district,name,data=None):
+        uploads.append((method,district,name,data));return OK()
+    monkeypatch.setattr('app.commercial.remote.object_request',upload)
+    p=remote.preview({'filters':{'ids':['R1']},'field':'cap_rate','value':.2})
+    b=remote.commit(p['token'],'appraiser','Durable rate')
+    assert remote.detail('R1')['values']['total_value']==500
+    assert uploads[0][:3]==('POST','district-one','workspace.sqlite3')
+    assert uploads[0][3].startswith(b'SQLite format 3')
+    remote.undo(b['batch_id'],'appraiser')
+    assert remote.detail('R1')['values']['total_value']==1000
+    def failed(*args):raise requests.ConnectionError('offline')
+    monkeypatch.setattr('app.commercial.remote.object_request',failed)
+    p=remote.preview({'filters':{'ids':['R1']},'field':'cap_rate','value':.3})
+    with pytest.raises(HTTPException):remote.commit(p['token'],'appraiser','Must roll back')
+    assert remote.detail('R1')['values']['total_value']==1000
+    assert len(remote.history())==1
+
+
+def test_remote_restore_uses_only_authenticated_district(store,monkeypatch,tmp_path):
+    from app.commercial.remote import load_store
+    import sqlite3
+    import json
+    backup=tmp_path/'snapshot.sqlite3'
+    with store.connect() as source,sqlite3.connect(backup) as dest:source.backup(dest)
+    objects={p.name:p.read_bytes() for p in store.directory.iterdir() if p.suffix in ('.json','.gz')}
+    objects['workspace.sqlite3']=backup.read_bytes();calls=[]
+    class Response:
+        status_code=200
+        def __init__(self,data):self.content=data
+        def raise_for_status(self):pass
+        def json(self):return json.loads(self.content)
+    def download(method,district,name,data=None):
+        calls.append((method,district,name));return Response(objects[name])
+    monkeypatch.setenv('SUPABASE_SERVICE_ROLE_KEY','test-only')
+    monkeypatch.setattr('app.commercial.remote.object_request',download)
+    restored=load_store(tmp_path/'restored','district-one')
+    assert restored.detail('R1')['values']['total_value']==1000
+    assert all(district=='district-one' for _,district,_ in calls)
+
+
+def test_commercial_uses_existing_rendition_account_and_district(monkeypatch):
+    from fastapi.testclient import TestClient
+    from types import SimpleNamespace
+    from backend import main
+    user={'id':'existing-user','email':'bbarrett@lubbockcad.org'}
+    district=SimpleNamespace(district_id='existing-district',district_slug='lubbock',district_name='Lubbock CAD',domain='lubbockcad.org',email=user['email'],user_id=user['id'],role='admin')
+    calls=[]
+    def sign_in(email,password):
+        calls.append(email);return {'access_token':'test-existing-session','user':user}
+    monkeypatch.setattr(main,'sign_in_with_supabase',sign_in)
+    monkeypatch.setattr(main,'get_supabase_user',lambda token:user)
+    monkeypatch.setattr(main,'build_district_context',lambda user,token:district)
+    client=TestClient(main.app)
+    page=client.get('/commercial')
+    assert page.status_code==200 and 'commercialLoginForm' in page.text
+    assert '/api/auth/' in page.text and 'commercialSignOut' in page.text
+    response=client.post('/api/auth/login',json={'email':'bbarrett@lubbockcad.org','password':'test-placeholder'})
+    assert response.status_code==200
+    assert response.json()['district']['district_id']=='existing-district'
+    assert response.json()['user']['id']=='existing-user'
+    restored=client.post('/api/auth/restore',json={'access_token':'test-existing-session'})
+    assert restored.json()['district']==response.json()['district']
+    assert calls==['bbarrett@lubbockcad.org']
