@@ -15,7 +15,7 @@ actually lives in via `source_table`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -141,6 +141,8 @@ class UnifiedIntelligenceItem:
     # property data loaded, never fabricated. Defaulted so existing
     # construction sites (tests, callers) don't need updating for an
     # additive field.
+    priority_reason: str | None = None
+    priority_rank: int = 5
     property_match_status: str | None = None
     matched_address: str | None = None
     property_account_number: str | None = None
@@ -294,6 +296,32 @@ def list_intelligence_queue(
     if signal_type in (None, "sales_tax_inactive"):
         items.extend(_from_closure_review_row(row) for row in _fetch_closure_reviews(district_id))
 
+    from app.comptroller.priority import match_priority
+    ranked = []
+    for item in items:
+        if item.signal_type == 'sales_tax_inactive':
+            rank, priority, reason = match_priority(account=item.matched_account_number,
+                record_id=item.raw.get('matched_record_id') or item.raw.get('matched_account_id'),
+                signals=item.match_signals,reason=item.match_reason,ambiguous=item.is_ambiguous,confidence=item.confidence)
+            item = replace(item, priority=priority, priority_reason=reason, priority_rank=rank)
+        elif item.signal_type == 'mailing_address_change':
+            linked_pid = (item.matched_account_number or item.property_account_number
+                or item.raw.get('matched_record_id') or item.raw.get('matched_account_id'))
+            changed = (bool(item.mailing_address_current and item.mailing_address_observed)
+                and item.mailing_address_current.strip().upper() != item.mailing_address_observed.strip().upper()
+                and item.classification in ('CONFIRMED_MAILING_ADDRESS_CHANGE','LIKELY_MAILING_ADDRESS_CHANGE','POSSIBLE_MAILING_ADDRESS_CHANGE'))
+            if linked_pid and changed and item.confidence == 'HIGH' and not item.is_ambiguous and item.classification != 'POSSIBLE_MAILING_ADDRESS_CHANGE':
+                item = replace(item, priority='HIGH', priority_rank=0,
+                    priority_reason='Matched CAD account + updated mailing address')
+            elif linked_pid and changed:
+                item = replace(item, priority='MEDIUM', priority_rank=1,
+                    priority_reason='Possible account/mail change — verify match')
+            else:
+                item = replace(item, priority='LOW', priority_rank=2,
+                    priority_reason='No matched CAD PID' if not linked_pid else 'Mailing update needs verification')
+        ranked.append(item)
+    items = ranked
+
     if status:
         items = [i for i in items if i.status == status]
     if confidence:
@@ -302,6 +330,12 @@ def list_intelligence_queue(
         items = [i for i in items if (i.source_city or "").strip().upper() == city.strip().upper()]
 
     items.sort(key=lambda i: i.created_at or "", reverse=True)
+    # Reorder inactive records within their existing queue positions; other
+    # signal types keep their established order and priority.
+    inactive = iter(sorted((i for i in items if i.signal_type == "sales_tax_inactive"),key=lambda i:i.priority_rank))
+    items = [next(inactive) if i.signal_type == "sales_tax_inactive" else i for i in items]
+    mailing = iter(sorted((i for i in items if i.signal_type == "mailing_address_change"),key=lambda i:i.priority_rank))
+    items = [next(mailing) if i.signal_type == "mailing_address_change" else i for i in items]
     return items
 
 

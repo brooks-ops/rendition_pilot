@@ -2482,6 +2482,7 @@
           <div class="subtle">${cadHtml(addressLine || "Address not available")}</div>
           <div class="subtle">Source: ${cadHtml(item.source_label)} | Detected: ${cadHtml(item.first_detected_at)} | Status: ${cadHtml(item.status)}</div>
           <div class="subtle">${matched}</div>
+          ${item.priority_reason ? `<div class="subtle">Priority: ${cadHtml(item.priority_reason)}</div>` : ""}
           <div class="subtle">Reason: ${cadHtml(item.match_reason)}</div>
         </div>`;
     }
