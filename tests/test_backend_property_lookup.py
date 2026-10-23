@@ -42,7 +42,7 @@ def test_requires_district_admin(monkeypatch):
     def deny(access_token):
         raise HTTPException(status_code=403, detail="nope")
 
-    monkeypatch.setattr("backend.main.require_district_admin", deny)
+    monkeypatch.setattr("backend.main.require_bpp_access", deny)
 
     with pytest.raises(HTTPException) as exc_info:
         property_lookup(PropertyLookupRequest(access_token="fake", address="100 Main St"))
@@ -50,7 +50,7 @@ def test_requires_district_admin(monkeypatch):
 
 
 def test_returns_404_when_no_jurisdiction_configured(monkeypatch):
-    monkeypatch.setattr("backend.main.require_district_admin", lambda access_token: make_district())
+    monkeypatch.setattr("backend.main.require_bpp_access", lambda access_token: make_district())
     monkeypatch.setattr(comptroller_jurisdictions, "get_jurisdiction_by_district_id", lambda district_id: None)
 
     with pytest.raises(HTTPException) as exc_info:
@@ -60,7 +60,7 @@ def test_returns_404_when_no_jurisdiction_configured(monkeypatch):
 
 def test_returns_400_when_capability_not_configured(monkeypatch):
     jurisdiction = make_jurisdiction(capabilities={})
-    monkeypatch.setattr("backend.main.require_district_admin", lambda access_token: make_district())
+    monkeypatch.setattr("backend.main.require_bpp_access", lambda access_token: make_district())
     monkeypatch.setattr(comptroller_jurisdictions, "get_jurisdiction_by_district_id", lambda district_id: jurisdiction)
     monkeypatch.setattr(comptroller_property_adapter, "get_property_adapter", lambda j: type("A", (), {"search_properties": staticmethod(lambda j2: [])})())
 
@@ -76,7 +76,7 @@ def test_returns_400_when_capability_not_configured(monkeypatch):
 
 def test_returns_match_details_for_own_jurisdiction(monkeypatch):
     jurisdiction = make_jurisdiction()
-    monkeypatch.setattr("backend.main.require_district_admin", lambda access_token: make_district())
+    monkeypatch.setattr("backend.main.require_bpp_access", lambda access_token: make_district())
     monkeypatch.setattr(comptroller_jurisdictions, "get_jurisdiction_by_district_id", lambda district_id: jurisdiction)
     monkeypatch.setattr(comptroller_property_adapter, "get_property_adapter", lambda j: type("A", (), {"search_properties": staticmethod(lambda j2: [])})())
 
@@ -111,7 +111,7 @@ def test_address_lookup_never_loads_the_full_property_table(monkeypatch):
     table that took over a minute per request and made the tool look hung."""
 
     jurisdiction = make_jurisdiction()
-    monkeypatch.setattr("backend.main.require_district_admin", lambda access_token: make_district())
+    monkeypatch.setattr("backend.main.require_bpp_access", lambda access_token: make_district())
     monkeypatch.setattr(comptroller_jurisdictions, "get_jurisdiction_by_district_id", lambda district_id: jurisdiction)
 
     def fail_if_called(j):
@@ -140,7 +140,7 @@ def test_address_lookup_never_loads_the_full_property_table(monkeypatch):
 
 def test_requires_address_or_account_number(monkeypatch):
     jurisdiction = make_jurisdiction()
-    monkeypatch.setattr("backend.main.require_district_admin", lambda access_token: make_district())
+    monkeypatch.setattr("backend.main.require_bpp_access", lambda access_token: make_district())
     monkeypatch.setattr(comptroller_jurisdictions, "get_jurisdiction_by_district_id", lambda district_id: jurisdiction)
 
     with pytest.raises(HTTPException) as exc_info:
@@ -150,7 +150,7 @@ def test_requires_address_or_account_number(monkeypatch):
 
 def test_looks_up_by_account_number(monkeypatch):
     jurisdiction = make_jurisdiction()
-    monkeypatch.setattr("backend.main.require_district_admin", lambda access_token: make_district())
+    monkeypatch.setattr("backend.main.require_bpp_access", lambda access_token: make_district())
     monkeypatch.setattr(comptroller_jurisdictions, "get_jurisdiction_by_district_id", lambda district_id: jurisdiction)
 
     def fail_if_called(j):

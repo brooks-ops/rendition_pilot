@@ -601,6 +601,11 @@ async def enforce_bpp_workspace(request,call_next):
 
 
 
+def require_bpp_access(access_token: str) -> DistrictContext:
+    """Every BPP member can use district-scoped BPP tools; Admin stays separate."""
+    return require_access(get_authenticated_district_context(access_token), 'bpp')
+
+
 def require_district_admin(access_token: str) -> DistrictContext:
     district = get_authenticated_district_context(access_token)
     if district.role != "admin":
@@ -2124,7 +2129,7 @@ def comptroller_review_queue_export(request: ComptrollerReviewExportRequest) -> 
 # Unified read/action surface over app.comptroller.intelligence, which merges
 # the new bpp_intelligence_items table (New Business Detection today) with
 # the existing comptroller_closure_reviews table (sales-tax closures,
-# untouched). Gated the same way as the other Comptroller admin endpoints.
+# untouched). Available to members with BPP workspace access in their own district.
 # investigate/resolve/dismiss only ever write this queue's own status/
 # resolution/notes/reviewer fields -- never property value, appraisal
 # status, ownership, account status, BPP records, or exemption data.
@@ -2132,7 +2137,7 @@ def comptroller_review_queue_export(request: ComptrollerReviewExportRequest) -> 
 
 @app.post("/api/admin/intelligence/summary")
 def intelligence_summary(request: ComptrollerStatusRequest) -> dict[str, Any]:
-    district = require_district_admin(request.access_token)
+    district = require_bpp_access(request.access_token)
     try:
         summary = comptroller_intelligence.get_queue_summary(district.district_id)
     except ComptrollerServiceError as exc:
@@ -2142,7 +2147,7 @@ def intelligence_summary(request: ComptrollerStatusRequest) -> dict[str, Any]:
 
 @app.post("/api/admin/intelligence/queue")
 def intelligence_queue(request: IntelligenceQueueRequest) -> dict[str, Any]:
-    district = require_district_admin(request.access_token)
+    district = require_bpp_access(request.access_token)
     try:
         items = comptroller_intelligence.list_intelligence_queue(
             district.district_id,
@@ -2167,13 +2172,13 @@ def _require_own_district_item(district, source_table: str, item_id: str) -> com
 
 @app.post("/api/admin/intelligence/item")
 def intelligence_item_detail(request: IntelligenceItemRequest) -> dict[str, Any]:
-    district = require_district_admin(request.access_token)
+    district = require_bpp_access(request.access_token)
     item = _require_own_district_item(district, request.source_table, request.item_id)
     return {"item": to_jsonable(asdict(item))}
 
 
 def _cad_item_context(request):
-    district = require_district_admin(request.access_token)
+    district = require_bpp_access(request.access_token)
     item = _require_own_district_item(district, request.source_table, request.item_id)
     jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
     if not jurisdiction:
@@ -2213,7 +2218,7 @@ def intelligence_cad_decision(request: CadDecisionRequest):
 
 @app.post("/api/admin/intelligence/cad-health")
 def intelligence_cad_health(request: ComptrollerStatusRequest):
-    district = require_district_admin(request.access_token)
+    district = require_bpp_access(request.access_token)
     jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
     if not jurisdiction:
         return {"configured": False}
@@ -2226,7 +2231,7 @@ def intelligence_cad_health(request: ComptrollerStatusRequest):
 
 @app.post("/api/admin/intelligence/cad-refresh")
 def intelligence_cad_refresh(request: ComptrollerStatusRequest, background_tasks: BackgroundTasks):
-    district = require_district_admin(request.access_token)
+    district = require_bpp_access(request.access_token)
     jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
     if not jurisdiction:
         raise HTTPException(status_code=404, detail="No CAD jurisdiction is configured.")
@@ -2246,7 +2251,7 @@ def intelligence_cad_refresh(request: ComptrollerStatusRequest, background_tasks
 
 
 def _cad_import_context(request):
-    district = require_district_admin(request.access_token)
+    district = require_bpp_access(request.access_token)
     jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
     if not jurisdiction:
         raise HTTPException(status_code=404, detail="No CAD jurisdiction is configured for this district.")
@@ -2285,7 +2290,7 @@ def intelligence_cad_import(request: CadImportRequest, background_tasks: Backgro
         if preview['validation_error']:
             raise comptroller_property_import.PropertyImportError(preview['validation_error'])
         configured = replace(jurisdiction, property_field_mapping=request.mapping)
-        result = comptroller_property_import.import_property_csv(configured, preview['csv_text'], source_as_of_date=as_of.isoformat(), notes=f"Admin upload: {Path(request.filename).name}")
+        result = comptroller_property_import.import_property_csv(configured, preview['csv_text'], source_as_of_date=as_of.isoformat(), notes=f"BPP upload: {Path(request.filename).name}")
         # Keep this district's mappings for the next export; never another district's.
         url, key = comptroller_property_import.get_supabase_config()
         comptroller_property_import._request_json("PATCH", f"{url}/rest/v1/jurisdictions", comptroller_property_import.postgrest_headers(key),
@@ -2302,7 +2307,7 @@ def intelligence_cad_import(request: CadImportRequest, background_tasks: Backgro
 
 @app.post("/api/admin/intelligence/investigate")
 def intelligence_investigate(request: IntelligenceInvestigateRequest) -> dict[str, Any]:
-    district = require_district_admin(request.access_token)
+    district = require_bpp_access(request.access_token)
     _require_own_district_item(district, request.source_table, request.item_id)
     user = get_supabase_user(request.access_token)
     try:
@@ -2316,7 +2321,7 @@ def intelligence_investigate(request: IntelligenceInvestigateRequest) -> dict[st
 
 @app.post("/api/admin/intelligence/resolve")
 def intelligence_resolve(request: IntelligenceResolveRequest) -> dict[str, Any]:
-    district = require_district_admin(request.access_token)
+    district = require_bpp_access(request.access_token)
     _require_own_district_item(district, request.source_table, request.item_id)
     user = get_supabase_user(request.access_token)
     try:
@@ -2341,7 +2346,7 @@ def intelligence_account_card(request: IntelligenceItemRequest) -> dict[str, Any
     write is an audit marker (account_card_generated_at) on the item
     itself -- never a new account, never official CAD data."""
 
-    district = require_district_admin(request.access_token)
+    district = require_bpp_access(request.access_token)
     item = _require_own_district_item(district, request.source_table, request.item_id)
     if not item.jurisdiction_id:
         raise HTTPException(status_code=404, detail="No jurisdiction is configured for this item.")
@@ -2367,7 +2372,7 @@ def intelligence_account_card(request: IntelligenceItemRequest) -> dict[str, Any
 
 @app.post("/api/admin/property/lookup")
 def property_lookup(request: PropertyLookupRequest) -> dict[str, Any]:
-    district = require_district_admin(request.access_token)
+    district = require_bpp_access(request.access_token)
     jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
     if jurisdiction is None:
         raise HTTPException(status_code=404, detail="No jurisdiction is configured for this district yet.")
@@ -2447,7 +2452,7 @@ def production_readiness(request: ProductionReadinessRequest) -> dict[str, Any]:
 
 @app.post("/api/admin/intelligence/dismiss")
 def intelligence_dismiss(request: IntelligenceDismissRequest) -> dict[str, Any]:
-    district = require_district_admin(request.access_token)
+    district = require_bpp_access(request.access_token)
     _require_own_district_item(district, request.source_table, request.item_id)
     user = get_supabase_user(request.access_token)
     try:

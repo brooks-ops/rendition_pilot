@@ -89,3 +89,49 @@ def test_permission_storage_outage_fails_closed(monkeypatch):
     monkeypatch.setattr(access,'object_request',unavailable)
     with pytest.raises(HTTPException) as denied:access.require_access(district(),'commercial')
     assert denied.value.status_code==503
+
+
+def test_bpp_member_can_use_intelligence_but_cannot_use_admin_or_readiness(api,monkeypatch):
+    client,_=api
+    seen=[]
+    monkeypatch.setattr(main.comptroller_intelligence,'get_queue_summary',lambda district_id:seen.append(district_id) or {'new':0})
+    monkeypatch.setattr(main.comptroller_intelligence,'list_intelligence_queue',lambda district_id,**kw:[])
+    assert client.post('/api/admin/intelligence/summary',json={'access_token':'bpp'}).status_code==200
+    assert client.post('/api/admin/intelligence/queue',json={'access_token':'bpp','signal_type':'mailing_address_change'}).status_code==200
+    assert seen==['d1']
+    assert client.post('/api/admin/intelligence/queue',json={'access_token':'commercial'}).status_code==403
+    assert client.post('/api/admin/production-readiness',json={'access_token':'bpp'}).status_code==403
+    assert client.post('/api/district/users',json={'access_token':'bpp'}).status_code==403
+    assert client.post('/api/district/users/invite',json={'access_token':'bpp','email':'x@cad.org'}).status_code==403
+    assert client.post('/api/district/users/remove',json={'access_token':'bpp','membership_id':'target'}).status_code==403
+    access.save_access('d1','bpp@cad.org',False,True,'admin')
+    assert client.post('/api/admin/intelligence/summary',json={'access_token':'bpp'}).status_code==403
+
+
+def test_bpp_member_review_actions_keep_district_isolation(api,monkeypatch):
+    from tests.test_backend_intelligence_queue import make_item
+    client,_=api
+    other=make_item(district_id='other-district')
+    monkeypatch.setattr(main.comptroller_intelligence,'get_intelligence_item',lambda *a:other)
+    mutate=__import__('unittest.mock',fromlist=['Mock']).Mock()
+    monkeypatch.setattr(main.comptroller_intelligence,'dismiss_item',mutate)
+    response=client.post('/api/admin/intelligence/dismiss',json={'access_token':'bpp','source_table':'bpp_intelligence_items','item_id':'other'})
+    assert response.status_code==403
+    mutate.assert_not_called()
+
+
+def test_bpp_member_can_review_own_district_item(api,monkeypatch):
+    from tests.test_backend_intelligence_queue import make_item
+    from unittest.mock import Mock
+    client,_=api
+    own=make_item(district_id='d1')
+    monkeypatch.setattr(main.comptroller_intelligence,'get_intelligence_item',lambda *a:own)
+    monkeypatch.setattr(main,'get_supabase_user',lambda _:{'id':'bpp-user'})
+    mutate=Mock(return_value=own)
+    monkeypatch.setattr(main.comptroller_intelligence,'dismiss_item',mutate)
+    response=client.post('/api/admin/intelligence/dismiss',json={'access_token':'bpp','source_table':'bpp_intelligence_items','item_id':own.id})
+    assert response.status_code==200
+    assert mutate.call_args.kwargs['reviewed_by']=='bpp-user'
+    monkeypatch.setattr(main.comptroller_jurisdictions,'get_jurisdiction_by_district_id',lambda _:None)
+    assert client.post('/api/admin/intelligence/cad-health',json={'access_token':'bpp'}).status_code==200
+    assert client.post('/api/admin/property/lookup',json={'access_token':'commercial','address':'100 Main St'}).status_code==403

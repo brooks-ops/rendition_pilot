@@ -1120,6 +1120,11 @@
       }
     }
 
+    function canUseBpp() {
+      return !!appState.auth?.access_token && !appState.auth?.district?.must_change_password &&
+        (appState.auth?.district?.role === "admin" || appState.auth?.district?.workspace_access?.bpp === true);
+    }
+
     function renderAuthState() {
       const mustChange = !!appState.auth?.district?.must_change_password;
       const authed = !!(appState.auth && appState.auth.access_token && appState.auth.district) && !mustChange;
@@ -1147,13 +1152,19 @@
         if(!grants.bpp && grants.commercial){location.replace('/commercial');return;}
         $('commercial-tab').classList.toggle('hidden',!grants.commercial);
         const isAdmin = appState.auth.district.role === "admin";
+        if (!isAdmin && ["view-admin","view-readiness"].some(id => $(id).classList.contains("active"))) {
+          document.querySelectorAll(".view").forEach(view => view.classList.toggle("active", view.id === "view-single"));
+          document.querySelectorAll(".tab-btn[data-view]").forEach(button => button.classList.toggle("active", button.dataset.view === "single"));
+          $("bpp-page-title").textContent = "Rendition review";
+          $("bpp-breadcrumb").textContent = "BPP";
+        }
         $("signed-in-email").textContent = `Signed in as ${appState.auth.district.email || appState.auth.user?.email || ""}`;
         $("signed-in-district").textContent = `District: ${appState.auth.district.district_name} | Role: ${appState.auth.district.role || "member"}`;
         $("app-subtitle").textContent = `${appState.auth.district.district_name} | Intelligent BPP rendition review with side-by-side document verification.`;
         $("admin-tab").classList.toggle("hidden", !isAdmin);
-        $("intelligence-tab").classList.toggle("hidden", !isAdmin);
-        $("mailing-tab").classList.toggle("hidden", !isAdmin);
-        $("property-tab").classList.toggle("hidden", !isAdmin);
+        $("intelligence-tab").classList.toggle("hidden", !canUseBpp());
+        $("mailing-tab").classList.toggle("hidden", !canUseBpp());
+        $("property-tab").classList.toggle("hidden", !canUseBpp());
         $("readiness-tab").classList.toggle("hidden", !isAdmin);
         if (isAdmin) {
           refreshDistrictUsers();
@@ -1180,8 +1191,8 @@
           $("bpp-breadcrumb").textContent = button.textContent.trim();
           document.querySelectorAll(".bpp-navigation [data-view]").forEach(item => item.setAttribute("aria-current", item === button ? "page" : "false"));
           if (button.dataset.view === "admin" && appState.auth?.district?.role === "admin") refreshDistrictUsers();
-          if (button.dataset.view === "intelligence" && appState.auth?.district?.role === "admin") refreshIntelligenceQueue();
-          if (button.dataset.view === "mailing" && appState.auth?.district?.role === "admin") refreshMailingQueue();
+          if (button.dataset.view === "intelligence" && canUseBpp()) refreshIntelligenceQueue();
+          if (button.dataset.view === "mailing" && canUseBpp()) refreshMailingQueue();
           if (button.dataset.view === "readiness" && appState.auth?.district?.role === "admin") refreshReadiness().catch((error) => showFlash(error.message, "error"));
         });
       });
@@ -2417,7 +2428,7 @@
     }
 
     async function refreshIntelligenceQueue() {
-      if (!appState.auth?.access_token || appState.auth?.district?.role !== "admin") return;
+      if (!canUseBpp()) return;
       const payload = { access_token: appState.auth.access_token };
       const signal = $("intel-filter-signal").value;
       const status = $("intel-filter-status").value;
@@ -2443,7 +2454,7 @@
     }
 
     async function refreshMailingQueue() {
-      if (!appState.auth?.access_token || appState.auth?.district?.role !== "admin") return;
+      if (!canUseBpp()) return;
       const payload = { access_token: appState.auth.access_token, signal_type: "mailing_address_change" };
       const status = $("mailing-filter-status").value;
       const confidence = $("mailing-filter-confidence").value;
