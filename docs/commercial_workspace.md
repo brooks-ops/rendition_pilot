@@ -116,3 +116,12 @@ python -m pytest tests/test_commercial_workspace.py \
 Tests cover recalculation, lookup error isolation, unavailable dependencies,
 preview/apply/undo, stale preview rejection, existing overrides, zero inputs,
 empty selections, audited new-property creation and template inheritance.
+
+
+## ARB presentation and automatic equity
+
+The property drawer now presents a designed Pro Forma and an automatic Equity sheet, with a per-property PDF download. Combined packets always include both the income/cost summary and a separate Equity section for every selected subject. No manual comparable selection is required.
+
+Comparison eligibility requires the same model and exact source category, matching classification/quality/hotel service type when provided by the subject, a positive current model value and denominator, and size between half and twice the subject. Rank uses proportional size difference followed by year-built difference; value never affects rank. Subject account components are excluded and candidate accounts are deduplicated. The first six qualifying accounts are shown. Apartments use units, hotels rooms, senior housing source units, and other models square feet. Sparse or incomplete groups receive an explicit limited-evidence explanation rather than unrelated comps.
+
+The median and median-times-subject-size are unadjusted model comparisons, not sales or a certified equity conclusion. No inferred dollar adjustments or geographic proximity claims are made. Criteria, current source rows, model version and exceptions remain visible. Every new request reads current saved model results, including category changes and undo.

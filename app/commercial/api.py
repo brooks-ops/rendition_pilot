@@ -29,6 +29,13 @@ def commercial_router(resolve_context):
         try:return store.detail(payload['id'])
         except KeyError:raise HTTPException(404,'Property row not found')
 
+    @router.post('/equity')
+    def equity(payload:dict):
+        store,c=context(payload)
+        from .equity import generate_equity
+        try:return generate_equity(store,payload['id'])
+        except KeyError:raise HTTPException(404,'Property row not found')
+
     @router.post('/preview')
     def preview(payload:dict):
         store,c=context(payload)

@@ -126,4 +126,57 @@ def test_api_requires_district_context_for_every_data_request(store,monkeypatch)
     assert response.status_code==200
     assert response.json()['accounts']==2
     assert client.post('/api/commercial/property',json={'access_token':'valid','id':'missing'}).status_code==404
-    assert calls==['','valid','valid']
+    assert client.post('/api/commercial/equity',json={'id':'R1'}).status_code==401
+    assert client.post('/api/commercial/equity',json={'access_token':'valid','id':'R1'}).json()['comparables'][0]['account']=='R2'
+    assert calls==['','valid','valid','','valid']
+
+
+def test_automatic_equity_excludes_subject_and_updates_with_saved_values(store):
+    from app.commercial.equity import generate_equity
+    e=generate_equity(store,'R1')
+    assert [r['account'] for r in e['comparables']]==['R2']
+    assert e['median_unit_value']==5
+    assert e['status']=='limited'
+    p=preview(store,filters={'ids':['R2']});store.commit(p['token'],'appraiser','Revised rate')
+    assert generate_equity(store,'R1')['median_unit_value']==2.5
+
+
+def test_automatic_equity_rejects_invalid_size_and_other_categories(store):
+    from app.commercial.equity import generate_equity
+    store.create('R1',{'account':'R3','category':'Different use'},'appraiser')
+    p=preview(store,filters={'ids':['R2']},field='area_sq_ft',value=0)
+    store.commit(p['token'],'appraiser','Zero area')
+    assert generate_equity(store,'R1')['comparables']==[]
+    assert generate_equity(store,'R2')['subject']['unit_value'] is None
+
+
+def test_automatic_equity_deduplicates_accounts_and_ranks_without_values(store):
+    from app.commercial.equity import generate_equity
+    store.create('R1',{'account':'R3'},'appraiser')
+    p=preview(store,filters={'ids':['R2']},field='cap_rate',value=.01)
+    store.commit(p['token'],'appraiser','Higher value does not affect ranking')
+    e=generate_equity(store,'R1')
+    assert [r['account'] for r in e['comparables']]==['R2','R3']
+    assert e['comparables'][0]['comparison_value']==10000
+
+
+def test_packets_always_include_automatic_equity(store):
+    from app.commercial.packets import build_packet
+    pdf=build_packet(store,['R1'])
+    assert pdf.startswith(b'%PDF')
+
+
+@pytest.mark.parametrize('model,basis',[('apartments','units'),('hotels','rooms'),('office','area_sq_ft')])
+def test_equity_uses_model_basis_and_one_row_per_account(model,basis):
+    from app.commercial.equity import generate_equity
+    def row(id,account,size,category='A',classification='A'):
+        return {'id':id,'account':account,'model':model,'source_row':2,'values':{'category':category,'classification':classification,basis:size,'total_value':1000},'errors':{}}
+    records=[row('s','R1',100),row('subject-component','R1',100),row('a','R2',100),row('duplicate','R2',110),row('wrong-size','R3',301),row('wrong-class','R4',100,classification='B')]
+    class FakeStore:
+        def detail(self,id):return next(r for r in records if r['id']==id)
+        def records(self):return records
+        def snapshot(self,r):return r
+    e=generate_equity(FakeStore(),'s')
+    assert e['basis']==basis
+    assert [r['id'] for r in e['comparables']]==['a']
+    assert e['median_unit_value']==10
