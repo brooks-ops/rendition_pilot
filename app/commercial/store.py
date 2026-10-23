@@ -108,6 +108,7 @@ class Store:
     def match(self,snapshot,filters):
         v=snapshot['values']
         if filters.get('model') and snapshot['model']!=filters['model']:return False
+        if 'categories' in filters and str(v.get('category') or '') not in filters['categories']:return False
         if filters.get('category') and str(v.get('category') or '')!=filters['category']:return False
         if filters.get('classification') and str(v.get('classification') or '')!=filters['classification']:return False
         if filters.get('quality') and str(v.get('quality') or '')!=filters['quality']:return False
