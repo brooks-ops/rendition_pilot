@@ -150,3 +150,21 @@ Commercial APIs enforce Commercial access. BPP review, calculation, review queue
 Commercial → Packet queue accepts pasted account IDs, CSV/TXT files, and XLSX workbooks. Preview identifies the Account column (or best matching column), normalizes R account case/spacing, deduplicates entries, and reports unmatched and invalid entries before the user queues matched accounts. Spreadsheet parsing uses cached values, never executes formulas, limits workbook decompression and reads at most 10,000 rows. Files are limited to 2 MB and imports to 100 distinct accounts. Files and lists are processed in memory rather than persisted.
 
 All populated model rows for each matched account are queued, and individual sections can be removed before generation. Individual download groups selected rows by R account into one PDF per account inside a ZIP, with a CSV manifest of account, filename, models and source rows. Multiple model sections remain separate and are not summed. Every section retains automatic equity and detailed data sheets. Combined PDF download remains available. Individual batches allow 100 accounts / 500 selected model rows; each account allows at most 100 model rows. Missing/stale IDs and generation failures stop the entire download rather than silently omit an account. Revision checks reject mixed-state batches if saved workspace values change during generation. Both endpoints use existing district and Commercial permission checks.
+
+## Packet presentation layout
+
+Every selected model row starts with two portrait presentation sheets: a one-page
+Pro Forma (or cost summary) and a one-page Equity comparison. The value conclusion,
+NOI/capitalization or land/improvements, and subject-versus-peer unit values receive
+clear visual emphasis. Income deductions use parentheses on the presentation
+statement; supporting grids retain the source signs. Hotel source-year revenues,
+monthly warehouse rents, apartment per-unit monthly rents and annual retail/office
+rents keep their respective bases.
+
+Landscape supporting schedules follow for property/rent data, operating/income
+data and value reconciliation/source references. The subject column is shaded,
+peer IDs remain consistent throughout, and missing data and calculation exceptions
+remain explicit. Empty cost operating schedules are omitted. PDF outline bookmarks
+navigate between accounts and sections; combined batches return to portrait for
+each next subject. Individual-account ZIPs and the combined download use this same
+renderer. Source model values and comparison selection are unchanged.

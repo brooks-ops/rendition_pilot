@@ -87,6 +87,7 @@ class PacketBuilder:
             'number':ParagraphStyle('number',fontName='Helvetica',fontSize=9,leading=11,textColor=INK,alignment=TA_RIGHT),
             'bold':ParagraphStyle('bold',fontName='Helvetica-Bold',fontSize=9,leading=12,textColor=INK),
             'head':ParagraphStyle('head',fontName='Helvetica-Bold',fontSize=7.5,leading=10,textColor=MUTED),
+            'head_number':ParagraphStyle('head_number',fontName='Helvetica-Bold',fontSize=7.5,leading=10,textColor=MUTED,alignment=TA_RIGHT),
             'dense':ParagraphStyle('dense',fontName='Helvetica',fontSize=8,leading=10,textColor=INK),
             'dense_number':ParagraphStyle('dense_number',fontName='Helvetica',fontSize=8.5,leading=10.5,textColor=INK,alignment=TA_RIGHT),
         }
@@ -97,7 +98,7 @@ class PacketBuilder:
     def table(self,rows,widths,numeric=(),highlights=(),subject_column=None,dense=False):
         cells=[]
         for row_index,row in enumerate(rows):
-            cells.append([self.p(value,'head' if row_index==0 else 'dense_number' if dense and col in numeric else 'number' if col in numeric else 'dense' if dense else 'cell') for col,value in enumerate(row)])
+            cells.append([self.p(value,'head_number' if row_index==0 and col in numeric else 'head' if row_index==0 else 'dense_number' if dense and col in numeric else 'number' if col in numeric else 'dense' if dense else 'cell') for col,value in enumerate(row)])
         t=Table(cells,colWidths=widths,repeatRows=1,hAlign='LEFT')
         commands=[('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),8),('RIGHTPADDING',(0,0),(-1,-1),8),('TOPPADDING',(0,0),(-1,-1),3 if dense else 4),('BOTTOMPADDING',(0,0),(-1,-1),3 if dense else 4),('LINEBELOW',(0,0),(-1,0),.7,LINE),('BACKGROUND',(0,0),(-1,0),PALE),('LINEBELOW',(0,1),(-1,-1),.35,LINE)]
         if subject_column is not None:commands.append(('BACKGROUND',(subject_column,0),(subject_column,-1),colors.HexColor('#e7f0e8')))
