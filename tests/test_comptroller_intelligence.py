@@ -99,7 +99,7 @@ def test_unmapped_source_falls_back_to_the_raw_value_not_blank(fake_supabase):
 
 def test_mailing_address_change_items_appear_in_the_unified_queue(fake_supabase):
     add_intelligence_item(
-        fake_supabase, signal_type="mailing_address_change", classification="LIKELY_MAILING_ADDRESS_CHANGE",
+        fake_supabase, signal_type="mailing_address_change", matched_record_id="pid-1", classification="LIKELY_MAILING_ADDRESS_CHANGE",
         mailing_address_current="123 MAIN STREET LUBBOCK TX 79401", mailing_address_observed="PO BOX 900 LUBBOCK TX 79401",
     )
 
@@ -289,17 +289,38 @@ def test_mailing_matched_account_with_updated_address_is_highest(fake_supabase):
     linked=add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='MEDIUM',confidence='HIGH',classification='LIKELY_MAILING_ADDRESS_CHANGE',mailing_address_current='100 OLD ST',mailing_address_observed='200 NEW ST',matched_account_number='P1',matched_record_id='pid-1',created_at='2026-01-01')
     unmatched=add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='HIGH',confidence='UNMATCHED',created_at='2026-10-23')
     items=intelligence.list_intelligence_queue('district-1',signal_type='mailing_address_change')
-    assert [i.id for i in items]==[linked['id'],unmatched['id']]
-    assert [i.priority for i in items]==['HIGH','LOW']
+    assert [i.id for i in items]==[linked['id']]
+    assert [i.priority for i in items]==['HIGH']
     assert 'updated mailing' in items[0].priority_reason
-    assert items[1].confidence=='UNMATCHED'
+    assert unmatched['id'] not in {i.id for i in intelligence.list_intelligence_queue('district-1')}
 
 
 def test_mailing_linked_account_without_update_is_not_high(fake_supabase):
     add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='HIGH',matched_record_id='pid-1',confidence='HIGH')
-    assert intelligence.list_intelligence_queue('district-1',signal_type='mailing_address_change')[0].priority=='LOW'
+    assert intelligence.list_intelligence_queue('district-1',signal_type='mailing_address_change')==[]
 
 
 def test_possible_mailing_match_stays_medium(fake_supabase):
     add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='HIGH',matched_record_id='pid-1',confidence='MEDIUM',classification='POSSIBLE_MAILING_ADDRESS_CHANGE',mailing_address_current='100 OLD ST',mailing_address_observed='200 NEW ST')
     assert intelligence.list_intelligence_queue('district-1',signal_type='mailing_address_change')[0].priority=='MEDIUM'
+
+
+def test_sales_tax_ids_and_location_numbers_are_preserved_for_both_sources(fake_supabase):
+    add_intelligence_item(fake_supabase,source_taxpayer_id='01000000001',source_location_number='00001')
+    add_intelligence_item(fake_supabase,signal_type='mailing_address_change',source_taxpayer_id='01000000002',matched_record_id='pid-2',classification='LIKELY_MAILING_ADDRESS_CHANGE',mailing_address_current='100 OLD ST',mailing_address_observed='200 NEW ST')
+    add_closure_review(fake_supabase,comptroller_taxpayer_id='01000000003',comptroller_location_number='00003')
+    items=intelligence.list_intelligence_queue('district-1')
+    by_tax={i.sales_tax_id:i for i in items}
+    assert set(by_tax)=={'01000000001','01000000002','01000000003'}
+    assert by_tax['01000000001'].sales_tax_location_number=='00001'
+    assert by_tax['01000000003'].sales_tax_location_number=='00003'
+    assert by_tax['01000000002'].sales_tax_location_number is None
+    for i in items:
+        detail=intelligence.get_intelligence_item(i.source_table,i.id)
+        assert detail.sales_tax_id==i.sales_tax_id
+
+
+def test_missing_sales_tax_id_is_not_invented(fake_supabase):
+    add_intelligence_item(fake_supabase)
+    add_closure_review(fake_supabase)
+    assert all(i.sales_tax_id is None for i in intelligence.list_intelligence_queue('district-1'))
