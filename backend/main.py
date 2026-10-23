@@ -59,6 +59,7 @@ from app.comptroller import property_enrichment as comptroller_property_enrichme
 from app.comptroller import readiness as comptroller_readiness
 from app.comptroller.service import ComptrollerServiceError
 from app.rendition_persistence import RenditionPersistenceError, persist_locked_review
+from app.commercial.api import commercial_router
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "app" / ".env", override=True)
@@ -547,6 +548,9 @@ def get_authenticated_district_context(access_token: str) -> DistrictContext:
     if not district:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
     return district
+
+
+app.include_router(commercial_router(get_authenticated_district_context))
 
 
 def require_district_admin(access_token: str) -> DistrictContext:
@@ -2329,3 +2333,8 @@ def intelligence_dismiss(request: IntelligenceDismissRequest) -> dict[str, Any]:
     except comptroller_intelligence.IntelligenceQueueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"item": to_jsonable(asdict(item))}
+
+
+@app.get("/commercial")
+def commercial_workspace():
+    return FileResponse(FRONTEND_DIR / "commercial.html")

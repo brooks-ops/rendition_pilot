@@ -9,3 +9,8 @@ Output/
 .server-logs/
 write_test.txt
 .DS_Store
+
+# Commercial account data and scenario history are private runtime data.
+commercial-data/
+*.sqlite3
+*.sqlite3-*
