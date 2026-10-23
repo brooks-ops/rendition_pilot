@@ -75,3 +75,5 @@ body { font-size:14px; }
 .bpp-shell .bpp-data-tools > summary { padding:12px 16px; font-size:12px; }
 .bpp-shell .bpp-data-tools > .button-row, .bpp-shell .bpp-data-tools > #cad-health, .bpp-shell .bpp-data-tools > details { margin:12px 16px; }
 @media(max-width:760px) { .bpp-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .bpp-stats > .field { padding:16px; border-bottom:1px solid var(--line); } .bpp-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+.bpp-register .bpp-tax-id { font-variant-numeric:tabular-nums; white-space:nowrap; font-size:12px; }

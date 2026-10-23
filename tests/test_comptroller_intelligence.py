@@ -303,3 +303,24 @@ def test_mailing_linked_account_without_update_is_not_high(fake_supabase):
 def test_possible_mailing_match_stays_medium(fake_supabase):
     add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='HIGH',matched_record_id='pid-1',confidence='MEDIUM',classification='POSSIBLE_MAILING_ADDRESS_CHANGE',mailing_address_current='100 OLD ST',mailing_address_observed='200 NEW ST')
     assert intelligence.list_intelligence_queue('district-1',signal_type='mailing_address_change')[0].priority=='MEDIUM'
+
+
+def test_sales_tax_ids_and_location_numbers_are_preserved_for_both_sources(fake_supabase):
+    add_intelligence_item(fake_supabase,source_taxpayer_id='01000000001',source_location_number='00001')
+    add_intelligence_item(fake_supabase,signal_type='mailing_address_change',source_taxpayer_id='01000000002')
+    add_closure_review(fake_supabase,comptroller_taxpayer_id='01000000003',comptroller_location_number='00003')
+    items=intelligence.list_intelligence_queue('district-1')
+    by_tax={i.sales_tax_id:i for i in items}
+    assert set(by_tax)=={'01000000001','01000000002','01000000003'}
+    assert by_tax['01000000001'].sales_tax_location_number=='00001'
+    assert by_tax['01000000003'].sales_tax_location_number=='00003'
+    assert by_tax['01000000002'].sales_tax_location_number is None
+    for i in items:
+        detail=intelligence.get_intelligence_item(i.source_table,i.id)
+        assert detail.sales_tax_id==i.sales_tax_id
+
+
+def test_missing_sales_tax_id_is_not_invented(fake_supabase):
+    add_intelligence_item(fake_supabase)
+    add_closure_review(fake_supabase)
+    assert all(i.sales_tax_id is None for i in intelligence.list_intelligence_queue('district-1'))
