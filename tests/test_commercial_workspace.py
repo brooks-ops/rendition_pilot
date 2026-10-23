@@ -492,3 +492,84 @@ def test_packet_presentation_pages_landscape_support_and_navigation(store):
     assert rent_basis('apartments','mix_01_monthly_rent')=='$ / unit / month'
     assert rent_basis('retail','projected_gross_rent')==''
     assert rent_basis('retail','effective_gross_rent')==''
+
+
+def test_read_index_reuses_projection_and_survives_store_restart(store,monkeypatch):
+    from app.commercial.category_updates import category_summary
+    first=store.catalog()
+    first['items'][0]['values']['cap_rate']=999
+    first['models'][0]['fields']['cap_rate']='Z'
+    def unexpected(*args,**kwargs):raise AssertionError('Warm reads must not reload workbook graphs')
+    monkeypatch.setattr(store,'graph',unexpected)
+    assert store.catalog({'query':'R1'})['items'][0]['values']['cap_rate']==.1
+    assert category_summary(store,{'model':'office'})['fields'][0]['key']=='cap_rate'
+    restarted=Store(store.directory)
+    monkeypatch.setattr(restarted,'graph',unexpected)
+    assert restarted.catalog()['items'][0]['values']['total_value']==1000
+
+
+def test_read_index_tracks_other_store_edits_undo_and_new_properties(store):
+    assert store.catalog()['items'][0]['values']['total_value']==1000
+    other=Store(store.directory)
+    p=preview(other);batch=other.commit(p['token'],'appraiser','Revision check')
+    assert store.catalog()['items'][0]['values']['total_value']==500
+    new=other.create('R1',{'account':'R3'},'appraiser')
+    assert new['values']['total_value']==500
+    assert store.catalog({'query':'R3'})['items'][0]['values']['total_value']==500
+    last=other.history()[0];other.undo(last['id'],'appraiser')
+    assert store.catalog({'query':'R3'})['total']==0
+    other.undo(batch['batch_id'],'appraiser')
+    assert store.catalog()['items'][0]['values']['total_value']==1000
+
+
+def test_corrupt_read_index_rebuilds_safely(store):
+    store.catalog()
+    with store.connect() as db:db.execute("UPDATE read_cache SET payload=?",(b'corrupt cache',))
+    restarted=Store(store.directory)
+    assert restarted.catalog()['items'][0]['values']['total_value']==1000
+
+
+def test_remote_failed_upload_restores_read_index(store,monkeypatch):
+    import requests
+    from fastapi import HTTPException
+    from app.commercial.remote import RemoteStore
+    remote=RemoteStore(store.directory,'district-one');remote.catalog()
+    def fail(*args,**kwargs):raise requests.ConnectionError('offline')
+    monkeypatch.setattr('app.commercial.remote.object_request',fail)
+    p=preview(remote)
+    with pytest.raises(HTTPException):remote.commit(p['token'],'appraiser','Must roll back index too')
+    assert remote.catalog()['items'][0]['values']['total_value']==1000
+    assert Store(store.directory).catalog()['items'][0]['values']['cap_rate']==.1
+
+
+def test_remote_restore_transfers_objects_concurrently(store,monkeypatch,tmp_path):
+    import sqlite3,threading
+    from app.commercial.remote import load_store
+    backup=tmp_path/'snapshot.sqlite3'
+    with store.connect() as source,sqlite3.connect(backup) as dest:source.backup(dest)
+    objects={p.name:p.read_bytes() for p in store.directory.iterdir() if p.suffix in ('.json','.gz')}
+    objects['workspace.sqlite3']=backup.read_bytes();barrier=threading.Barrier(2)
+    class Response:
+        status_code=200
+        def __init__(self,data):self.content=data
+        def raise_for_status(self):pass
+        def json(self):return json.loads(self.content)
+    def download(method,district,name,data=None):
+        assert district=='district-one'
+        if name!='manifest.json':barrier.wait(timeout=3)
+        return Response(objects[name])
+    monkeypatch.setenv('SUPABASE_SERVICE_ROLE_KEY','test-only')
+    monkeypatch.setattr('app.commercial.remote.object_request',download)
+    restored=load_store(tmp_path/'parallel','district-one')
+    assert restored.catalog()['items'][0]['values']['total_value']==1000
+
+
+def test_projection_failure_rolls_back_durable_change(store,monkeypatch):
+    from fastapi import HTTPException
+    from app.commercial.remote import RemoteStore
+    remote=RemoteStore(store.directory,'district-one');p=preview(remote)
+    def fail(*args):raise RuntimeError('projection failed')
+    monkeypatch.setattr(remote,'read_view',fail)
+    with pytest.raises(HTTPException):remote.commit(p['token'],'appraiser','Atomic save')
+    assert Store(store.directory).catalog()['items'][0]['values']['cap_rate']==.1
+    assert remote.history()==[]

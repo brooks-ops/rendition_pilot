@@ -8,12 +8,12 @@ def positive(v):
     return isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v) and v>0
 
 def equity_pool(store):
-    with store.connect() as db:revision=db.execute('SELECT revision FROM state').fetchone()[0]
+    revision,rows,_=store.read_view()
     cached=getattr(store,'_equity_pool',None)
     if cached and cached[0]==revision:return cached[1]
     pools={}
-    for raw in store.records():
-        if not raw.get('reference_only'):pools.setdefault(raw['model'],[]).append(store.snapshot(raw))
+    for row in rows:
+        if not row.get('reference_only'):pools.setdefault(row['model'],[]).append(row)
     store._equity_pool=(revision,pools)
     return pools
 

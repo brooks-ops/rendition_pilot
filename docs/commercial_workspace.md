@@ -168,3 +168,27 @@ remain explicit. Empty cost operating schedules are omitted. PDF outline bookmar
 navigate between accounts and sections; combined batches return to portrait for
 each next subject. Individual-account ZIPs and the combined download use this same
 renderer. Source model values and comparison selection are unchanged.
+
+## Commercial read performance
+
+Account lists, category summaries, account-list imports and automatic equity pools
+share a current-value read projection. The projection is keyed by the database
+revision and a versioned manifest hash. Every read checks the saved revision;
+apply, undo and property creation therefore refresh the projection. Its compressed
+SQLite copy is included in durable snapshots so a restored process can reuse it
+without parsing workbook graphs. Cache corruption falls back to rebuilding.
+Bump the projection version when changing its schema or value semantics.
+
+Property detail queries load only the selected model's overrides and related
+account rows, using district-local SQLite indexes. Formula graphs still use the
+two-model bound. Parallel private-object restore uses at most three transfers;
+all objects must succeed before returning a Store. An updated source manifest
+invalidates graph-file reuse. Durable saves include the current projection, and
+failed projection builds/uploads restore the previous database and caches.
+
+The register paints without requesting category summaries. Category data is
+loaded on entry, and closed category cards do not build their input controls.
+Superseded register searches are cancelled, selection changes stay local, and
+sign-out clears in-memory page data. Existing authentication, district resolution
+and workspace permission checks remain on every protected request. Hosting idle
+wake-up time is separate from these application improvements.
