@@ -94,7 +94,13 @@ def commercial_router(resolve_context):
     def packets(payload:dict):
         store,c=context(payload)
         from .packets import build_packet
-        try:data=build_packet(store,payload.get('ids',[]),payload.get('comparison_ids',[]),payload.get('notes',''))
+        try:
+            ids=payload.get('ids',[])
+            data=build_packet(store,ids,payload.get('comparison_ids',[]),payload.get('notes',''))
+            accounts={store.detail(rid)['account'].strip().upper() for rid in ids}
+            import re
+            account=next(iter(accounts)) if len(accounts)==1 else ''
+            filename=account+'.pdf' if re.fullmatch(r'R[0-9]+',account) else 'commercial-appraisal-packets.pdf'
         except (ValueError,KeyError) as exc:raise HTTPException(400,str(exc))
-        return Response(data,media_type='application/pdf',headers={'Content-Disposition':'attachment; filename="commercial-appraisal-packets.pdf"'})
+        return Response(data,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename="{filename}"'})
     return router

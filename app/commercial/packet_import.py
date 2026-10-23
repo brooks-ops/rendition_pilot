@@ -121,7 +121,7 @@ def individual_packet_zip(store,ids,notes=''):
     stream=BytesIO();manifest=StringIO();writer=csv.writer(manifest);writer.writerow(['Account','PDF file','Model sections','Source rows'])
     with zipfile.ZipFile(stream,'w',compression=zipfile.ZIP_DEFLATED) as archive:
         for account,rows in groups.items():
-            filename=f'{account}-ARB-packet.pdf'
+            filename=f'{account}.pdf'
             try:pdf=build_packet(store,rows,notes=notes)
             except Exception as exc:raise ValueError(f'Unable to generate the packet for {account}. No partial ZIP was returned; review this property and try again.') from exc
             archive.writestr(filename,pdf)
