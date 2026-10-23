@@ -921,7 +921,7 @@
             </div>
             <div class="field">
               <label>&nbsp;</label>
-              <button id="intel-action-resolve" type="button">Save outcome</button>
+              <button id="intel-action-resolve" type="button">Mark as complete</button>
             </div>
           </div>
           <div class="field">
@@ -2602,7 +2602,7 @@
       if (!item || appState.intelligence.saving) return;
       const statusEl = $("intel-detail-status");
       if (path.endsWith("/resolve") && !extraPayload.resolution) {
-        statusEl.textContent="Choose an outcome before saving."; statusEl.className="status warn"; $("intel-resolution").focus(); return;
+        statusEl.textContent="Choose an outcome before marking complete."; statusEl.className="status warn"; $("intel-resolution").focus(); return;
       }
       appState.intelligence.saving=true;
       const buttons=["intel-action-investigate","intel-action-resolve","intel-action-dismiss"];
@@ -2615,7 +2615,7 @@
           const sourceLine=$("intel-detail-body").querySelector(".intel-source-line");
           if (sourceLine) sourceLine.textContent=`${item.source_label || item.source || ""} · Detected ${cadDate(item.first_detected_at)} · ${(appState.intelligence.selected.status || "").replaceAll("_"," ")}`;
           statusEl.textContent="Marked in review. Choose an outcome when finished."; statusEl.className="status success";
-        } else { closeIntelligenceDetail(); showFlash(path.endsWith("/dismiss") ? "Item dismissed." : "Review outcome saved.","success"); }
+        } else { closeIntelligenceDetail(); showFlash(path.endsWith("/dismiss") ? "Item dismissed." : "Account review marked complete.","success"); }
         try { await Promise.all([refreshIntelligenceQueue(),refreshMailingQueue()]); }
         catch { showFlash("Your review was saved. Refresh the queue to see the latest status.","warn"); }
       } catch(error) { statusEl.textContent=error.message; statusEl.className="status error"; }
