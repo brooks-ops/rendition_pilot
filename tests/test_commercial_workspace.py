@@ -330,9 +330,9 @@ def test_individual_zip_groups_all_selected_rows_per_account(store,monkeypatch):
     monkeypatch.setattr('app.commercial.packets.build_packet',build)
     data=individual_packet_zip(store,['R1','R2','R1-component','R1'])
     with zipfile.ZipFile(BytesIO(data)) as archive:
-        assert set(archive.namelist())=={'R1-ARB-packet.pdf','R2-ARB-packet.pdf','packet-manifest.csv'}
+        assert set(archive.namelist())=={'R1.pdf','R2.pdf','packet-manifest.csv'}
         assert archive.testzip() is None
-        assert b'R1-ARB-packet.pdf' in archive.read('packet-manifest.csv')
+        assert b'R1.pdf' in archive.read('packet-manifest.csv')
     assert calls==[['R1','R1-component'],['R2']]
 
 
@@ -342,7 +342,7 @@ def test_individual_zip_has_real_separate_subject_pdfs(store):
     import zipfile,fitz
     with zipfile.ZipFile(BytesIO(individual_packet_zip(store,['R1','R2']))) as archive:
         for account,other in [('R1','R2'),('R2','R1')]:
-            pdf=fitz.open(stream=archive.read(account+'-ARB-packet.pdf'),filetype='pdf')
+            pdf=fitz.open(stream=archive.read(account+'.pdf'),filetype='pdf')
             assert account in pdf[0].get_text() and other not in pdf[0].get_text()
             assert any('Equity comparison' in p.get_text() for p in pdf)
 
@@ -388,6 +388,10 @@ def test_account_packet_endpoints_auth_and_zip_delivery(store,monkeypatch):
     assert response.status_code==200 and response.headers['content-type']=='application/zip'
     with zipfile.ZipFile(BytesIO(response.content)) as archive:assert len([n for n in archive.namelist() if n.endswith('.pdf')])==2
     assert client.post('/api/commercial/packets/individual',json={'access_token':'valid','ids':['missing']}).status_code==400
+    for ids,filename in [(['R1'],'R1.pdf'),(['R1','R2'],'commercial-appraisal-packets.pdf')]:
+        pdf=client.post('/api/commercial/packets',json={'access_token':'valid','ids':ids})
+        assert pdf.status_code==200
+        assert pdf.headers['content-disposition']==f'attachment; filename="{filename}"'
 
 
 def test_multi_input_category_apply_and_undo(store):
