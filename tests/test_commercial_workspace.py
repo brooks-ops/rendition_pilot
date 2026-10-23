@@ -428,8 +428,24 @@ def test_multi_input_invalid_change_is_atomic(store):
 def test_category_selection_is_explicit_and_supports_multiple_categories(store):
     from app.commercial.category_updates import category_summary
     assert category_summary(store,{'model':'office','categories':[]})['count']==0
-    assert category_summary(store,{'model':'office'})['categories']==[{'name':'Office A','count':2}]
+    assert category_summary(store,{'model':'office'})['categories']==[{'name':'Office A','count':2,'cap_rates':[{'value':.1,'count':2}],'missing_cap_rates':0}]
     p=store.preview({'filters':{'model':'office','categories':['Office A','Another category']},'field':'cap_rate','value':.2})
     assert p['count']==2
     with pytest.raises(ValueError,match='No eligible'):
         store.preview({'filters':{'model':'office','categories':[]},'field':'cap_rate','value':.2})
+
+
+def test_direct_category_cap_rates_and_model_scope(store):
+    batch=store.preview({'filters':{'ids':['R2']},'field':'category','value':'Office B'})
+    store.commit(batch['token'],'appraiser','Separate category')
+    p=store.preview({'filters':{'model':'office','categories':['Office A','Office B']},'updates':[{'field':'cap_rate','values_by_category':{'Office A':.2,'Office B':.25}}]})
+    assert {r['account']:r['after_value'] for r in p['items']}=={'R1':500,'R2':400}
+    b=store.commit(p['token'],'appraiser','Category cap rates')
+    assert store.detail('R1')['values']['cap_rate']==.2
+    assert store.detail('R2')['values']['cap_rate']==.25
+    store.undo(b['batch_id'],'appraiser')
+    assert store.detail('R1')['values']['cap_rate']==.1
+    with pytest.raises(ValueError,match='selected model'):
+        store.preview({'filters':{'model':'office'},'updates':[{'field':'mix_01_monthly_rent','value':1000}]})
+    with pytest.raises(ValueError):
+        store.preview({'filters':{'model':'office'},'updates':[{'field':'cap_rate','values_by_category':{'Office A':.2,'Office B':-1}}]})

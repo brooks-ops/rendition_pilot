@@ -34,4 +34,9 @@ def category_summary(store, filters):
                 suffix={'units':'Units','monthly_rent':'Monthly rent','unit_area_sq_ft':'Unit area (sq ft)'}[key[len(prefix)+1:]]
                 label=f'{bed} · configuration {int(key.split("_")[1])} · {suffix}'
             fields.append(dict(key=key,column=column,label=label,group=group,unit=unit,minimum=min(numbers) if numbers else None,maximum=max(numbers) if numbers else None,median=median(numbers) if numbers else None,missing=len(values)-len(numbers),overrides=sum(key in r['override_fields'] for r in rows)))
-        return dict(categories=[{'name':name,'count':count} for name,count in sorted(Counter(str(r['values'].get('category') or '') for r in rows).items())],count=len(rows),accounts=len({r['account'] for r in rows}),fields=fields,revision=db.execute('SELECT revision FROM state').fetchone()[0],sheet=store.definitions[model]['sheet'])
+        categories=[]
+        for name,count in sorted(Counter(str(r['values'].get('category') or '') for r in rows).items()):
+            members=[r for r in rows if str(r['values'].get('category') or '')==name]
+            rates=Counter(r['values'].get('cap_rate') for r in members if isinstance(r['values'].get('cap_rate'),(int,float)))
+            categories.append(dict(name=name,count=count,cap_rates=[{'value':value,'count':n} for value,n in sorted(rates.items())],missing_cap_rates=count-sum(rates.values())))
+        return dict(model=model,categories=categories,count=len(rows),accounts=len({r['account'] for r in rows}),fields=fields,revision=db.execute('SELECT revision FROM state').fetchone()[0],sheet=store.definitions[model]['sheet'])

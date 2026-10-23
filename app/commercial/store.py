@@ -183,6 +183,11 @@ class Store:
             if len(set(fields))!=len(fields):raise ValueError('Each input may only appear once')
             field=fields[0];filters=payload.get('filters',{})
             for u in updates:
+                model=filters.get('model')
+                if model and (model not in self.definitions or u['field'] not in self.definitions[model]['fields'] or not self.editable(model,u['field'])):raise ValueError('This input does not belong to the selected model')
+                if 'values_by_category' in u:
+                    if not model or not isinstance(u['values_by_category'],dict):raise ValueError('Category changes require one model and category values')
+                    for value in u['values_by_category'].values():self.validate(u['field'],value)
                 if u.get('operation','set') not in ('set','add','percent'):raise ValueError('Unsupported update operation')
             for r in records:
                 if r.get('reference_only'):continue
@@ -190,7 +195,12 @@ class Store:
                 if not self.match(snap,filters):continue
                 spec=self.definitions[r['model']]['fields']
                 for u in updates:
-                    field=u['field'];operation=u.get('operation','set');amount=u['value'];col=spec.get(field)
+                    field=u['field'];operation=u.get('operation','set');col=spec.get(field)
+                    if 'values_by_category' in u:
+                        category=str(snap['values'].get('category') or '')
+                        if category not in u['values_by_category']:continue
+                        amount=u['values_by_category'][category]
+                    else:amount=u['value']
                     if not col or not self.editable(r['model'],field):continue
                     if col in r['overrides'] and not payload.get('include_overrides',False):skipped.append(r['id']);continue
                     old=snap['values'].get(field)
