@@ -282,3 +282,109 @@ def test_commercial_uses_existing_rendition_account_and_district(monkeypatch):
     restored=client.post('/api/auth/restore',json={'access_token':'test-existing-session'})
     assert restored.json()['district']==response.json()['district']
     assert calls==['bbarrett@lubbockcad.org']
+
+
+def test_account_list_preview_matches_and_reports_exceptions(store):
+    from app.commercial.packet_import import preview_account_list
+    result=preview_account_list(store,{'text':'Account Numbers\nr1, R2\nR1\nR999\nnot-an-account'})
+    assert [i['account'] for i in result['items']]==['R1','R2']
+    assert result['unmatched']==['R999']
+    assert result['duplicate_count']==1
+    assert result['invalid']==[{'row':5,'value':'not-an-account'}]
+    assert result['model_rows']==2
+
+
+def test_account_list_reads_csv_column_and_headerless_lists(store):
+    import base64
+    from app.commercial.packet_import import preview_account_list
+    csv='Owner,Account,Other\nExample,R2,R999\nSecond,R1,R888\n'
+    result=preview_account_list(store,{'filename':'accounts.csv','file_base64':base64.b64encode(csv.encode()).decode()})
+    assert [i['account'] for i in result['items']]==['R2','R1']
+    assert result['unmatched']==[]
+    result=preview_account_list(store,{'filename':'accounts.csv','file_base64':base64.b64encode(b'R1,R2').decode()})
+    assert result['matched_count']==2
+
+
+def test_account_list_reads_excel_sheet_and_account_header(store):
+    import base64
+    from io import BytesIO
+    from openpyxl import Workbook
+    from app.commercial.packet_import import preview_account_list
+    workbook=Workbook();workbook.active.title='Instructions';workbook.active.append(['Use the accounts tab'])
+    sheet=workbook.create_sheet('Accounts');sheet.append(['Owner','Account #']);sheet.append(['Example','R2']);sheet.append(['Example','R1']);sheet.append(['Other','R999'])
+    stream=BytesIO();workbook.save(stream)
+    result=preview_account_list(store,{'filename':'list.xlsx','file_base64':base64.b64encode(stream.getvalue()).decode()})
+    assert result['matched_count']==2 and result['unmatched']==['R999']
+    assert 'Accounts / column 2' in result['source']
+
+
+def test_individual_zip_groups_all_selected_rows_per_account(store,monkeypatch):
+    from app.commercial.packet_import import individual_packet_zip
+    from io import BytesIO
+    import zipfile
+    raw=store.manifest['records'][0].copy();raw['id']='R1-component'
+    with store.connect() as db:db.execute('INSERT INTO records(id,metadata) VALUES(?,?)',(raw['id'],json.dumps(raw)))
+    calls=[]
+    def build(s,ids,notes=''):
+        calls.append(ids);return b'%PDF-test'
+    monkeypatch.setattr('app.commercial.packets.build_packet',build)
+    data=individual_packet_zip(store,['R1','R2','R1-component','R1'])
+    with zipfile.ZipFile(BytesIO(data)) as archive:
+        assert set(archive.namelist())=={'R1-ARB-packet.pdf','R2-ARB-packet.pdf','packet-manifest.csv'}
+        assert archive.testzip() is None
+        assert b'R1-ARB-packet.pdf' in archive.read('packet-manifest.csv')
+    assert calls==[['R1','R1-component'],['R2']]
+
+
+def test_individual_zip_has_real_separate_subject_pdfs(store):
+    from app.commercial.packet_import import individual_packet_zip
+    from io import BytesIO
+    import zipfile,fitz
+    with zipfile.ZipFile(BytesIO(individual_packet_zip(store,['R1','R2']))) as archive:
+        for account,other in [('R1','R2'),('R2','R1')]:
+            pdf=fitz.open(stream=archive.read(account+'-ARB-packet.pdf'),filetype='pdf')
+            assert account in pdf[0].get_text() and other not in pdf[0].get_text()
+            assert any('Equity comparison' in p.get_text() for p in pdf)
+
+
+def test_packet_import_limits_and_invalid_batches(store):
+    from app.commercial.packet_import import individual_packet_zip,preview_account_list
+    with pytest.raises(ValueError,match='100 distinct'):preview_account_list(store,{'text':'\n'.join('R'+str(i) for i in range(101))})
+    with pytest.raises(ValueError,match='No account'):preview_account_list(store,{'text':''})
+    with pytest.raises(ValueError,match='could not be read'):preview_account_list(store,{'filename':'a.csv','file_base64':'not-base64'})
+    with pytest.raises(ValueError,match='Select'):individual_packet_zip(store,[])
+    with pytest.raises(ValueError,match='unavailable'):individual_packet_zip(store,['missing'])
+
+
+def test_packet_zip_does_not_return_partial_or_mixed_revision_archive(store,monkeypatch):
+    from app.commercial.packet_import import individual_packet_zip
+    def fail(*args,**kwargs):raise RuntimeError('generation failure')
+    monkeypatch.setattr('app.commercial.packets.build_packet',fail)
+    with pytest.raises(ValueError,match='No partial ZIP'):individual_packet_zip(store,['R1','R2'])
+    def changed(*args,**kwargs):
+        with store.connect() as db:db.execute('UPDATE state SET revision=revision+1')
+        return b'%PDF-test'
+    monkeypatch.setattr('app.commercial.packets.build_packet',changed)
+    with pytest.raises(ValueError,match='workspace changed'):individual_packet_zip(store,['R1'])
+
+
+def test_account_packet_endpoints_auth_and_zip_delivery(store,monkeypatch):
+    from types import SimpleNamespace
+    from fastapi import FastAPI,HTTPException
+    from fastapi.testclient import TestClient
+    from app.commercial.api import commercial_router
+    import zipfile
+    from io import BytesIO
+    monkeypatch.setenv('COMMERCIAL_DATA_DIR',str(store.directory.parent))
+    def resolve(token):
+        if token!='valid':raise HTTPException(401,'Sign in required')
+        return SimpleNamespace(district_id=store.directory.name,email='appraiser')
+    app=FastAPI();app.include_router(commercial_router(resolve));client=TestClient(app)
+    for route in ('packet-list','packets/individual'):
+        assert client.post('/api/commercial/'+route,json={}).status_code==401
+    result=client.post('/api/commercial/packet-list',json={'access_token':'valid','text':'R1,R2,R999','district_id':'untrusted'}).json()
+    assert result['matched_count']==2 and result['unmatched']==['R999']
+    response=client.post('/api/commercial/packets/individual',json={'access_token':'valid','ids':['R1','R2']})
+    assert response.status_code==200 and response.headers['content-type']=='application/zip'
+    with zipfile.ZipFile(BytesIO(response.content)) as archive:assert len([n for n in archive.namelist() if n.endswith('.pdf')])==2
+    assert client.post('/api/commercial/packets/individual',json={'access_token':'valid','ids':['missing']}).status_code==400
