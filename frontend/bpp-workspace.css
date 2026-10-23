@@ -1,0 +1,77 @@
+/* BPP uses the same workspace frame and register format as Commercial. */
+body { font-size:14px; }
+.bpp-shell { min-height:100vh; }
+.bpp-shell.is-authed { display:grid; grid-template-columns:244px minmax(0,1fr); }
+.bpp-main { min-width:0; }
+.bpp-sidebar { background:var(--nav); color:#dde8df; padding:30px 18px; display:flex; flex-direction:column; position:sticky; top:0; height:100vh; }
+.bpp-brand { display:flex; align-items:center; gap:10px; padding:0 8px 35px; font-size:18px; font-weight:650; }
+.bpp-brand-mark { border:1px solid #98b4a5; border-radius:10px; width:32px; height:36px; display:grid; place-items:center; font:24px Georgia,serif; color:#e9e9cb; }
+.bpp-eyebrow { text-transform:uppercase; letter-spacing:1.7px; font-size:10px; font-weight:700; color:#8fa7a0; margin:0 12px 12px; }
+.bpp-navigation { display:flex; flex-direction:column; gap:3px; }
+.bpp-navigation .tab-btn { display:flex; align-items:center; width:100%; min-height:44px; padding:12px; text-align:left; border:0; border-radius:7px; background:transparent; color:#bfd0c9; font-weight:500; font-size:13px; text-decoration:none; }
+.bpp-navigation .tab-btn.active, .bpp-navigation .tab-btn:hover { color:#ffffff; background:#2d4846; }
+.bpp-navigation #commercial-tab { margin-top:20px; border-top:1px solid #35504d; border-radius:0; padding-top:20px; order:10; }
+.bpp-sidefoot { margin-top:auto; padding:25px 12px 0; line-height:1.7; color:#a8bcb2; font-size:11px; }
+.bpp-topbar { min-height:77px; border-bottom:1px solid var(--line); padding:14px 36px; display:flex; align-items:center; justify-content:space-between; gap:20px; background:#fbfcf9; }
+.bpp-breadcrumb { font-size:12px; color:var(--muted); }
+.bpp-breadcrumb span { padding:0 10px; }
+.bpp-breadcrumb strong { color:var(--ink); font-weight:500; }
+.bpp-topbar .userbox { display:flex; align-items:center; gap:12px; font-size:11px; flex-wrap:wrap; color:var(--muted); }
+.bpp-topbar button { font-size:11px; min-height:34px; padding:0 12px; }
+.bpp-shell .page { padding:33px 36px 80px; max-width:1900px; }
+.bpp-pagehead { margin-bottom:27px; }
+.bpp-pagehead h1 { font-size:32px; letter-spacing:-1px; margin:0 0 9px; font-weight:650; }
+.bpp-pagehead p { margin:0; line-height:1.6; font-size:13px; }
+.bpp-shell .card { border-radius:10px; padding:22px; box-shadow:none; }
+.bpp-shell h3 { font-size:16px; }
+.bpp-shell label { font-size:11px; letter-spacing:.02em; }
+.bpp-shell input, .bpp-shell select, .bpp-shell textarea { border-radius:7px; }
+.bpp-shell button { border-radius:7px; }
+.bpp-shell .layout-4:has(> .mini-card) { gap:0; border:1px solid var(--line); border-radius:10px; overflow:hidden; margin-bottom:25px; background:white; }
+.bpp-shell .layout-4 > .mini-card { border:0; border-right:1px solid var(--line); border-radius:0; background:white; padding:22px 25px; }
+.bpp-shell .layout-4 > .mini-card:last-child { border-right:0; }
+.bpp-shell .mini-card .label { font-size:11px; }
+.bpp-shell .mini-card .value { font-size:28px; font-weight:550; }
+.bpp-register { overflow:auto; border:1px solid var(--line); border-radius:10px; background:white; }
+.bpp-register table { min-width:850px; }
+.bpp-register th { padding:12px 14px; font-size:10px; letter-spacing:.8px; white-space:nowrap; }
+.bpp-register td { padding:16px 14px; font-size:12px; vertical-align:middle; }
+.bpp-register td .subtle { font-size:11px; margin-top:6px; max-width:270px; }
+.bpp-register tr { cursor:pointer; }
+.bpp-register tr:focus-visible { outline:2px solid var(--green); outline-offset:-2px; }
+.bpp-register .bpp-account-link { background:none; color:var(--green); padding:0; min-height:0; text-align:left; font-size:12px; font-weight:700; }
+.bpp-priority, .bpp-status { display:inline-block; border-radius:4px; padding:5px 7px; font-size:10px; background:#f0f3ef; color:#5f7168; white-space:nowrap; }
+.bpp-priority.high { background:#fbefeb; color:#983f31; }
+.bpp-priority.medium { background:#faf0dd; color:#80501c; }
+.bpp-shell:not(.is-authed) #auth-shell { max-width:620px; margin:auto; }
+.bpp-shell:not(.is-authed) .bpp-pagehead { max-width:620px; margin:20px auto 27px; }
+@media(min-width:1600px) { .bpp-shell .page { padding:42px 48px 80px; } .bpp-topbar { padding-left:48px; padding-right:48px; } }
+@media(max-width:1100px) { .bpp-shell.is-authed { grid-template-columns:190px minmax(0,1fr); } .bpp-sidebar { padding:24px 10px; } .bpp-brand { font-size:15px; } .bpp-shell .page { padding:25px 20px 70px; } .bpp-topbar { padding:14px 20px; } }
+@media(max-width:760px) {
+ .bpp-shell.is-authed { display:block; }
+ .bpp-sidebar { height:auto; position:static; padding:16px; }
+ .bpp-brand { padding:0 0 15px; }
+ .bpp-navigation { flex-direction:row; overflow:auto; }
+ .bpp-navigation .tab-btn { width:auto; flex-shrink:0; white-space:nowrap; font-size:11px; min-height:36px; padding:9px; }
+ .bpp-navigation #commercial-tab { margin:0; padding:9px; border:0; }
+ .bpp-sidefoot, .bpp-eyebrow { display:none; }
+ .bpp-topbar { min-height:55px; padding:12px 16px; flex-wrap:wrap; }
+ .bpp-topbar .userbox { gap:8px; text-align:left; }
+ .bpp-shell .page { padding:25px 15px 70px; }
+ .bpp-pagehead h1 { font-size:26px; }
+ .bpp-shell .card { padding:16px; }
+ .bpp-shell .layout-4 > .mini-card { border-right:0; border-bottom:1px solid var(--line); padding:16px; }
+}
+.bpp-reader-info { border:0; box-shadow:none; margin:0 0 14px; background:transparent; }
+.bpp-reader-info > summary { padding:0; font-size:11px; color:var(--muted); font-weight:500; }
+.bpp-reader-info > div { padding:10px 0; }
+.bpp-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border:1px solid var(--line); border-radius:10px; background:white; overflow:hidden; }
+.bpp-stats > .field { padding:22px 25px; margin:0; border-right:1px solid var(--line); }
+.bpp-stats > .field:last-child { border-right:0; }
+.bpp-stats label { margin-bottom:10px; text-transform:uppercase; color:var(--muted); font-weight:500; }
+.bpp-stat-value { font-size:28px; font-weight:550; letter-spacing:-.8px; color:var(--ink); }
+.bpp-filters { display:grid; grid-template-columns:repeat(4,minmax(90px,1fr)) auto; gap:12px; align-items:end; }
+.bpp-shell .bpp-data-tools { padding:0; box-shadow:none; background:#f6f8f5; }
+.bpp-shell .bpp-data-tools > summary { padding:12px 16px; font-size:12px; }
+.bpp-shell .bpp-data-tools > .button-row, .bpp-shell .bpp-data-tools > #cad-health, .bpp-shell .bpp-data-tools > details { margin:12px 16px; }
+@media(max-width:760px) { .bpp-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .bpp-stats > .field { padding:16px; border-bottom:1px solid var(--line); } .bpp-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } }
