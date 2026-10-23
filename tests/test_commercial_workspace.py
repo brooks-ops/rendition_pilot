@@ -462,3 +462,33 @@ def test_multiple_category_inputs_apply_together(store):
     assert store.detail('R1')['values']['area_sq_ft']==250
     store.undo(b['batch_id'],'appraiser')
     assert store.detail('R1')['values']['area_sq_ft']==200
+
+
+def test_packet_presentation_pages_landscape_support_and_navigation(store):
+    import fitz
+    from app.commercial.packets import build_packet,rent_basis
+    before=store.catalog()['revision']
+    doc=fitz.open(stream=build_packet(store,['R1','R2']),filetype='pdf')
+    assert 'Pro Forma' in doc[0].get_text()
+    assert 'Equity comparison' in doc[1].get_text()
+    assert doc[0].rect.width==612 and doc[1].rect.height==792
+    assert any(p.rect.width==792 for p in doc)
+    roots=[entry for entry in doc.get_toc() if entry[0]==1]
+    assert len(roots)==2
+    second=doc[roots[1][2]-1]
+    assert second.rect.width==612 and 'Pro Forma' in second.get_text()
+    assert 'R2  /  Pro Forma' in second.get_text()
+    assert '$1,000' in doc[0].get_text()
+    assert '10.00%' in doc[0].get_text()
+    assert 'Source references' in ''.join(p.get_text() for p in doc)
+    assert store.catalog()['revision']==before
+    for page in doc:
+        assert len(page.get_text())>250
+        for x0,y0,x1,y1,*_ in page.get_text('words'):
+            assert 30<=x0<x1<=page.rect.width-30
+            assert 9<=y0<y1<=page.rect.height-15
+    assert rent_basis('retail','primary_rent')=='$ / sq ft / year'
+    assert rent_basis('miniwarehouse_storage','primary_rent')=='$ / sq ft / month'
+    assert rent_basis('apartments','mix_01_monthly_rent')=='$ / unit / month'
+    assert rent_basis('retail','projected_gross_rent')==''
+    assert rent_basis('retail','effective_gross_rent')==''
