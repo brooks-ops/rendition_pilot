@@ -282,3 +282,19 @@ def test_new_business_priority_and_order_remain_unchanged(fake_supabase):
     older=add_intelligence_item(fake_supabase,created_at='2026-01-01',priority='LOW')
     items=intelligence.list_intelligence_queue('district-1',signal_type='new_business')
     assert [(i.id,i.priority) for i in items]==[(newest['id'],'HIGH'),(older['id'],'LOW')]
+
+
+def test_mailing_no_pid_is_highest_without_demoting_existing_high_alerts(fake_supabase):
+    linked=add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='HIGH',matched_account_number='P1',matched_record_id='pid-1',created_at='2026-10-23')
+    unmatched=add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='MEDIUM',confidence='UNMATCHED',match_signals={'address':'NO MATCH','business_dba_name':'NO MATCH'},created_at='2026-01-01')
+    items=intelligence.list_intelligence_queue('district-1',signal_type='mailing_address_change')
+    assert [i.id for i in items]==[unmatched['id'],linked['id']]
+    assert all(i.priority=='HIGH' for i in items)
+    assert items[0].confidence=='UNMATCHED'
+    assert 'No PID linked' in items[0].priority_reason
+    assert fake_supabase.intelligence_items[unmatched['id']]['priority']=='MEDIUM'
+
+
+def test_mailing_linked_pid_keeps_existing_medium_priority(fake_supabase):
+    add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='MEDIUM',matched_record_id='pid-1')
+    assert intelligence.list_intelligence_queue('district-1',signal_type='mailing_address_change')[0].priority=='MEDIUM'
