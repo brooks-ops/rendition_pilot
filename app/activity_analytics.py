@@ -12,7 +12,7 @@ ACTIONS = {
     'review_started', 'review_completed', 'review_dismissed', 'cad_match_decided',
     'account_summary_generated', 'rendition_locked', 'rendition_report_generated',
     'commercial_update_applied', 'commercial_update_undone', 'commercial_account_created',
-    'commercial_report_generated',
+    'commercial_report_generated', 'commercial_equity_generated',
 }
 MODULES = {'business_intelligence', 'mailing_changes', 'rendition', 'commercial'}
 logger = logging.getLogger(__name__)
@@ -44,13 +44,15 @@ def record_activity(context, action, module, entity_type, entity_id, *, outcome=
         logger.error('Appraiser activity event could not be recorded (action=%s).', action)
 
 
-def report(district_id, start, end):
+def report(district_id, start, end, workspace='all'):
+    if workspace not in ('all', 'bpp', 'commercial'):
+        raise ValueError('Unknown workspace')
     start_date, end_date = date.fromisoformat(start), date.fromisoformat(end)
     if end_date < start_date or (end_date-start_date).days > 365:
         raise ValueError('Choose a date range of up to 366 days.')
     url, key = get_supabase_config()
-    return _request_json('POST', f'{url}/rest/v1/rpc/appraiser_activity_report', postgrest_headers(key),
-                         json_payload={'p_district_id': district_id, 'p_start': start, 'p_end': end})
+    return _request_json('POST', f'{url}/rest/v1/rpc/appraiser_activity_report_v2', postgrest_headers(key),
+                         json_payload={'p_district_id': district_id, 'p_start': start, 'p_end': end, 'p_workspace': workspace})
 
 
 def csv_report(data, *, sales=False):
@@ -60,15 +62,17 @@ def csv_report(data, *, sales=False):
         text = str(value if value is not None else '')
         return "'"+text if text.startswith(('=', '+', '-', '@', '\t', '\r', '\n')) else text
     if sales:
-        writer.writerow(['Period start', 'Period end', 'Tracking started', 'Metric', 'Count'])
+        writer.writerow(['Workspace', 'Period start', 'Period end', 'Tracking started', 'Metric', 'Count'])
         for key, value in data['totals'].items():
-            writer.writerow([data['start'], data['end'], data.get('tracking_started_at') or '', key, value])
+            writer.writerow([data.get('workspace', 'all'), data['start'], data['end'], data.get('tracking_started_at') or '', key, value])
         for row in data.get('outcomes', []):
             metric = ' / '.join(str(row.get(k) or '') for k in ('module', 'action', 'outcome'))
-            writer.writerow([data['start'], data['end'], data.get('tracking_started_at') or '', safe(metric)+' / distinct work items', row.get('work_items', 0)])
-        writer.writerow(['', '', '', 'Counts are recorded product activity, not verified CAD changes or measured time savings.', ''])
+            writer.writerow([data.get('workspace', 'all'), data['start'], data['end'], data.get('tracking_started_at') or '', safe(metric)+' / distinct work items', row.get('work_items', 0)])
+        writer.writerow(['', '', '', '', 'Counts are recorded product activity, not verified CAD changes or measured time savings.', ''])
     else:
-        columns = ['appraiser', 'actions', 'work_items', 'completed', 'started', 'dismissed', 'renditions', 'cad_decisions', 'commercial_updates', 'reports', 'active_days']
+        columns = ['appraiser', 'actions', 'work_items', 'completed', 'started', 'dismissed', 'renditions', 'cad_decisions', 'commercial_updates', 'commercial_rows_updated', 'commercial_accounts_created', 'commercial_undos', 'commercial_reports', 'commercial_report_rows', 'commercial_equity_analyses', 'reports', 'active_days']
+        if data.get('workspace') == 'commercial':
+            columns = ['appraiser', 'commercial_updates', 'commercial_rows_updated', 'commercial_accounts_created', 'commercial_undos', 'commercial_reports', 'commercial_report_rows', 'commercial_equity_analyses', 'active_days', 'actions']
         writer.writerow(columns)
         for row in data['appraisers']:
             writer.writerow([safe(row.get(k, 0)) for k in columns])

@@ -845,7 +845,8 @@
       <div id="view-admin" class="view">
         <section class="card" id="activity-analytics">
           <h3>Appraiser activity</h3>
-          <p class="subtle">Recorded work across BPP and Commercial. Completed reviews and locked renditions count each work item once in this period; action totals include repeat work. Team counts may overlap when appraisers handle the same item.</p>
+          <div class="field"><label for="activity-workspace">Workspace</label><select id="activity-workspace"><option value="all">All workspaces</option><option value="bpp">BPP</option><option value="commercial">Commercial</option></select></div>
+          <p class="subtle">Filter BPP and Commercial work by appraiser and date. Model rows updated counts saved row edits, including later edits to the same row. Undos are listed separately. Completed reviews count each work item once in this period; team counts can overlap.</p>
           <div class="layout-3">
             <div class="field"><label for="activity-start">From</label><input type="date" id="activity-start"></div>
             <div class="field"><label for="activity-end">Through</label><input type="date" id="activity-end"></div>
@@ -854,7 +855,7 @@
           <div class="button-row"><button id="activity-export-team" class="secondary" type="button">Export appraiser totals</button><button id="activity-export-sales" class="secondary" type="button">Export product impact</button></div>
           <div id="activity-status" class="subtle" role="status"></div>
           <div id="activity-totals" class="bpp-stats" style="margin:18px 0;"></div>
-          <div class="queue-table-wrap"><table><thead><tr><th style="min-width:160px;">Appraiser</th><th>Reviews complete</th><th>Renditions locked</th><th>Started</th><th>Dismissed</th><th>CAD decisions</th><th>Commercial batches</th><th>Reports / summaries</th><th>Active days</th><th>All actions</th></tr></thead><tbody id="activity-people"></tbody></table></div>
+          <div class="queue-table-wrap"><table><thead id="activity-head"></thead><tbody id="activity-people"></tbody></table></div>
           <details class="intel-support"><summary>Outcomes and daily activity</summary><div id="activity-breakdown"></div></details>
           <p class="subtle">Product impact export contains aggregate totals only, without appraiser names or account details. Counts show activity in Rendition Pilot, not verified changes in CAD, appraisal value gains, or measured time savings. Analytics begins when tracking is enabled; earlier work is not backfilled.</p>
         </section>
@@ -1101,6 +1102,13 @@
       localStorage.setItem(AUTH_KEY, JSON.stringify(session));
       renderAuthState();
       if (!session.district?.must_change_password) refreshCadSchedules().catch(() => {});
+      const params = new URLSearchParams(location.search);
+      if (!session.district?.must_change_password && session.district?.role==='admin' && params.get('activity')==='commercial') {
+        $('activity-workspace').value='commercial';
+        $('admin-tab').click();
+        params.delete('activity');
+        history.replaceState(null,'',location.pathname+(params.toString() ? '?'+params.toString() : '')+location.hash);
+      }
     }
 
     function clearAuthSession() {
@@ -2619,14 +2627,14 @@
         const start=new Date(today+'T12:00:00Z');start.setUTCDate(start.getUTCDate()-29);
         $('activity-start').value=start.toISOString().slice(0,10);
       }
-      return {start:$('activity-start').value,end:$('activity-end').value};
+      return {start:$('activity-start').value,end:$('activity-end').value,workspace:$('activity-workspace').value};
     }
 
     async function refreshActivityAnalytics(exportKind=null) {
       if (appState.auth?.district?.role !== 'admin') return;
       const dates=activityDates(),status=$('activity-status');
       status.textContent='Loading activity…';
-      const controls=['activity-refresh','activity-export-team','activity-export-sales'];
+      const controls=['activity-refresh','activity-export-team','activity-export-sales','activity-workspace','activity-start','activity-end'];
       controls.forEach(id=>$(id).disabled=true);
       try {
         const response=await fetch(API_BASE+'/api/admin/activity',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,...dates,export:exportKind})});
@@ -2636,12 +2644,17 @@
           status.textContent='Activity export downloaded.';return;
         }
         const data=await response.json(),t=data.totals;
-        $('activity-totals').innerHTML=[['Reviews complete',t.completed],['Renditions locked',t.renditions],['Active appraisers',t.active_appraisers],['All actions',t.actions]].map(([label,value])=>`<div class="field"><label>${label}</label><div class="bpp-stat-value">${Number(value).toLocaleString()}</div></div>`).join('');
-        $('activity-people').innerHTML=data.appraisers.length ? data.appraisers.map(row=>`<tr><td>${cadHtml(row.appraiser)}</td>${['completed','renditions','started','dismissed','cad_decisions','commercial_updates','reports','active_days','actions'].map(key=>`<td>${Number(row[key]).toLocaleString()}</td>`).join('')}</tr>`).join('') : '<tr><td colspan="10">No recorded activity in this period. New work will appear here automatically.</td></tr>';
-        $('activity-breakdown').innerHTML='<h4>Outcomes</h4>'+data.outcomes.map(row=>`<p>${cadHtml(row.module.replaceAll('_',' '))} · ${cadHtml(row.action.replaceAll('_',' '))}${row.outcome ? ' · '+cadHtml(intelResolutionLabel(row.outcome)) : ''}: <strong>${Number(row.work_items)} work items / ${Number(row.actions)} actions</strong></p>`).join('')+'<h4>Daily activity</h4>'+data.daily.map(row=>`<p>${cadHtml(row.work_day)}: ${Number(row.actions)} actions · ${Number(row.completed)} reviews complete · ${Number(row.renditions)} renditions locked</p>`).join('');
-        status.textContent=`${data.start} through ${data.end} · ${data.timezone}. Tracking enabled ${data.tracking_started_at ? new Date(data.tracking_started_at).toLocaleString() : 'now'}.`;
+        const commercial=data.workspace==='commercial';
+        const cards=commercial ? [['Batches saved',t.commercial_updates],['Model rows updated',t.commercial_rows_updated],['Accounts created',t.commercial_accounts_created],['Packet requests',t.commercial_reports]] : [['Reviews complete',t.completed],['Renditions locked',t.renditions],['Active appraisers',t.active_appraisers],['All actions',t.actions]];
+        $('activity-totals').innerHTML=cards.map(([label,value])=>`<div class="field"><label>${label}</label><div class="bpp-stat-value">${Number(value || 0).toLocaleString()}</div></div>`).join('');
+        let columns=commercial ? [['Batches saved','commercial_updates'],['Model rows updated','commercial_rows_updated'],['Accounts created','commercial_accounts_created'],['Undos','commercial_undos'],['Packet requests','commercial_reports'],['Equity analyses','commercial_equity_analyses'],['Active days','active_days'],['All actions','actions']] : [['Reviews complete','completed'],['Renditions locked','renditions'],['Started','started'],['Dismissed','dismissed'],['CAD decisions','cad_decisions'],['Commercial batches','commercial_updates'],['Reports / summaries','reports'],['Active days','active_days'],['All actions','actions']];
+        if (data.workspace==='bpp') columns=columns.filter(([,key])=>key!=='commercial_updates');
+        $('activity-head').innerHTML='<tr><th style="min-width:160px;">Appraiser</th>'+columns.map(([label])=>`<th>${label}</th>`).join('')+'</tr>';
+        $('activity-people').innerHTML=data.appraisers.length ? data.appraisers.map(row=>`<tr><td>${cadHtml(row.appraiser)}</td>${columns.map(([,key])=>`<td>${Number(row[key] || 0).toLocaleString()}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length+1}">No recorded activity in this period. New work will appear here automatically.</td></tr>`;
+        $('activity-breakdown').innerHTML='<h4>Outcomes</h4>'+data.outcomes.map(row=>`<p>${cadHtml(row.module.replaceAll('_',' '))} · ${cadHtml(row.action.replaceAll('_',' '))}${row.outcome ? ' · '+cadHtml(intelResolutionLabel(row.outcome)) : ''}: <strong>${Number(row.work_items)} work items / ${Number(row.actions)} actions</strong></p>`).join('')+'<h4>Daily activity</h4>'+data.daily.map(row=>`<p>${cadHtml(row.work_day)}: ${Number(row.actions)} actions · ${commercial ? `${Number(row.commercial_updates || 0)} batches saved · ${Number(row.commercial_rows_updated || 0)} model rows updated · ${Number(row.commercial_reports || 0)} packet requests` : `${Number(row.completed)} reviews complete · ${Number(row.renditions)} renditions locked`}</p>`).join('');
+        status.textContent=`${commercial ? 'Commercial' : data.workspace==='bpp' ? 'BPP' : 'All workspaces'} · ${data.start} through ${data.end} · ${data.timezone}. Tracking enabled ${data.tracking_started_at ? new Date(data.tracking_started_at).toLocaleString() : 'now'}.`;
       } catch(error) {
-        if (!exportKind) { $('activity-totals').replaceChildren();$('activity-people').replaceChildren();$('activity-breakdown').replaceChildren(); }
+        if (!exportKind) { $('activity-totals').replaceChildren();$('activity-head').replaceChildren();$('activity-people').replaceChildren();$('activity-breakdown').replaceChildren(); }
         status.textContent=error.message;
       } finally {controls.forEach(id=>$(id).disabled=false);}
     }
@@ -3101,6 +3114,7 @@
           else if (!event.shiftKey && document.activeElement===last) { event.preventDefault(); first?.focus(); }
         }
       });
+      $('activity-workspace').addEventListener('change',()=>refreshActivityAnalytics());
       $('activity-refresh').addEventListener('click',()=>refreshActivityAnalytics());
       $('activity-export-team').addEventListener('click',()=>refreshActivityAnalytics('team'));
       $('activity-export-sales').addEventListener('click',()=>refreshActivityAnalytics('sales'));

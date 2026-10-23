@@ -2501,6 +2501,7 @@ def commercial_workspace():
 
 
 class ActivityReportRequest(BaseModel):
+    workspace: Literal['all', 'bpp', 'commercial'] = 'all'
     access_token: str
     start: str
     end: str
@@ -2511,7 +2512,7 @@ class ActivityReportRequest(BaseModel):
 def appraiser_activity_report(request: ActivityReportRequest):
     district = require_district_admin(request.access_token)
     try:
-        data = activity_analytics.report(district.district_id, request.start, request.end)
+        data = activity_analytics.report(district.district_id, request.start, request.end, workspace=request.workspace)
     except ValueError as exc:
         raise HTTPException(400, 'Enter a valid date range of up to 366 days.') from exc
     except ComptrollerServiceError as exc:

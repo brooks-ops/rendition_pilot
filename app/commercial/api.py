@@ -43,7 +43,10 @@ def commercial_router(resolve_context):
     def equity(payload:dict):
         store,c=context(payload)
         from .equity import generate_equity
-        try:return generate_equity(store,payload['id'])
+        try:
+            result = generate_equity(store,payload['id'])
+            record_activity(c, 'commercial_equity_generated', 'commercial', 'commercial_property', payload['id'])
+            return result
         except KeyError:raise HTTPException(404,'Property row not found')
 
     @router.post('/preview')
@@ -98,7 +101,7 @@ def commercial_router(resolve_context):
         from .packet_import import individual_packet_zip
         try:data=individual_packet_zip(store,payload.get('ids',[]),payload.get('notes',''))
         except (ValueError,TypeError,KeyError) as exc:raise HTTPException(400,str(exc))
-        record_activity(c, 'commercial_report_generated', 'commercial', 'commercial_report_set', '|'.join(sorted(set(payload.get('ids',[])))) or 'report', units=len(set(payload.get('ids',[]))))
+        record_activity(c, 'commercial_report_generated', 'commercial', 'commercial_report_set', '|'.join(sorted(set(payload.get('ids',[])))) or 'report', units=len(set(payload.get('ids',[]))), outcome='INDIVIDUAL_PACKETS')
         return Response(data,media_type='application/zip',headers={'Content-Disposition':'attachment; filename="commercial-individual-packets.zip"'})
 
     @router.post('/packets')
@@ -113,6 +116,6 @@ def commercial_router(resolve_context):
             account=next(iter(accounts)) if len(accounts)==1 else ''
             filename=account+'.pdf' if re.fullmatch(r'R[0-9]+',account) else 'commercial-appraisal-packets.pdf'
         except (ValueError,KeyError) as exc:raise HTTPException(400,str(exc))
-        record_activity(c, 'commercial_report_generated', 'commercial', 'commercial_report_set', '|'.join(sorted(set(payload.get('ids',[])))) or 'report', units=len(set(payload.get('ids',[]))))
+        record_activity(c, 'commercial_report_generated', 'commercial', 'commercial_report_set', '|'.join(sorted(set(payload.get('ids',[])))) or 'report', units=len(set(payload.get('ids',[]))), outcome='COMBINED_PDF')
         return Response(data,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename="{filename}"'})
     return router

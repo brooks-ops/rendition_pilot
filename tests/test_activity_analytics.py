@@ -39,14 +39,14 @@ def test_telemetry_failure_does_not_fail_saved_work(monkeypatch,caplog):
 def test_report_uses_verified_district_and_members_cannot_read(monkeypatch):
     monkeypatch.setattr(main,'get_authenticated_district_context',lambda token:context('member' if token=='member' else 'admin'))
     calls=[]
-    monkeypatch.setattr(analytics,'report',lambda district,start,end:calls.append((district,start,end)) or {'totals':{},'appraisers':[]})
+    monkeypatch.setattr(analytics,'report',lambda district,start,end,**kw:calls.append((district,start,end,kw['workspace'])) or {'totals':{},'appraisers':[]})
     client=TestClient(main.app)
     payload={'access_token':'member','start':'2026-10-01','end':'2026-10-23','district_id':'attacker-selected'}
     assert client.post('/api/admin/activity',json=payload).status_code==403
     assert calls==[]
     response=client.post('/api/admin/activity',json={**payload,'access_token':'admin'})
     assert response.status_code==200
-    assert calls==[('district-one','2026-10-01','2026-10-23')]
+    assert calls==[('district-one','2026-10-01','2026-10-23','all')]
     assert response.headers['cache-control']=='no-store'
 
 
@@ -122,3 +122,53 @@ def test_commercial_counts_committed_batch_not_preview_or_failed_update(monkeypa
     assert client.post('/api/commercial/apply',json={'token':'good'}).status_code==200
     assert events[0][0][1:] == ('commercial_update_applied','commercial','commercial_batch','saved-batch')
     assert events[0][1] == {'units':2,'dedup_key':'saved-batch'}
+
+
+def test_commercial_report_scope_carries_through_to_rpc_and_exports(monkeypatch):
+    monkeypatch.setattr(analytics,'get_supabase_config',lambda:('https://db.invalid','key'))
+    captured=[]
+    monkeypatch.setattr(analytics,'_request_json',lambda *a,**kw:captured.append((a,kw)) or {'workspace':'commercial'})
+    assert analytics.report('verified-district','2026-10-01','2026-10-23','commercial')['workspace']=='commercial'
+    assert captured[0][0][1].endswith('/rpc/appraiser_activity_report_v2')
+    assert captured[0][1]['json_payload']=={'p_district_id':'verified-district','p_start':'2026-10-01','p_end':'2026-10-23','p_workspace':'commercial'}
+    with pytest.raises(ValueError):analytics.report('verified-district','2026-10-01','2026-10-23','unknown')
+    data={'workspace':'commercial','start':'2026-10-01','end':'2026-10-23','totals':{'commercial_rows_updated':50},'appraisers':[{'appraiser':'name@cad.test','commercial_updates':1,'commercial_rows_updated':50}]}
+    exported=analytics.csv_report(data)
+    assert 'commercial_rows_updated' in exported
+    assert 'completed' not in next(csv.reader(io.StringIO(exported)))
+    sales=analytics.csv_report(data,sales=True)
+    assert 'commercial_rows_updated,50' in sales
+    assert 'name@cad.test' not in sales
+    assert 'commercial,2026-10-01,2026-10-23' in sales
+
+
+def test_commercial_scope_remains_admin_only(monkeypatch):
+    monkeypatch.setattr(main,'get_authenticated_district_context',lambda token:context('member' if token=='member' else 'admin'))
+    calls=[]
+    monkeypatch.setattr(analytics,'report',lambda district,start,end,**kw:calls.append((district,kw['workspace'])) or {'workspace':'commercial','totals':{},'appraisers':[]})
+    client=TestClient(main.app)
+    body={'access_token':'member','workspace':'commercial','start':'2026-10-01','end':'2026-10-23'}
+    assert client.post('/api/admin/activity',json=body).status_code==403
+    assert calls==[]
+    assert client.post('/api/admin/activity',json={**body,'access_token':'admin','district_id':'spoofed'}).status_code==200
+    assert calls==[('district-one','commercial')]
+    assert client.post('/api/admin/activity',json={**body,'workspace':'unknown'}).status_code==422
+
+
+def test_equity_analysis_records_only_successful_generation(monkeypatch):
+    import importlib
+    from fastapi import FastAPI
+    api=importlib.import_module('app.commercial.api')
+    monkeypatch.setattr(api,'load_store',lambda *args:object())
+    def equity(store,record_id):
+        if record_id=='bad':raise KeyError('not found')
+        return {'subject':{'id':record_id}}
+    monkeypatch.setattr('app.commercial.equity.generate_equity',equity)
+    events=[]
+    monkeypatch.setattr(api,'record_activity',lambda *a,**kw:events.append((a,kw)))
+    app=FastAPI();app.include_router(api.commercial_router(lambda token:context()))
+    client=TestClient(app)
+    assert client.post('/api/commercial/equity',json={'id':'bad'}).status_code==404
+    assert events==[]
+    assert client.post('/api/commercial/equity',json={'id':'good'}).status_code==200
+    assert events[0][0][1:]==('commercial_equity_generated','commercial','commercial_property','good')
