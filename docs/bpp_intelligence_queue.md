@@ -325,3 +325,18 @@ calls in the suite, following this repo's established convention.
   `parsed_rendition_results` has zero real rows (see
   `docs/comptroller_closure_monitor.md`). Every real candidate is
   `NO_ACCOUNT_FOUND` until that separate persistence gap is closed.
+
+### CAD account matching (October 2026)
+
+Permit matching now searches district-scoped imported personal-property
+accounts at the normalized situs, independently of uploaded renditions.
+Land accounts are excluded using the jurisdiction's account prefixes.
+Address plus a strong, unambiguous owner/business-name match can produce
+HIGH confidence; address alone produces a LOW-confidence possible account.
+Multiple accounts without enough name evidence remain ambiguous and no
+single account is selected. Suite and ZIP conflicts exclude candidates.
+Imported property IDs are identified as CAD records, never rendition uploads.
+The current Lubbock import has no owner names populated, so address-only
+results require staff verification until name data is imported.
+Reevaluation updates matching evidence on existing open alerts, including
+alerts now recognized as existing accounts, while preserving review status.
