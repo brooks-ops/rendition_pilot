@@ -23,6 +23,7 @@ class DistrictContext:
     user_id: str | None = None
     domain: str | None = None
     role: str = "member"
+    must_change_password: bool = False
 
     def to_session_dict(self) -> dict[str, str | None]:
         return asdict(self)
@@ -321,7 +322,7 @@ def link_user_to_district(
 
     payload = {
         "district_id": district_id,
-        "user_id": user_id,
+        "user_id": user_id or (existing_by_email.user_id if existing_by_email else None),
         "email": normalized_email,
         "role": normalized_role,
     }
@@ -373,6 +374,7 @@ def resolve_district_for_user(
                 district_id=membership.district_id,
                 email=email,
                 user_id=user_id,
+                role=membership.role,
             )
             membership = DistrictContext(
                 district_id=membership.district_id,
@@ -417,3 +419,10 @@ def list_district_users(
         },
     )
     return rows if isinstance(rows, list) else []
+
+
+def remove_district_user(*, supabase_url, service_role_key, district_id, membership_id, actor_user_id, actor_email):
+    return _request_json("POST", f"{supabase_url.rstrip('/')}/rest/v1/rpc/remove_district_user",
+        _postgrest_headers(service_role_key), json_payload={
+            "p_district_id":district_id,"p_membership_id":membership_id,
+            "p_actor_user_id":actor_user_id,"p_actor_email":normalize_email(actor_email)})
