@@ -316,6 +316,8 @@ def list_intelligence_queue(
             changed = (bool(item.mailing_address_current and item.mailing_address_observed)
                 and item.mailing_address_current.strip().upper() != item.mailing_address_observed.strip().upper()
                 and item.classification in ('CONFIRMED_MAILING_ADDRESS_CHANGE','LIKELY_MAILING_ADDRESS_CHANGE','POSSIBLE_MAILING_ADDRESS_CHANGE'))
+            if not linked_pid or not changed:
+                continue
             if linked_pid and changed and item.confidence == 'HIGH' and not item.is_ambiguous and item.classification != 'POSSIBLE_MAILING_ADDRESS_CHANGE':
                 item = replace(item, priority='HIGH', priority_rank=0,
                     priority_reason='Matched CAD account + updated mailing address')

@@ -296,3 +296,16 @@ def test_blank_mailing_address_is_skipped_not_flagged(fake_supabase):
     assert result.baseline_established == 0
     assert result.insufficient_data == 1
     assert len(fake_supabase.mailing_address_observations) == 0
+
+
+def test_new_mailing_change_attaches_existing_account_match(fake_supabase,monkeypatch):
+    from app.comptroller import mailing_account_links
+    jurisdiction=seed_jurisdiction(fake_supabase)
+    monkeypatch.setattr(mailing_account_links,'account_link',lambda j,t:{'matched_record_id':'cad-1','matched_account_number':'P1','matched_owner_name':'Acme'})
+    add_permit(fake_supabase,'TP1','1',mailing_address='123 Main St')
+    run_mailing_address_intelligence(jurisdiction.id)
+    fake_supabase.permit_locations['TP1::1']['mailing_address']='PO Box 900'
+    run_mailing_address_intelligence(jurisdiction.id)
+    item=next(iter(fake_supabase.intelligence_items.values()))
+    assert item['matched_record_id']=='cad-1' and item['matched_account_number']=='P1'
+    assert item['status']=='NEW'

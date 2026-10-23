@@ -798,7 +798,7 @@
       <div id="view-mailing" class="view">
         <section class="card">
           <h3>Mailing Address Intelligence</h3>
-          <div class="subtle" style="margin-bottom:12px;">Taxpayers whose Comptroller-reported mailing address appears to have changed since RenditionPilot last observed it. Every item here is a review recommendation -- resolving one never changes the official CAD mailing address.</div>
+          <div class="subtle" style="margin-bottom:12px;">Existing CAD accounts whose Comptroller-reported mailing address may have changed. Only reliably matched accounts are shown. Every item here is a review recommendation -- resolving one never changes the official CAD mailing address.</div>
           <div class="bpp-stats" style="margin-bottom:25px;">
             <div class="field"><label>New</label><div id="mailing-summary-new" class="bpp-stat-value">-</div></div>
             <div class="field"><label>High Priority</label><div id="mailing-summary-high" class="bpp-stat-value">-</div></div>
@@ -2452,7 +2452,7 @@
 
       const list = $("mailing-list");
       if (!items.length) {
-        list.innerHTML = `<div class="subtle">No mailing address changes match these filters.</div>`;
+        list.innerHTML = `<div class="subtle">No matched CAD accounts with mailing address changes match these filters.</div>`;
         return;
       }
       list.innerHTML = intelligenceTableHtml(items);

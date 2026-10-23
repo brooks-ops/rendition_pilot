@@ -203,11 +203,13 @@ def refresh_after_import(jurisdiction, import_id, quality):
         candidates = fetch_candidate_records(jurisdiction.district_id)
         with ThreadPoolExecutor(max_workers=4) as pool:
             list(pool.map(lambda item: refresh_item_match(item, candidates=candidates), pending))
+        from app.comptroller.mailing_account_links import refresh_mailing_account_links
+        mailing_links = refresh_mailing_account_links(jurisdiction)
         items = list_intelligence_queue(jurisdiction.district_id)
         relevant = [i for i in items if i.signal_type in ('new_business','sales_tax_inactive')]
         counts = Counter('ambiguous' if i.is_ambiguous else 'unmatched' if i.confidence in (None,'UNMATCHED') else 'high_confidence' if i.confidence == 'HIGH' else 'possible' for i in relevant)
         quality = {**quality, 'matching_refresh_status':'COMPLETED', 'matching_refreshed_at':datetime.now(timezone.utc).isoformat(),
-                   'queue_match_snapshot':{'total':len(relevant),**dict(counts)},'queue_items_refreshed':len(pending)}
+                   'mailing_account_links':mailing_links,'queue_match_snapshot':{'total':len(relevant),**dict(counts)},'queue_items_refreshed':len(pending)}
     except Exception:
         quality = {**quality,'matching_refresh_status':'FAILED','matching_refresh_message':'CAD import completed, but matching could not finish. Retry the match refresh.'}
     _request('PATCH','property_source_imports',params={'id':f'eq.{import_id}','jurisdiction_id':f'eq.{jurisdiction.id}'},payload={'quality_summary':quality})

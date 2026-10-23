@@ -8,7 +8,10 @@ al -- see client.py's PermitRecord docstring), compared against
 RenditionPilot's OWN previously observed value for that same taxpayer_id
 (never a source-supplied "this changed" flag -- the Comptroller feed has
 none). Identity is trivial and exact for this path: the same `taxpayer_id`
-IS the same taxpayer, no fuzzy name-matching needed.
+IS the same taxpayer, no fuzzy name-matching needed for address history.
+Queue visibility separately requires a reliable existing CAD account link
+from that taxpayer's business situs and owner/DBA evidence. Mailing addresses
+are never used as substitute business situs evidence.
 
 WHAT THIS MODULE IS ALSO BUILT FOR, BUT DOES NOT YET RUN AUTOMATICALLY:
 comparing a rendition's own mailing address against a BPP account's prior
@@ -416,6 +419,8 @@ def run_mailing_address_intelligence(
 
         if classification and not dry_run:
             payload = _build_item_payload(jurisdiction, candidate, comparison, classification, priority, combined_confidence)
+            from app.comptroller.mailing_account_links import account_link
+            payload.update(account_link(jurisdiction, candidate.taxpayer_id))
             existing = _find_existing_item(payload["source_record_id"])
             if existing is None:
                 created = _create_item(payload)
