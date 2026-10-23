@@ -137,7 +137,7 @@ def cmd_month_end(args: argparse.Namespace) -> int:
         print(f"[month-end] {target_month:%Y-%m}: export email sent.")
         return 0
 
-    if (result.email_error == "SMTP_USERNAME and SMTP_PASSWORD must both be set."
+    if ((result.email_error or "").startswith("SMTP_USERNAME and SMTP_PASSWORD must both be set")
             and not os.getenv("SMTP_USERNAME") and not os.getenv("SMTP_PASSWORD")):
         print(f"[month-end] {target_month:%Y-%m}: export email skipped (SMTP not configured); review data saved.")
         return 0

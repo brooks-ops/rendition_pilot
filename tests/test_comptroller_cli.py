@@ -60,7 +60,7 @@ def test_month_end_command_reports_email_failure_with_nonzero_exit(monkeypatch, 
         matched_low=0,
         unmatched=0,
         email_sent=False,
-        email_error="SMTP_USERNAME and SMTP_PASSWORD must both be set.",
+        email_error="SMTP_USERNAME and SMTP_PASSWORD must both be set to send the monthly export email.",
     )
     monkeypatch.setattr(cli, "process_month_end", lambda month, dry_run=False: fake_result)
 
@@ -395,7 +395,7 @@ def test_month_end_without_optional_smtp_succeeds(monkeypatch, capsys):
     result = MonthEndResult(
         review_month=date(2026, 8, 1), dry_run=False, candidates_processed=3,
         matched_high=0, matched_medium=0, matched_low=0, unmatched=3,
-        email_error="SMTP_USERNAME and SMTP_PASSWORD must both be set.",
+        email_error="SMTP_USERNAME and SMTP_PASSWORD must both be set to send the monthly export email.",
     )
     monkeypatch.setattr(cli, "process_month_end", lambda month, dry_run=False: result)
     assert cli.main(["month-end", "--month", "2026-08"]) == 0
