@@ -229,21 +229,31 @@
     }
   </style>
   <link rel="stylesheet" href="/frontend/rendition-theme.css?v=20261023">
+  <link rel="stylesheet" href="/frontend/bpp-workspace.css?v=20261023">
 </head>
 <body>
-  <div class="page">
-    <div class="topbar">
-      <div>
-        <div class="title">Appraisal District Copilot</div>
-        <div id="app-subtitle" class="subtitle">Authorized rendition review access only.</div>
-      </div>
-      <div id="user-box" class="userbox hidden">
-        <div id="signed-in-email"></div>
-        <div id="signed-in-district"></div>
-        <div style="margin-top:10px;"><button id="sign-out" class="secondary" type="button">Sign Out</button></div>
-      </div>
-    </div>
-
+  <div id="bpp-shell" class="bpp-shell">
+    <aside id="bpp-sidebar" class="bpp-sidebar hidden">
+      <div class="bpp-brand"><span class="bpp-brand-mark">R</span>Rendition Pilot</div>
+      <p class="bpp-eyebrow">BPP workspace</p>
+      <nav class="bpp-navigation" aria-label="BPP workspace">
+        <button class="tab-btn active" aria-current="page" data-view="single" type="button">Rendition review</button>
+        <a id="commercial-tab" href="/commercial" class="tab-btn" style="text-decoration:none;display:inline-flex;align-items:center">Commercial</a>
+        <button id="intelligence-tab" class="tab-btn hidden" data-view="intelligence" type="button">BPP Intelligence</button>
+        <button id="mailing-tab" class="tab-btn hidden" data-view="mailing" type="button">Mailing Address</button>
+        <button id="property-tab" class="tab-btn hidden" data-view="property" type="button">Property Lookup</button>
+        <button id="readiness-tab" class="tab-btn hidden" data-view="readiness" type="button">Readiness</button>
+        <button id="admin-tab" class="tab-btn hidden" data-view="admin" type="button">Admin</button>
+      </nav>
+      <div class="bpp-sidefoot">One account. All the supporting work.<br>Business personal property</div>
+    </aside>
+    <main class="bpp-main">
+      <header class="bpp-topbar">
+        <div class="bpp-breadcrumb">Appraisal workspace <span>/</span> <strong id="bpp-breadcrumb">BPP</strong></div>
+        <div id="user-box" class="userbox hidden"><div id="signed-in-email"></div><div id="signed-in-district"></div><button id="sign-out" class="secondary" type="button">Sign Out</button></div>
+      </header>
+      <div class="page">
+        <div class="bpp-pagehead"><h1 id="bpp-page-title">Rendition review</h1><p id="app-subtitle" class="subtitle">Authorized rendition review access only.</p></div>
     <div id="flash" class="status hidden"></div>
 
     <section id="auth-shell" class="card">
@@ -320,19 +330,12 @@
     </section>
 
     <section id="app-shell" class="hidden">
-      <div class="tabs">
-        <button class="tab-btn active" data-view="single" type="button">Single Review</button>
-        <button id="intelligence-tab" class="tab-btn hidden" data-view="intelligence" type="button">BPP Intelligence</button>
-        <button id="mailing-tab" class="tab-btn hidden" data-view="mailing" type="button">Mailing Address</button>
-        <button id="property-tab" class="tab-btn hidden" data-view="property" type="button">Property Lookup</button>
-        <button id="readiness-tab" class="tab-btn hidden" data-view="readiness" type="button">Readiness</button>
-        <button id="admin-tab" class="tab-btn hidden" data-view="admin" type="button">Admin</button>
-      </div>
+
 
       <div id="view-single" class="view active">
         <section class="card">
           <h3>Single Review Controls</h3>
-          <div id="provider-status" class="subtle" style="margin-bottom:12px;"></div>
+          <details class="bpp-reader-info"><summary>Document reader status</summary><div id="provider-status" class="subtle"></div></details>
           <div class="controls">
             <div class="field">
               <label for="single-file">Upload rendition PDF</label>
@@ -685,13 +688,13 @@
         <section class="card">
           <h3>BPP Intelligence Queue</h3>
           <div class="subtle" style="margin-bottom:12px;">Evidence-backed work for review -- possible new businesses, sales-tax closures, and (later) relocations/ownership changes. Every item is a signal for a human to review, never an automatic change to official CAD/appraisal data.</div>
-          <div class="layout-3" style="margin-bottom:16px;">
-            <div class="field"><label>New</label><div id="intel-summary-new" class="status" style="text-align:center;font-size:1.4em;">-</div></div>
-            <div class="field"><label>High Priority</label><div id="intel-summary-high" class="status" style="text-align:center;font-size:1.4em;">-</div></div>
-            <div class="field"><label>Needs Review</label><div id="intel-summary-review" class="status" style="text-align:center;font-size:1.4em;">-</div></div>
-            <div class="field"><label>Resolved</label><div id="intel-summary-resolved" class="status" style="text-align:center;font-size:1.4em;">-</div></div>
+          <div class="bpp-stats" style="margin-bottom:25px;">
+            <div class="field"><label>New</label><div id="intel-summary-new" class="bpp-stat-value">-</div></div>
+            <div class="field"><label>High Priority</label><div id="intel-summary-high" class="bpp-stat-value">-</div></div>
+            <div class="field"><label>Needs Review</label><div id="intel-summary-review" class="bpp-stat-value">-</div></div>
+            <div class="field"><label>Resolved</label><div id="intel-summary-resolved" class="bpp-stat-value">-</div></div>
           </div>
-          <div class="layout-3" style="margin-bottom:8px;">
+          <div class="bpp-filters" style="margin-bottom:8px;">
             <div class="field">
               <label for="intel-filter-signal">Signal Type</label>
               <select id="intel-filter-signal">
@@ -721,8 +724,6 @@
                 <option value="UNMATCHED">Unmatched</option>
               </select>
             </div>
-          </div>
-          <div class="layout-3" style="margin-bottom:12px;">
             <div class="field">
               <label for="intel-filter-city">City</label>
               <input id="intel-filter-city" type="text" placeholder="LUBBOCK">
@@ -732,7 +733,7 @@
               <button id="intel-refresh" class="secondary" type="button">Refresh Queue</button>
             </div>
           </div>
-          <details class="card" style="margin-bottom:16px;" open>
+          <details class="card bpp-data-tools" style="margin-bottom:16px;">
             <summary><strong>CAD data and match coverage</strong></summary>
             <div class="button-row"><button id="cad-refresh-matches" class="secondary" type="button">Refresh matches from CAD</button><span id="cad-refresh-status" class="subtle" role="status"></span></div>
             <div id="cad-health" class="subtle" style="margin-top:10px;">Loading CAD data quality…</div>
@@ -798,11 +799,11 @@
         <section class="card">
           <h3>Mailing Address Intelligence</h3>
           <div class="subtle" style="margin-bottom:12px;">Taxpayers whose Comptroller-reported mailing address appears to have changed since RenditionPilot last observed it. Every item here is a review recommendation -- resolving one never changes the official CAD mailing address.</div>
-          <div class="layout-3" style="margin-bottom:16px;">
-            <div class="field"><label>New</label><div id="mailing-summary-new" class="status" style="text-align:center;font-size:1.4em;">-</div></div>
-            <div class="field"><label>High Priority</label><div id="mailing-summary-high" class="status" style="text-align:center;font-size:1.4em;">-</div></div>
-            <div class="field"><label>Needs Review</label><div id="mailing-summary-review" class="status" style="text-align:center;font-size:1.4em;">-</div></div>
-            <div class="field"><label>Resolved</label><div id="mailing-summary-resolved" class="status" style="text-align:center;font-size:1.4em;">-</div></div>
+          <div class="bpp-stats" style="margin-bottom:25px;">
+            <div class="field"><label>New</label><div id="mailing-summary-new" class="bpp-stat-value">-</div></div>
+            <div class="field"><label>High Priority</label><div id="mailing-summary-high" class="bpp-stat-value">-</div></div>
+            <div class="field"><label>Needs Review</label><div id="mailing-summary-review" class="bpp-stat-value">-</div></div>
+            <div class="field"><label>Resolved</label><div id="mailing-summary-resolved" class="bpp-stat-value">-</div></div>
           </div>
           <div class="layout-3" style="margin-bottom:12px;">
             <div class="field">
@@ -931,6 +932,8 @@
         </section>
       </div>
     </section>
+      </div>
+    </main>
   </div>
 
   <script>
@@ -1128,6 +1131,14 @@
       $("auth-shell").classList.toggle("hidden", authed);
       $("app-shell").classList.toggle("hidden", !authed);
       $("user-box").classList.toggle("hidden", !authed);
+      $("bpp-sidebar").classList.toggle("hidden", !authed);
+      $("bpp-shell").classList.toggle("is-authed", authed);
+      if (!authed) {
+        document.querySelectorAll(".tab-btn[data-view]").forEach(button => { button.classList.toggle("active", button.dataset.view === "single"); button.setAttribute("aria-current", button.dataset.view === "single" ? "page" : "false"); });
+        document.querySelectorAll(".view").forEach(view => view.classList.toggle("active", view.id === "view-single"));
+        $("bpp-page-title").textContent = "Rendition review";
+        $("bpp-breadcrumb").textContent = "BPP";
+      }
       if (authed) {
         const isAdmin = appState.auth.district.role === "admin";
         $("signed-in-email").textContent = `Signed in as ${appState.auth.district.email || appState.auth.user?.email || ""}`;
@@ -1159,6 +1170,9 @@
           document.querySelectorAll(".view").forEach((item) => item.classList.remove("active"));
           button.classList.add("active");
           $(`view-${button.dataset.view}`).classList.add("active");
+          $("bpp-page-title").textContent = button.textContent.trim();
+          $("bpp-breadcrumb").textContent = button.textContent.trim();
+          document.querySelectorAll(".bpp-navigation [data-view]").forEach(item => item.setAttribute("aria-current", item === button ? "page" : "false"));
           if (button.dataset.view === "admin" && appState.auth?.district?.role === "admin") refreshDistrictUsers();
           if (button.dataset.view === "intelligence" && appState.auth?.district?.role === "admin") refreshIntelligenceQueue();
           if (button.dataset.view === "mailing" && appState.auth?.district?.role === "admin") refreshMailingQueue();
@@ -2441,9 +2455,10 @@
         list.innerHTML = `<div class="subtle">No mailing address changes match these filters.</div>`;
         return;
       }
-      list.innerHTML = items.map(intelCardHtml).join("");
+      list.innerHTML = intelligenceTableHtml(items);
       list.querySelectorAll("[data-intel-id]").forEach((card) => {
         card.addEventListener("click", () => openIntelligenceDetail(card.dataset.intelId, card.dataset.intelTable));
+        card.addEventListener("keydown", event => { if (event.target === card && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openIntelligenceDetail(card.dataset.intelId, card.dataset.intelTable); } });
       });
     }
 
@@ -2452,30 +2467,17 @@
         || (appState.mailingIntelligence.items || []).find((candidate) => candidate.id === itemId && candidate.source_table === sourceTable);
     }
 
-    function intelCardHtml(item) {
-      const title = item.signal_type === "new_business" ? "NEW BUSINESS"
-        : item.signal_type === "mailing_address_change" ? "MAILING ADDRESS CHANGE"
-        : "SALES TAX INACTIVE";
-      const addressLine = item.signal_type === "mailing_address_change"
-        ? (item.mailing_address_observed || "Address not available")
-        : [item.source_address, item.source_city, item.source_state, item.source_zip].filter(Boolean).join(", ");
-      const matched = item.signal_type === "mailing_address_change"
-        ? `Current on file: ${cadHtml(item.mailing_address_current || "UNKNOWN -- no prior observation")}`
-        : item.matched_account_number
-        ? `CAD Match: ${cadHtml(item.matched_account_number)} — ${cadHtml(item.matched_owner_name || "Business name unavailable")} (${cadHtml(item.confidence)})`
-        : item.is_ambiguous ? "CAD Match: Multiple possible BPP accounts — review required" : "CAD Match: No matching BPP account found";
-      return `
-        <div class="card" style="margin-bottom:10px;cursor:pointer;" data-intel-id="${item.id}" data-intel-table="${item.source_table}">
-          <div style="display:flex;justify-content:space-between;">
-            <strong>${cadHtml(title)} -- ${cadHtml(item.business_name)}</strong>
-            <span class="status ${item.priority === "HIGH" ? "error" : "warn"}" style="display:inline-block;">${cadHtml(item.priority)} PRIORITY</span>
-          </div>
-          <div class="subtle">${cadHtml(addressLine || "Address not available")}</div>
-          <div class="subtle">Source: ${cadHtml(item.source_label)} | Detected: ${cadHtml(item.first_detected_at)} | Status: ${cadHtml(item.status)}</div>
-          <div class="subtle">${matched}</div>
-          ${item.priority_reason ? `<div class="subtle">Priority: ${cadHtml(item.priority_reason)}</div>` : ""}
-          <div class="subtle">Reason: ${cadHtml(item.match_reason)}</div>
-        </div>`;
+    function intelligenceTableHtml(items) {
+      return `<div class="bpp-register"><table><thead><tr><th>Business / owner</th><th>Address</th><th>CAD account</th><th>Priority</th><th>Status</th></tr></thead><tbody>${items.map(item => {
+        const mailing = item.signal_type === "mailing_address_change";
+        const address = mailing ? item.mailing_address_observed : [item.source_address,item.source_city,item.source_state,item.source_zip].filter(Boolean).join(", ");
+        return `<tr data-intel-id="${cadHtml(item.id)}" data-intel-table="${cadHtml(item.source_table)}" tabindex="0">
+          <td><button type="button" class="bpp-account-link">${cadHtml(item.business_name || item.legal_name || "Unnamed business")}</button><div class="subtle">${cadHtml(mailing ? "Mailing change" : item.signal_type === "new_business" ? "New business" : "Sales tax inactive")} · ${cadHtml(item.source_label)} · ${cadHtml(item.first_detected_at || "")}</div></td>
+          <td>${cadHtml(address || "Address unavailable")}${mailing ? `<div class="subtle">On file: ${cadHtml(item.mailing_address_current || "Unknown")}</div>` : ""}</td>
+          <td><strong>${cadHtml(item.matched_account_number || (item.is_ambiguous ? "Multiple possible accounts" : "No account identified"))}</strong><div class="subtle">${cadHtml(item.matched_owner_name || "")} ${item.confidence ? `· ${cadHtml(item.confidence)}` : ""}</div></td>
+          <td><span class="bpp-priority ${item.priority === "HIGH" ? "high" : item.priority === "MEDIUM" ? "medium" : "low"}">${cadHtml(item.priority)}</span><div class="subtle">${cadHtml(item.priority_reason || item.match_reason || "")}</div></td>
+          <td><span class="bpp-status">${cadHtml(item.status)}</span></td></tr>`;
+      }).join("")}</tbody></table></div>`;
     }
 
     function renderIntelligenceQueue(items) {
@@ -2484,9 +2486,10 @@
         list.innerHTML = `<div class="subtle">No intelligence items match these filters.</div>`;
         return;
       }
-      list.innerHTML = items.map(intelCardHtml).join("");
+      list.innerHTML = intelligenceTableHtml(items);
       list.querySelectorAll("[data-intel-id]").forEach((card) => {
         card.addEventListener("click", () => openIntelligenceDetail(card.dataset.intelId, card.dataset.intelTable));
+        card.addEventListener("keydown", event => { if (event.target === card && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openIntelligenceDetail(card.dataset.intelId, card.dataset.intelTable); } });
       });
     }
 
