@@ -310,7 +310,7 @@
     <section id="app-shell" class="hidden">
       <div class="tabs">
         <button class="tab-btn active" data-view="single" type="button">Single Review</button>
-        <a href="/commercial" class="tab-btn" style="text-decoration:none;display:inline-flex;align-items:center">Commercial</a>
+        <a id="commercial-tab" href="/commercial" class="tab-btn" style="text-decoration:none;display:inline-flex;align-items:center">Commercial</a>
         <button id="intelligence-tab" class="tab-btn hidden" data-view="intelligence" type="button">BPP Intelligence</button>
         <button id="mailing-tab" class="tab-btn hidden" data-view="mailing" type="button">Mailing Address</button>
         <button id="property-tab" class="tab-btn hidden" data-view="property" type="button">Property Lookup</button>
@@ -885,6 +885,7 @@
                 <option value="admin">Admin</option>
               </select>
             </div>
+            <div class="field"><label for="invite-access">Workspace access</label><select id="invite-access"><option value="bpp">BPP only</option><option value="commercial">Commercial only</option><option value="both">BPP and Commercial</option></select></div>
             <div class="field">
               <label>&nbsp;</label>
               <button id="invite-submit" type="button">Add User</button>
@@ -1057,7 +1058,9 @@
     }
 
     async function fetchJson(path, options = {}) {
-      const response = await fetch(`${API_BASE}${path}`, options);
+      const headers = new Headers(options.headers || {});
+      if (appState.auth?.access_token) headers.set('Authorization','Bearer '+appState.auth.access_token);
+      const response = await fetch(`${API_BASE}${path}`, {...options,headers});
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || data.message || "Request failed.");
       return data;
@@ -1105,6 +1108,9 @@
       $("app-shell").classList.toggle("hidden", !authed);
       $("user-box").classList.toggle("hidden", !authed);
       if (authed) {
+        const grants=appState.auth.district.workspace_access||{bpp:true,commercial:true};
+        if(!grants.bpp && grants.commercial){location.replace('/commercial');return;}
+        $('commercial-tab').classList.toggle('hidden',!grants.commercial);
         const isAdmin = appState.auth.district.role === "admin";
         $("signed-in-email").textContent = `Signed in as ${appState.auth.district.email || appState.auth.user?.email || ""}`;
         $("signed-in-district").textContent = `District: ${appState.auth.district.district_name} | Role: ${appState.auth.district.role || "member"}`;
@@ -1129,7 +1135,7 @@
     }
 
     function setupTabs() {
-      document.querySelectorAll(".tab-btn").forEach((button) => {
+      document.querySelectorAll(".tab-btn[data-view]").forEach((button) => {
         button.addEventListener("click", () => {
           document.querySelectorAll(".tab-btn").forEach((item) => item.classList.remove("active"));
           document.querySelectorAll(".view").forEach((item) => item.classList.remove("active"));
@@ -2121,6 +2127,21 @@
       showFlash("Review completed.", "success");
     }
 
+    function renderWorkspaceUsers(){
+      $('users-head').innerHTML='<tr><th>Email</th><th>Role</th><th>Status</th><th>Workspace access</th><th></th></tr>';
+      const body=$('users-body');body.replaceChildren();
+      for(const user of appState.admin.users){const row=document.createElement('tr');
+        for(const text of [user.email,user.role||'member',user.user_id?'Account created':'Invited']){const cell=document.createElement('td');cell.textContent=text;row.appendChild(cell);}
+        const cell=document.createElement('td'),action=document.createElement('td');
+        if(user.role==='admin'){cell.textContent='BPP and Commercial (admin)';}
+        else{const select=document.createElement('select');select.setAttribute('aria-label','Workspace access for '+user.email);const grants=user.workspace_access||{bpp:true,commercial:true};
+          for(const [value,label] of [['bpp','BPP only'],['commercial','Commercial only'],['both','BPP and Commercial']]){const option=document.createElement('option');option.value=value;option.textContent=label;select.appendChild(option);}
+          select.value=grants.bpp&&grants.commercial?'both':grants.commercial?'commercial':'bpp';cell.appendChild(select);
+          const button=document.createElement('button');button.textContent='Save access';button.onclick=async()=>{button.disabled=true;try{const data=await fetchJson('/api/district/users/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,email:user.email,bpp_access:select.value!=='commercial',commercial_access:select.value!=='bpp'})});appState.admin.users=data.users;renderWorkspaceUsers();showFlash('Workspace access updated.','success');}catch(error){showFlash(error.message,'error');button.disabled=false;}};action.appendChild(button);}
+        row.append(cell,action);body.appendChild(row);
+      }
+    }
+
     async function refreshDistrictUsers() {
       if (!appState.auth?.access_token || appState.auth?.district?.role !== "admin") return;
       const data = await fetchJson("/api/district/users", {
@@ -2129,12 +2150,7 @@
         body: JSON.stringify({ access_token: appState.auth.access_token })
       });
       appState.admin.users = data.users || [];
-      renderTable("users-head", "users-body", appState.admin.users.map((user) => ({
-        email: user.email,
-        role: user.role || "member",
-        status: user.user_id ? "Account created" : "Invited",
-        created_at: user.created_at || "-"
-      })));
+      renderWorkspaceUsers();
     }
 
     function defaultComptrollerExportMonth() {
@@ -2906,7 +2922,7 @@
         try {
           const response = await fetch(`${API_BASE}/api/review/save`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer "+appState.auth.access_token },
             body: JSON.stringify({
               file_name: appState.single.file.name,
               file_base64: appState.single.fileBase64,
@@ -2965,6 +2981,7 @@
       $("property-lookup-account-submit").addEventListener("click", () => { runPropertyLookupByAccount().catch((error) => showFlash(error.message, "error")); });
       $("readiness-refresh").addEventListener("click", () => { refreshReadiness().catch((error) => showFlash(error.message, "error")); });
       $("intel-action-account-card").addEventListener("click", () => { generateAccountCard().catch((error) => showFlash(error.message, "error")); });
+      $('invite-role').addEventListener('change',()=>{const admin=$('invite-role').value==='admin';$('invite-access').disabled=admin;if(admin)$('invite-access').value='both';});
       $("invite-submit").addEventListener("click", async () => {
         try {
           const email = $("invite-email").value.trim().toLowerCase();
@@ -2975,17 +2992,14 @@
             body: JSON.stringify({
               access_token: appState.auth.access_token,
               email,
-              role
+              role,
+              bpp_access: $('invite-access').value !== 'commercial',
+              commercial_access: $('invite-access').value !== 'bpp'
             })
           });
           appState.admin.users = data.users || [];
           $("invite-email").value = "";
-          renderTable("users-head", "users-body", appState.admin.users.map((user) => ({
-            email: user.email,
-            role: user.role || "member",
-            status: user.user_id ? "Account created" : "Invited",
-            created_at: user.created_at || "-"
-          })));
+          renderWorkspaceUsers();
           showFlash("Authorized user added.", "success");
         } catch (error) { showFlash(error.message, "error"); }
       });
