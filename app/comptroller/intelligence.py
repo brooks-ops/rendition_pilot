@@ -15,7 +15,7 @@ actually lives in via `source_table`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -141,6 +141,8 @@ class UnifiedIntelligenceItem:
     # property data loaded, never fabricated. Defaulted so existing
     # construction sites (tests, callers) don't need updating for an
     # additive field.
+    priority_reason: str | None = None
+    priority_rank: int = 5
     property_match_status: str | None = None
     matched_address: str | None = None
     property_account_number: str | None = None
@@ -294,6 +296,17 @@ def list_intelligence_queue(
     if signal_type in (None, "sales_tax_inactive"):
         items.extend(_from_closure_review_row(row) for row in _fetch_closure_reviews(district_id))
 
+    from app.comptroller.priority import match_priority
+    ranked = []
+    for item in items:
+        if item.signal_type == 'sales_tax_inactive':
+            rank, priority, reason = match_priority(account=item.matched_account_number,
+                record_id=item.raw.get('matched_record_id') or item.raw.get('matched_account_id'),
+                signals=item.match_signals,reason=item.match_reason,ambiguous=item.is_ambiguous,confidence=item.confidence)
+            item = replace(item, priority=priority, priority_reason=reason, priority_rank=rank)
+        ranked.append(item)
+    items = ranked
+
     if status:
         items = [i for i in items if i.status == status]
     if confidence:
@@ -302,6 +315,10 @@ def list_intelligence_queue(
         items = [i for i in items if (i.source_city or "").strip().upper() == city.strip().upper()]
 
     items.sort(key=lambda i: i.created_at or "", reverse=True)
+    # Reorder inactive records within their existing queue positions; other
+    # signal types keep their established order and priority.
+    inactive = iter(sorted((i for i in items if i.signal_type == "sales_tax_inactive"),key=lambda i:i.priority_rank))
+    items = [next(inactive) if i.signal_type == "sales_tax_inactive" else i for i in items]
     return items
 
 
