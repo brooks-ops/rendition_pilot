@@ -16,7 +16,7 @@ from typing import Any
 import requests
 
 from app.comptroller.address_normalizer import normalize_address
-from app.comptroller.property_adapter import get_property_adapter
+from app.comptroller.property_adapter import get_property_adapter, eligible_for_current_dba_match
 from app.comptroller.property_matching import classify_account_type, score_property_candidate, normalize_account_number
 from app.comptroller.service import ComptrollerServiceError, _paginated_get, _request_json, get_supabase_config, postgrest_headers
 
@@ -69,6 +69,8 @@ def candidate_review(jurisdiction, item, *, account_number: str | None = None, o
     confirmed, decisions = current_decisions(history)
     candidates = []
     for prop in records:
+        if not eligible_for_current_dba_match(prop):
+            continue
         if classify_account_type(prop.real_account_number, prefixes=jurisdiction.account_type_prefixes) != 'PERSONAL':
             continue
         score = score_property_candidate(normalized, prop)
@@ -100,6 +102,8 @@ def save_decision(jurisdiction, item, *, property_record_id: str, decision: str,
     prop = get_property_adapter(jurisdiction).get_property_by_id(jurisdiction, property_record_id)
     if not prop or classify_account_type(prop.real_account_number, prefixes=jurisdiction.account_type_prefixes) != 'PERSONAL':
         raise CadReviewError('Choose a personal-property account from this district.')
+    if decision == 'CONFIRMED' and not eligible_for_current_dba_match(prop):
+        raise CadReviewError('This account is not in the current active DBA export.')
     score = score_property_candidate(normalize_address(item.source_address, zip_code=item.source_zip), prop)
     conflict = score.suite_conflict or score.zip_signal == 'NO MATCH' or not score.street_number_match or score.street_name_signal not in ('MATCH', 'NORMALIZED MATCH')
     if decision == 'CONFIRMED' and conflict and not (notes or '').strip():

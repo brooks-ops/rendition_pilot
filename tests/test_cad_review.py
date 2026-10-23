@@ -238,3 +238,21 @@ def test_admin_import_saves_mapping_and_schedules_matching_refresh(store,monkeyp
     assert len(tasks.tasks)==1
     assert fake.jurisdictions[j.id]['property_field_mapping']==payload.mapping
     assert list(fake.property_source_imports.values())[0]['quality_summary']['matching_refresh_status']=='PENDING'
+
+
+def test_omitted_active_export_account_is_excluded_without_erasing_history(store):
+    fake,j=store
+    prop=seed(store,owner='ACME')
+    decide(store,prop,'CONFIRMED')
+    fake.real_property_records['P1']['account_status']='NOT_IN_ACTIVE_DBA_EXPORT'
+    assert match(store).candidate is None
+    assert cad_review.candidate_review(j,item())['candidates']==[]
+    with pytest.raises(cad_review.CadReviewError,match='current active DBA'):
+        decide(store,prop,'CONFIRMED')
+    assert len(fake.cad_match_decisions)==1
+    assert property_adapter.get_property_adapter(j).get_property_by_id(j,prop.property_id) is not None
+
+
+def test_active_export_account_still_matches(store):
+    seed(store,owner='ACME',account_status='A')
+    assert match(store).candidate.account_number=='P1'
