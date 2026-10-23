@@ -35,4 +35,29 @@ def generate_equity(store,record_id,limit=6):
             if account not in candidates or rank<candidates[account][0]:candidates[account]=(rank,r)
     selected=[r for _,r in sorted(candidates.values(),key=lambda pair:pair[0])[:limit]]
     mid=median([r['unit_value'] for r in selected]) if selected else None
-    return {'subject':s,'comparables':selected,'basis':basis,'unit':unit,'eligible_count':len(candidates),'median_unit_value':mid,'unadjusted_indication':mid*s['size'] if mid is not None else None,'status':'ready' if len(selected)>=3 else 'limited','rules':'Same model and exact category; matching classification, quality and hotel service type when supplied by the subject; size between 50% and 200% of subject. Ranked by proportional size difference, then year built difference. One row per account; subject account excluded. Values do not affect ranking.','explanation':'Unadjusted model comparisons, not sales. Median uses the displayed comparables. No location, condition or other dollar adjustments have been inferred.','missing_reason':('Subject needs a positive comparison value, positive '+unit+' and a source category.' if s['unit_value'] is None or not category else 'Fewer than three qualifying accounts; review the available evidence before hearing use.') if len(selected)<3 else None}
+    return {'sections':comparison_sections([s]+selected),'subject':s,'comparables':selected,'basis':basis,'unit':unit,'eligible_count':len(candidates),'median_unit_value':mid,'unadjusted_indication':mid*s['size'] if mid is not None else None,'status':'ready' if len(selected)>=3 else 'limited','rules':'Same model and exact category; matching classification, quality and hotel service type when supplied by the subject; size between 50% and 200% of subject. Ranked by proportional size difference, then year built difference. One row per account; subject account excluded. Values do not affect ranking.','explanation':'Unadjusted model comparisons, not sales. Median uses the displayed comparables. No location, condition or other dollar adjustments have been inferred.','missing_reason':('Subject needs a positive comparison value, positive '+unit+' and a source category.' if s['unit_value'] is None or not category else 'Fewer than three qualifying accounts; review the available evidence before hearing use.') if len(selected)<3 else None}
+
+
+# The same source-backed comparison grid drives the browser and packet PDF.
+DETAIL_GROUPS = [
+    ('Property characteristics', ['classification','quality','service_type','year_built','effective_year','effective_age','area_sq_ft','leasable_area_sq_ft','units','rooms']),
+    ('Operating assumptions', ['cap_rate','loaded_cap_rate','tax_rate','vacancy_rate','expense_rate','operating_expense_rate','management_rate','reserve_rate','allowable_expense_rate','departmental_expense_rate','franchise_rate','insurance_rate','other_income_rate','bad_debt_rate','loss_to_lease_rate']),
+    ('Rent and space components', ['rent','rent_per_unit','primary_area_sq_ft','primary_rent','secondary_area_sq_ft','secondary_rent','office_area_sq_ft','office_rent','tertiary_area_sq_ft','tertiary_rent','quaternary_area_sq_ft','quaternary_rent']),
+    ('Annual income and expenses', ['room_revenue_2022','room_revenue_2025','room_revenue_2026','projected_gross_rent','vacancy_loss','effective_gross_rent','other_income','other_income_amount','bad_debt_amount','effective_gross_income','total_expenses','reserve_amount','noi','actual_noi']),
+    ('Value reconciliation', ['land_value','improvement_value','indicated_value','actual_indicated_value','other_improvements','other_land','other_adjustments','land_adjustment','other_component_value','other_component_land_value','total_value']),
+]
+
+
+def comparison_sections(records):
+    from .store import DISPLAY_LABELS
+    sections=[]
+    for title,keys in DETAIL_GROUPS:
+        rows=[]
+        for key in keys:
+            if not any(key in r['values'] for r in records):continue
+            kind='rate' if key.endswith('_rate') else 'number' if key.endswith('_sq_ft') or key in ('units','rooms','effective_age') else 'text' if key in ('classification','quality','service_type','year_built','effective_year') else 'money'
+            label=DISPLAY_LABELS.get(key,key.replace('_sq_ft',' (sq ft)').replace('_',' ').title())
+            if key in ('rent','rent_per_unit','primary_rent','secondary_rent','office_rent','tertiary_rent','quaternary_rent'):label+=' (source basis)'
+            rows.append({'key':key,'label':label,'format':kind,'cells':[{'value':r['values'].get(key),'error':r.get('errors',{}).get(key)} for r in records]})
+        if rows:sections.append({'title':title,'rows':rows})
+    return sections

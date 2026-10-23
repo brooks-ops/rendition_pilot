@@ -27,14 +27,15 @@ def build_packet(store,ids,comparison_ids=None,notes=''):
     stream=BytesIO();styles=getSampleStyleSheet()
     styles.add(ParagraphStyle(name='SmallSource',fontName='Helvetica',fontSize=8,leading=11,textColor=colors.HexColor('#566478')))
     styles.add(ParagraphStyle(name='TableCompact',fontName='Helvetica',fontSize=8,leading=9))
+    styles.add(ParagraphStyle(name='TableDense',fontName='Helvetica',fontSize=7,leading=9))
     styles['Title'].fontName='Helvetica-Bold';styles['Title'].fontSize=24;styles['Title'].alignment=0
     styles['BodyText'].fontSize=9;styles['BodyText'].leading=12
     styles['Heading2'].textColor=colors.HexColor('#256650')
     story=[]
     def p(text,style='BodyText'):return Paragraph(escape(str(text)).replace('\n','<br/>'),styles[style])
-    def table(rows,widths,compact=False):
-        t=Table([[p(cell,'TableCompact' if compact else 'BodyText') for cell in row] for row in rows],colWidths=widths,repeatRows=1,hAlign='LEFT')
-        t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#e9eef3')),('VALIGN',(0,0),(-1,-1),'TOP'),('BOTTOMPADDING',(0,0),(-1,-1),3 if compact else 5),('TOPPADDING',(0,0),(-1,-1),3 if compact else 5),('LINEBELOW',(0,0),(-1,0),0.7,colors.HexColor('#94a3b8')),('LINEBELOW',(0,1),(-1,-1),0.3,colors.HexColor('#e2e8f0'))]))
+    def table(rows,widths,compact=False,dense=False):
+        t=Table([[p(cell,'TableDense' if dense else 'TableCompact' if compact else 'BodyText') for cell in row] for row in rows],colWidths=widths,repeatRows=1,hAlign='LEFT')
+        t.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),3 if compact else 6),('RIGHTPADDING',(0,0),(-1,-1),3 if compact else 6),('BACKGROUND',(0,0),(-1,0),colors.HexColor('#e9eef3')),('VALIGN',(0,0),(-1,-1),'TOP'),('BOTTOMPADDING',(0,0),(-1,-1),3 if compact else 5),('TOPPADDING',(0,0),(-1,-1),3 if compact else 5),('LINEBELOW',(0,0),(-1,0),0.7,colors.HexColor('#94a3b8')),('LINEBELOW',(0,1),(-1,-1),0.3,colors.HexColor('#e2e8f0'))]))
         return t
     for i,record_id in enumerate(ids):
         detail=store.detail(record_id);v=detail['values']
@@ -76,6 +77,33 @@ def build_packet(store,ids,comparison_ids=None,notes=''):
         story.extend([Spacer(1,12),table(rows,[190,70,65,105,92],compact=True),Spacer(1,14),p('How the comparisons were selected','Heading2'),p(equity['rules'],'SmallSource')])
         story.append(p('Comparable source rows: '+'; '.join(comp['account']+' / '+comp['source_sheet']+' '+str(comp['source_row']) for comp in equity['comparables'])+'.','SmallSource'))
         story.extend([Spacer(1,12),p('Interpreting the comparison','Heading2'),p('Median × subject size = '+currency(equity['unadjusted_indication'])+'. '+equity['explanation'],'SmallSource'),Spacer(1,10),p(f"Source: {detail['source_file']} / {detail['source_sheet']} / {source_row}. Source version: {detail['source_hash'][:12]}.",'SmallSource')])
+        # Separate readable detail sheets preserve every supplied assumption and result.
+        peers=[subject]+equity['comparables']
+        for group_indexes in ((0,1),(2,3,4)):
+            sections=[section for section in equity['sections'] if section['title'] in [
+                'Property characteristics','Operating assumptions','Rent and space components',
+                'Annual income and expenses','Value reconciliation'][group_indexes[0]:group_indexes[-1]+1]]
+            if not sections:continue
+            story.extend([PageBreak(),p('EQUITY / DETAILED MODEL DATA','SmallSource'),p(detail['account']+' / '+('Property & operating assumptions' if group_indexes[0]==0 else 'Income & value reconciliation'),'Heading2'),p('Current saved source values. Rent retains the source model basis. Not supplied is missing data; unavailable is a calculation exception.','SmallSource'),Spacer(1,10)])
+            for section in sections:
+                story.append(p(section['title'],'Heading2'))
+                rows=[['Model field']+[('Subject' if n==0 else 'Comp '+str(n))+'\n'+r['account'] for n,r in enumerate(peers)]]
+                for row in section['rows']:
+                    cells=[]
+                    for cell in row['cells']:
+                        value=cell['value']
+                        if cell['error']:text='Unavailable'
+                        elif value is None:text='Not supplied'
+                        elif row['format']=='rate':text=display(value,'cap_rate')
+                        elif row['format']=='money':text=(f'(${abs(value):,.2f})' if value<0 else f'${value:,.2f}') if isinstance(value,(int,float)) else str(value)
+                        elif row['format']=='text':text=str(value)
+                        else:text=display(value)
+                        cells.append(text)
+                    rows.append([row['label']]+cells)
+                story.extend([table(rows,[150]+[372/len(peers)]*len(peers),compact=True,dense=len(peers)>5),Spacer(1,8)])
+            exceptions=[r['account']+' / '+row['label']+': '+cell['error'] for section in sections for row in section['rows'] for r,cell in zip(peers,row['cells']) if cell['error']]
+            if exceptions:story.append(p('Calculation exceptions: '+'; '.join(exceptions),'SmallSource'))
+            story.append(p('Source rows: '+'; '.join(r['account']+' / '+r['source_sheet']+' '+str(r['source_row']) for r in peers),'SmallSource'))
         if notes.strip():story.extend([Spacer(1,16),p('Appraiser notes','Heading2'),p(notes)])
 
     class PacketDocument(SimpleDocTemplate):

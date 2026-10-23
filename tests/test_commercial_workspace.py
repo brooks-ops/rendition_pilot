@@ -180,3 +180,18 @@ def test_equity_uses_model_basis_and_one_row_per_account(model,basis):
     assert e['basis']==basis
     assert [r['id'] for r in e['comparables']]==['a']
     assert e['median_unit_value']==10
+
+
+def test_equity_details_preserve_rates_zero_missing_and_errors():
+    from app.commercial.equity import comparison_sections
+    records=[{'values':{'cap_rate':.0625,'vacancy_rate':0,'expense_rate':.35,'noi':1234.56,'primary_rent':21,'projected_gross_rent':None},'errors':{'projected_gross_rent':'#REF!'}}, {'values':{'cap_rate':.07,'vacancy_rate':None,'expense_rate':.4,'noi':1000},'errors':{}}]
+    sections=comparison_sections(records)
+    rows={r['key']:r for s in sections for r in s['rows']}
+    assert rows['cap_rate']['format']=='rate'
+    assert rows['expense_rate']['cells'][1]['value']==.4
+    assert rows['vacancy_rate']['cells'][0]['value']==0
+    assert rows['vacancy_rate']['cells'][1]['value'] is None
+    assert rows['noi']['format']=='money'
+    assert rows['primary_rent']['label'].endswith('(source basis)')
+    assert not rows['projected_gross_rent']['label'].endswith('(source basis)')
+    assert rows['projected_gross_rent']['cells'][0]['error']=='#REF!'
