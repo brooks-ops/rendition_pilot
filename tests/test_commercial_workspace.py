@@ -388,3 +388,38 @@ def test_account_packet_endpoints_auth_and_zip_delivery(store,monkeypatch):
     assert response.status_code==200 and response.headers['content-type']=='application/zip'
     with zipfile.ZipFile(BytesIO(response.content)) as archive:assert len([n for n in archive.namelist() if n.endswith('.pdf')])==2
     assert client.post('/api/commercial/packets/individual',json={'access_token':'valid','ids':['missing']}).status_code==400
+
+
+def test_multi_input_category_apply_and_undo(store):
+    p=store.preview({'filters':{'model':'office'},'updates':[{'field':'cap_rate','value':.2},{'field':'area_sq_ft','operation':'percent','value':10}]})
+    assert p['count']==2
+    assert len(p['items'][0]['field_changes'])==2
+    assert p['items'][0]['after_value']==500
+    batch=store.commit(p['token'],'appraiser','Category review')
+    assert batch['updated']==2
+    assert store.detail('R1')['values']['area_sq_ft']==pytest.approx(220)
+    assert store.detail('R1')['values']['cap_rate']==.2
+    store.undo(batch['batch_id'],'appraiser')
+    assert store.detail('R1')['values']['area_sq_ft']==200
+    assert store.detail('R1')['values']['cap_rate']==.1
+
+
+def test_category_summary_tracks_scope_and_overrides(store):
+    from app.commercial.category_updates import category_summary
+    p=preview(store,filters={'ids':['R1']});store.commit(p['token'],'appraiser','Test')
+    d=category_summary(store,{'model':'office','ids':['R1']})
+    assert d['count']==d['accounts']==1
+    cap=next(f for f in d['fields'] if f['key']=='cap_rate')
+    assert cap['median']==.2 and cap['overrides']==1 and cap['unit']=='%'
+    assert not any(f['key']=='total_value' for f in d['fields'])
+    p=store.preview({'filters':{'model':'office'},'updates':[{'field':'cap_rate','value':.3},{'field':'area_sq_ft','value':300}]})
+    assert p['skipped_overrides']==1
+    store.commit(p['token'],'appraiser','Protected multi edit')
+    assert store.detail('R1')['values']['cap_rate']==.2
+    assert store.detail('R1')['values']['area_sq_ft']==300
+
+
+def test_multi_input_invalid_change_is_atomic(store):
+    with pytest.raises(ValueError):store.preview({'updates':[{'field':'area_sq_ft','value':300},{'field':'cap_rate','value':-1}]})
+    assert store.detail('R1')['values']['area_sq_ft']==200
+    assert store.history()==[]
