@@ -4,6 +4,8 @@ import base64
 import gc
 import json
 import os
+import re
+import secrets
 import sys
 import tempfile
 from dataclasses import asdict, replace
@@ -34,6 +36,7 @@ from app.district_service import (
     infer_domain_from_email,
     link_user_to_district,
     list_district_users,
+    remove_district_user,
     normalize_email,
     resolve_district_for_user,
     slugify_district_name,
@@ -237,6 +240,15 @@ class DistrictSetupRequest(SignupRequest):
 class DistrictInviteRequest(SessionRequest):
     email: str
     role: Literal["admin", "member"] = "member"
+
+
+class DistrictUserActionRequest(SessionRequest):
+    membership_id: str
+
+
+class AcceptInvitationRequest(SessionRequest):
+    password: str
+    confirm_password: str
 
 
 class CadDistrictInfoRequest(BaseModel):
@@ -538,6 +550,7 @@ def _district_to_dict(district: DistrictContext | None) -> dict[str, Any] | None
         "email": district.email,
         "user_id": district.user_id,
         "role": district.role,
+        "must_change_password": district.must_change_password,
     }
 
 
@@ -546,6 +559,8 @@ def get_authenticated_district_context(access_token: str) -> DistrictContext:
     district = build_district_context(user, access_token)
     if not district:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
+    if district.must_change_password:
+        raise HTTPException(status_code=403, detail="Change your temporary password before continuing.")
     return district
 
 
@@ -561,7 +576,7 @@ def build_district_context(user: dict[str, Any], access_token: str) -> DistrictC
     service_role_key = get_supabase_service_role_key()
     email = normalize_email(str(user.get("email") or ""))
     user_id = str(user.get("id") or "").strip() or None
-    return resolve_district_for_user(
+    district = resolve_district_for_user(
         supabase_url=supabase_url,
         anon_key=anon_key,
         access_token=access_token,
@@ -569,6 +584,8 @@ def build_district_context(user: dict[str, Any], access_token: str) -> DistrictC
         user_id=user_id,
         service_role_key=service_role_key or None,
     )
+
+    return replace(district, must_change_password=bool((user.get("app_metadata") or {}).get("must_change_password"))) if district else None
 
 
 def supabase_auth_request(path: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1704,32 +1721,77 @@ def district_user_list(request: SessionRequest) -> dict[str, Any]:
     return {"district": _district_to_dict(district), "users": to_jsonable(users)}
 
 
+@app.middleware("http")
+async def prevent_credential_caching(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith(("/api/auth/", "/api/district/users")):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def admin_auth_request(method, path, payload):
+    url, _ = get_supabase_config()
+    key = get_supabase_service_role_key()
+    response = requests.request(method, f"{url}/auth/v1/admin/{path}",
+        headers={"apikey":key,"Authorization":f"Bearer {key}"}, json=payload, timeout=20)
+    if response.status_code >= 400:
+        raise HTTPException(status_code=400, detail="Could not create this login. If the email already has an account, use its existing password or contact an administrator.")
+    return response.json()
+
+
 @app.post("/api/district/users/invite")
-def district_user_invite(request: DistrictInviteRequest) -> dict[str, Any]:
-    service_role_key = get_supabase_service_role_key()
-    supabase_url, _anon_key = get_supabase_config()
-    if not service_role_key:
-        raise HTTPException(status_code=500, detail="SUPABASE_SERVICE_ROLE_KEY is required for district user management.")
+def district_user_invite(request: DistrictInviteRequest):
     district = require_district_admin(request.access_token)
+    url, _ = get_supabase_config(); key = get_supabase_service_role_key()
     email = normalize_email(request.email)
-    if "@" not in email:
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
         raise HTTPException(status_code=400, detail="Enter a valid email address.")
     try:
-        link_user_to_district(
-            supabase_url=supabase_url,
-            service_role_key=service_role_key,
-            district_id=district.district_id,
-            email=email,
-            role=request.role,
-        )
-        users = list_district_users(
-            supabase_url=supabase_url,
-            service_role_key=service_role_key,
-            district_id=district.district_id,
-        )
+        existing = get_invited_district_user(supabase_url=url, service_role_key=key, email=email)
+        if existing and existing.district_id != district.district_id:
+            raise HTTPException(status_code=400, detail="That email is already linked to a different district.")
+        if existing and existing.user_id:
+            return {"users":list_district_users(supabase_url=url,service_role_key=key,district_id=district.district_id),"already_authorized":True}
+        password = secrets.token_urlsafe(18) + "aA1!"
+        user = admin_auth_request("POST", "users", {"email":email,"password":password,"email_confirm":True,"app_metadata":{"must_change_password":True}})
+        link_user_to_district(supabase_url=url,service_role_key=key,district_id=district.district_id,email=email,
+            user_id=user["id"],role=existing.role if existing else request.role)
+        return {"users":list_district_users(supabase_url=url,service_role_key=key,district_id=district.district_id),"temporary_password":password,"email":email}
     except DistrictServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"district": _district_to_dict(district), "users": to_jsonable(users)}
+
+
+@app.post("/api/district/users/remove")
+def district_user_remove(request: DistrictUserActionRequest):
+    district = require_district_admin(request.access_token)
+    user = get_supabase_user(request.access_token)
+    url, _ = get_supabase_config(); key = get_supabase_service_role_key()
+    try:
+        result = remove_district_user(supabase_url=url,service_role_key=key,district_id=district.district_id,
+            membership_id=request.membership_id,actor_user_id=str(user['id']),actor_email=str(user.get('email') or district.email))
+        users = list_district_users(supabase_url=url,service_role_key=key,district_id=district.district_id)
+        return {"users":to_jsonable(users),"removed":result}
+    except DistrictServiceError as exc:
+        raise HTTPException(status_code=400,detail=str(exc)) from exc
+
+
+@app.post("/api/auth/change-password")
+def auth_accept_invitation(request: AcceptInvitationRequest):
+    if len(request.password) < 8:
+        raise HTTPException(status_code=400,detail="Password must be at least 8 characters.")
+    if request.password != request.confirm_password:
+        raise HTTPException(status_code=400,detail="Passwords do not match.")
+    # Restore checks current district authorization before changing a password.
+    auth_restore(SessionRequest(access_token=request.access_token))
+    url, anon_key = get_supabase_config()
+    response = requests.put(f"{url}/auth/v1/user",headers={"apikey":anon_key,"Authorization":f"Bearer {request.access_token}","Content-Type":"application/json"},json={"password":request.password},timeout=20)
+    if response.status_code >= 400:
+        raise HTTPException(status_code=400,detail="Could not set the password. Choose a different password that meets the password requirements.")
+    user = get_supabase_user(request.access_token)
+    metadata = dict(user.get("app_metadata") or {})
+    metadata["must_change_password"] = False
+    admin_auth_request("PUT", f"users/{user['id']}", {"app_metadata":metadata})
+    return auth_restore(SessionRequest(access_token=request.access_token))
 
 
 @app.post("/api/pdf/render")

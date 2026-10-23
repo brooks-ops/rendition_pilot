@@ -264,6 +264,17 @@
         <div><button id="login-submit" type="button">Login</button></div>
       </div>
 
+      <div id="auth-invitation" class="auth-view hidden">
+        <h3>Set your Rendition Pilot password</h3>
+        <p id="invitation-account" class="subtle"></p>
+        <div class="login-grid">
+          <div class="field"><label for="invitation-password">Password (at least 8 characters)</label><input id="invitation-password" type="password" autocomplete="new-password"></div>
+          <div class="field"><label for="invitation-confirm">Confirm password</label><input id="invitation-confirm" type="password" autocomplete="new-password"></div>
+          <div><button id="invitation-accept" type="button">Set Password &amp; Sign In</button></div>
+        </div>
+        <div id="invitation-status" class="status hidden" role="status"></div>
+      </div>
+
       <div id="auth-signup" class="auth-view login-grid hidden">
         <div class="field">
           <label for="signup-email">Email</label>
@@ -871,7 +882,7 @@
       <div id="view-admin" class="view">
         <section class="card">
           <h3>Authorized CAD Users</h3>
-          <div class="subtle" style="margin-bottom:12px;">Add the CAD email before that person creates a login. Only listed emails can create Rendition Pilot accounts.</div>
+          <div class="subtle" style="margin-bottom:12px;">Create a CAD login with a temporary password. The user must change it at first login. Remove revokes their district access; their shared login and appraisal records are retained.</div>
           <div class="layout-3">
             <div class="field">
               <label for="invite-email">Email</label>
@@ -886,12 +897,14 @@
             </div>
             <div class="field">
               <label>&nbsp;</label>
-              <button id="invite-submit" type="button">Add User</button>
+              <button id="invite-submit" type="button">Create User</button>
             </div>
           </div>
           <div class="button-row" style="margin-top:4px;margin-bottom:12px;">
             <button id="refresh-users" class="secondary" type="button">Refresh Users</button>
           </div>
+          <div id="temporary-credentials" class="status hidden"><p>Copy these credentials now and share them securely. The password is shown only once.</p><pre id="temporary-credentials-value"></pre><button type="button" id="dismiss-credentials">Dismiss</button></div>
+          <div id="admin-user-status" class="status hidden" role="status"></div>
           <div class="queue-table-wrap">
             <table>
               <thead id="users-head"></thead>
@@ -1066,10 +1079,12 @@
       appState.auth = session;
       localStorage.setItem(AUTH_KEY, JSON.stringify(session));
       renderAuthState();
-      refreshCadSchedules().catch(() => {});
+      if (!session.district?.must_change_password) refreshCadSchedules().catch(() => {});
     }
 
     function clearAuthSession() {
+      $("temporary-credentials-value").textContent="";
+      $("temporary-credentials").classList.add("hidden");
       appState.auth = null;
       appState.cadSchedules = [];
       localStorage.removeItem(AUTH_KEY);
@@ -1099,7 +1114,16 @@
     }
 
     function renderAuthState() {
-      const authed = !!(appState.auth && appState.auth.access_token && appState.auth.district);
+      const mustChange = !!appState.auth?.district?.must_change_password;
+      const authed = !!(appState.auth && appState.auth.access_token && appState.auth.district) && !mustChange;
+      $("auth-invitation").classList.toggle("hidden", !mustChange);
+      if (!appState.auth) {
+        document.querySelectorAll(".auth-view").forEach(view => view.classList.toggle("hidden", view.id !== "auth-login"));
+      }
+      if (mustChange) {
+        document.querySelectorAll(".auth-view").forEach(view => view.classList.toggle("hidden", view.id !== "auth-invitation"));
+        $("invitation-account").textContent = "Choose your own password before continuing.";
+      }
       $("auth-shell").classList.toggle("hidden", authed);
       $("app-shell").classList.toggle("hidden", !authed);
       $("user-box").classList.toggle("hidden", !authed);
@@ -2128,13 +2152,80 @@
         body: JSON.stringify({ access_token: appState.auth.access_token })
       });
       appState.admin.users = data.users || [];
-      renderTable("users-head", "users-body", appState.admin.users.map((user) => ({
-        email: user.email,
-        role: user.role || "member",
-        status: user.user_id ? "Account created" : "Invited",
-        created_at: user.created_at || "-"
-      })));
+      renderDistrictUsers();
     }
+
+    let adminUsersBusy = false;
+    function userManagementStatus(message, type = "success") {
+      const status = $("admin-user-status"); status.textContent = message; status.className = `status ${type}`;
+    }
+    function renderDistrictUsers() {
+      $("users-head").innerHTML = "<tr><th>Email</th><th>Role</th><th>Account</th><th>Actions</th></tr>";
+      const body = $("users-body"); body.replaceChildren();
+      const users = appState.admin.users || [];
+      const adminCount = users.filter(user => user.role === "admin").length;
+      for (const user of users) {
+        const row = document.createElement("tr");
+        const addCell = value => { const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); return cell; };
+        addCell(user.email); addCell(user.role || "member");
+        addCell(user.user_id ? "Login linked" : "Awaiting first login");
+        const actions = addCell("");
+        for (const [action,label] of [["remove", "Remove user"]]) {
+          const button = document.createElement("button"); button.type = "button"; button.className = "secondary";
+          button.textContent = label; button.dataset.userAction = action; button.dataset.membershipId = user.id;
+          const self = (user.user_id && user.user_id === appState.auth?.user?.id) || user.email === appState.auth?.district?.email;
+          const protectedUser = action === "remove" && (self || (user.role === "admin" && adminCount <= 1));
+          button.disabled = adminUsersBusy || protectedUser;
+          if (protectedUser) button.title = self ? "You cannot remove your own access." : "The district needs at least one administrator.";
+          actions.appendChild(button);
+        }
+        body.appendChild(row);
+      }
+    }
+    async function addDistrictUser() {
+      if (adminUsersBusy) return;
+      const button = $("invite-submit");
+      if (!$("invite-email").reportValidity()) return;
+      adminUsersBusy = true; button.disabled = true; renderDistrictUsers();
+      userManagementStatus("Creating login…", "warn");
+      try {
+        const result = await fetchJson("/api/district/users/invite", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:appState.auth.access_token,email:$("invite-email").value.trim().toLowerCase(),role:$("invite-role").value})});
+        appState.admin.users = result.users || []; $("invite-email").value = "";
+        if (result.temporary_password) {
+          $("temporary-credentials-value").textContent = `Login: https://www.renditionpilot.com/\nEmail: ${result.email}\nTemporary password: ${result.temporary_password}`;
+          $("temporary-credentials").classList.remove("hidden");
+        }
+        userManagementStatus(result.already_authorized ? "This user already has access. Use their existing password." : "Account created. Copy the temporary password above.");
+      } catch(error) { userManagementStatus(error.message,"error"); }
+      finally { adminUsersBusy = false; button.disabled = false; renderDistrictUsers(); }
+    }
+    async function districtUserAction(button) {
+      if (adminUsersBusy) return;
+      const user = (appState.admin.users || []).find(u => u.id === button.dataset.membershipId);
+      if (!user) return;
+      const action = button.dataset.userAction;
+      if (action === "remove" && !window.confirm(`Remove ${user.email} from this district? Their login will lose access to this district.`)) return;
+      adminUsersBusy = true; renderDistrictUsers();
+      userManagementStatus(action === "remove" ? "Removing district access…" : "Sending invitation email…","warn");
+      try {
+        const result = await fetchJson(`/api/district/users/${action}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:appState.auth.access_token,membership_id:user.id})});
+        appState.admin.users = result.users || [];
+        userManagementStatus(action === "remove" ? `${user.email} removed from this district.` : result.email_sent ? `Email sent to ${user.email}.` : `Email was NOT sent. ${result.email_error || "Retry later."}`,action === "remove" || result.email_sent ? "success" : "warn");
+      } catch(error) { userManagementStatus(error.message,"error"); }
+      finally { adminUsersBusy = false; renderDistrictUsers(); }
+    }
+    $("users-body").addEventListener("click", event => { const button = event.target.closest("[data-user-action]"); if (button) districtUserAction(button); });
+
+    $("dismiss-credentials").addEventListener("click", () => { $("temporary-credentials-value").textContent=""; $("temporary-credentials").classList.add("hidden"); });
+    $("invitation-accept").addEventListener("click",async()=>{
+      const button=$("invitation-accept"), status=$("invitation-status"); button.disabled=true;
+      try {
+        const session=await fetchJson("/api/auth/change-password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:appState.auth?.access_token,password:$("invitation-password").value,confirm_password:$("invitation-confirm").value})});
+        appState.pendingInvitationToken=null; $("invitation-password").value=""; $("invitation-confirm").value="";
+        setAuthSession(session); showFlash("Password set. You’re signed in.","success");
+      } catch(error) { status.textContent=error.message; status.className="status error"; }
+      finally { button.disabled=false; }
+    });
 
     function defaultComptrollerExportMonth() {
       const now = new Date();
@@ -2964,30 +3055,7 @@
       $("property-lookup-account-submit").addEventListener("click", () => { runPropertyLookupByAccount().catch((error) => showFlash(error.message, "error")); });
       $("readiness-refresh").addEventListener("click", () => { refreshReadiness().catch((error) => showFlash(error.message, "error")); });
       $("intel-action-account-card").addEventListener("click", () => { generateAccountCard().catch((error) => showFlash(error.message, "error")); });
-      $("invite-submit").addEventListener("click", async () => {
-        try {
-          const email = $("invite-email").value.trim().toLowerCase();
-          const role = $("invite-role").value;
-          const data = await fetchJson("/api/district/users/invite", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              access_token: appState.auth.access_token,
-              email,
-              role
-            })
-          });
-          appState.admin.users = data.users || [];
-          $("invite-email").value = "";
-          renderTable("users-head", "users-body", appState.admin.users.map((user) => ({
-            email: user.email,
-            role: user.role || "member",
-            status: user.user_id ? "Account created" : "Invited",
-            created_at: user.created_at || "-"
-          })));
-          showFlash("Authorized user added.", "success");
-        } catch (error) { showFlash(error.message, "error"); }
-      });
+      $("invite-submit").addEventListener("click", addDistrictUser);
 
       $("login-submit").addEventListener("click", async () => {
         try {
