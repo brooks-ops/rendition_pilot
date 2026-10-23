@@ -1790,6 +1790,17 @@ def admin_auth_request(method, path, payload):
     key = get_supabase_service_role_key()
     response = requests.request(method, f"{url}/auth/v1/admin/{path}",
         headers={"apikey":key,"Authorization":f"Bearer {key}"}, json=payload, timeout=20)
+    if response.status_code >= 400 and method == "POST" and path == "users" and response.json().get("error_code") in {"email_exists", "user_already_exists"}:
+        # Link a pre-existing login without changing its password.
+        for page in range(1, 101):
+            result = requests.get(f"{url}/auth/v1/admin/users", headers={"apikey":key,"Authorization":f"Bearer {key}"},params={"page":page,"per_page":100},timeout=20)
+            result.raise_for_status()
+            users = result.json().get("users", [])
+            existing = next((u for u in users if normalize_email(u.get("email", "")) == payload["email"]), None)
+            if existing:
+                return {**existing, "existing_login":True}
+            if len(users) < 100:
+                break
     if response.status_code >= 400:
         raise HTTPException(status_code=400, detail="Could not create this login. If the email already has an account, use its existing password or contact an administrator.")
     return response.json()
@@ -1814,7 +1825,7 @@ def district_user_invite(request: DistrictInviteRequest):
         user = admin_auth_request("POST", "users", {"email":email,"password":password,"email_confirm":True,"app_metadata":{"must_change_password":True}})
         link_user_to_district(supabase_url=url,service_role_key=key,district_id=district.district_id,email=email,
             user_id=user["id"],role=existing.role if existing else request.role)
-        return {"users":users_with_access(list_district_users(supabase_url=url,service_role_key=key,district_id=district.district_id),district.district_id),"temporary_password":password,"email":email}
+        return {"users":users_with_access(list_district_users(supabase_url=url,service_role_key=key,district_id=district.district_id),district.district_id),"temporary_password":None if user.get("existing_login") else password,"already_authorized":bool(user.get("existing_login")),"email":email}
     except DistrictServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
