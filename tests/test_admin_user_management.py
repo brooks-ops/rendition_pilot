@@ -78,3 +78,52 @@ def test_successful_password_change_clears_server_owned_flag(setup,monkeypatch):
     result=backend.auth_accept_invitation(backend.AcceptInvitationRequest(access_token='t',password='new-password',confirm_password='new-password'))
     assert result['district']['must_change_password'] is False
     assert setup[0].call_args.args[2]['app_metadata']=={'must_change_password':False,'other':'retained'}
+
+# Synthetic counties: exercise the same implementation without adding live tenants.
+@pytest.mark.parametrize('slug,name,domain',[
+    ('north-cad','North County CAD','northcad.example'),
+    ('coastal-cad','Coastal County Appraisal District','coastal.example'),
+    ('hill-cad','Hill County CAD','hill.example'),
+])
+def test_any_county_uses_signed_in_admin_district(setup,monkeypatch,slug,name,domain):
+    district=replace(make_district(),district_id=f'{slug}-id',district_slug=slug,
+        district_name=name,email=f'admin@{domain}',user_id=f'{slug}-admin',domain=domain)
+    monkeypatch.setattr(backend,'require_district_admin',lambda _:district)
+    monkeypatch.setattr(backend,'get_supabase_user',lambda _:{'id':district.user_id,'email':district.email})
+    listed=Mock(return_value=[])
+    monkeypatch.setattr(backend,'list_district_users',listed)
+    grants=Mock()
+    if hasattr(backend,'save_access'):monkeypatch.setattr(backend,'save_access',grants)
+    email=f'appraiser@{domain}'
+    result=backend.district_user_invite(backend.DistrictInviteRequest(access_token='token',email=email))
+    assert result['temporary_password']
+    assert setup[1].call_args.kwargs['district_id']==district.district_id
+    assert setup[1].call_args.kwargs['email']==email
+    assert listed.call_args.kwargs['district_id']==district.district_id
+    if hasattr(backend,'save_access'):assert grants.call_args.args[0]==district.district_id
+    # A supplied district ID cannot override the actor's verified district.
+    remove=Mock(return_value={'removed':True})
+    monkeypatch.setattr(backend,'remove_district_user',remove)
+    backend.district_user_remove(backend.DistrictUserActionRequest(access_token='token',membership_id='target',district_id='another-county'))
+    assert remove.call_args.kwargs['district_id']==district.district_id
+    assert remove.call_args.kwargs['actor_user_id']==district.user_id
+    # Existing membership in any other county is rejected before Auth mutation.
+    setup[0].reset_mock()
+    monkeypatch.setattr(backend,'get_invited_district_user',lambda **kw:replace(district,district_id='another-county'))
+    with pytest.raises(HTTPException):
+        backend.district_user_invite(backend.DistrictInviteRequest(access_token='token',email=email))
+    setup[0].assert_not_called()
+
+@pytest.mark.parametrize('district_id',['north-cad-id','coastal-cad-id','hill-cad-id'])
+def test_first_login_gate_follows_account_for_any_county(setup,monkeypatch,district_id):
+    district=replace(make_district(),district_id=district_id)
+    monkeypatch.setattr(backend,'resolve_district_for_user',lambda **kw:district)
+    user={'id':'new-user','email':'new@county.example','app_metadata':{'must_change_password':True}}
+    monkeypatch.setattr(backend,'get_supabase_user',lambda _:user)
+    restored=backend.auth_restore(backend.SessionRequest(access_token='t'))
+    assert restored['district']['district_id']==district_id
+    assert restored['district']['must_change_password'] is True
+    with pytest.raises(HTTPException) as denied:backend.get_authenticated_district_context('t')
+    assert denied.value.status_code==403
+    user['app_metadata']['must_change_password']=False
+    assert backend.get_authenticated_district_context('t').district_id==district_id
