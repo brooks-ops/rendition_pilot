@@ -68,6 +68,21 @@ def commercial_router(resolve_context):
         except Conflict as exc:raise HTTPException(409,str(exc))
         except (ValueError,KeyError) as exc:raise HTTPException(400,str(exc))
 
+    @router.post('/packet-list')
+    def packet_list(payload:dict):
+        store,c=context(payload)
+        from .packet_import import preview_account_list
+        try:return preview_account_list(store,payload)
+        except (ValueError,TypeError) as exc:raise HTTPException(400,str(exc))
+
+    @router.post('/packets/individual')
+    def individual_packets(payload:dict):
+        store,c=context(payload)
+        from .packet_import import individual_packet_zip
+        try:data=individual_packet_zip(store,payload.get('ids',[]),payload.get('notes',''))
+        except (ValueError,TypeError,KeyError) as exc:raise HTTPException(400,str(exc))
+        return Response(data,media_type='application/zip',headers={'Content-Disposition':'attachment; filename="commercial-individual-packets.zip"'})
+
     @router.post('/packets')
     def packets(payload:dict):
         store,c=context(payload)
