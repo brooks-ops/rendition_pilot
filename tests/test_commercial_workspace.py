@@ -88,6 +88,12 @@ def test_empty_selection_never_means_entire_model(store):
     with pytest.raises(ValueError):preview(store,filters={'ids':[]})
 
 
+def test_preview_does_not_persist_authentication_token(store):
+    preview(store,access_token='do-not-store-this-token')
+    with store.connect() as db:
+        assert 'do-not-store-this-token' not in db.execute('SELECT payload FROM previews').fetchone()[0]
+
+
 def test_create_is_audited_and_can_be_undone(store):
     created=store.create('R1',{'account':'R3'},'appraiser')
     history=store.history()

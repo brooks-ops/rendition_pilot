@@ -202,7 +202,7 @@ class Store:
                     base=(r.get('calculated') or {}).get('values',{}).get(output,before['values'].get(output));new=after['values'].get(output)
                     preview.append({'id':r['id'],'account':r['account'],'name':before['values'].get('name'),'model':r['model'],'category':before['values'].get('category'),'source_row':r['source_row'],'old':before['values'].get(field),'new':after['values'].get(field),'before_value':base,'after_value':new,'difference':new-base if isinstance(new,(int,float)) and isinstance(base,(int,float)) else None,'errors':after['errors']})
             token=uuid.uuid4().hex;revision=db.execute('SELECT revision FROM state').fetchone()[0]
-            stored={'request':payload,'changes':[{'id':r['id'],'column':col,'value':v} for r,col,v in changes],'calculated':proposed_records,'preview':preview}
+            stored={'changes':[{'id':r['id'],'column':col,'value':v} for r,col,v in changes],'calculated':proposed_records,'preview':preview}
             db.execute('INSERT INTO previews VALUES(?,?,?,?)',(token,revision,json.dumps(stored),datetime.now(timezone.utc).isoformat()))
             return {'token':token,'revision':revision,'count':len(preview),'skipped_overrides':len(skipped),'items':preview,'affected_accounts':len({r['account'] for r in preview})}
 
