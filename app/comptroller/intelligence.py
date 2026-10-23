@@ -307,11 +307,18 @@ def list_intelligence_queue(
         elif item.signal_type == 'mailing_address_change':
             linked_pid = (item.matched_account_number or item.property_account_number
                 or item.raw.get('matched_record_id') or item.raw.get('matched_account_id'))
-            if not linked_pid:
+            changed = (bool(item.mailing_address_current and item.mailing_address_observed)
+                and item.mailing_address_current.strip().upper() != item.mailing_address_observed.strip().upper()
+                and item.classification in ('CONFIRMED_MAILING_ADDRESS_CHANGE','LIKELY_MAILING_ADDRESS_CHANGE','POSSIBLE_MAILING_ADDRESS_CHANGE'))
+            if linked_pid and changed and item.confidence == 'HIGH' and not item.is_ambiguous and item.classification != 'POSSIBLE_MAILING_ADDRESS_CHANGE':
                 item = replace(item, priority='HIGH', priority_rank=0,
-                    priority_reason='No PID linked — prioritize business/address matching')
+                    priority_reason='Matched CAD account + updated mailing address')
+            elif linked_pid and changed:
+                item = replace(item, priority='MEDIUM', priority_rank=1,
+                    priority_reason='Possible account/mail change — verify match')
             else:
-                item = replace(item, priority_rank=1 if item.priority == 'HIGH' else 2)
+                item = replace(item, priority='LOW', priority_rank=2,
+                    priority_reason='No matched CAD PID' if not linked_pid else 'Mailing update needs verification')
         ranked.append(item)
     items = ranked
 

@@ -284,17 +284,22 @@ def test_new_business_priority_and_order_remain_unchanged(fake_supabase):
     assert [(i.id,i.priority) for i in items]==[(newest['id'],'HIGH'),(older['id'],'LOW')]
 
 
-def test_mailing_no_pid_is_highest_without_demoting_existing_high_alerts(fake_supabase):
-    linked=add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='HIGH',matched_account_number='P1',matched_record_id='pid-1',created_at='2026-10-23')
-    unmatched=add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='MEDIUM',confidence='UNMATCHED',match_signals={'address':'NO MATCH','business_dba_name':'NO MATCH'},created_at='2026-01-01')
+
+def test_mailing_matched_account_with_updated_address_is_highest(fake_supabase):
+    linked=add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='MEDIUM',confidence='HIGH',classification='LIKELY_MAILING_ADDRESS_CHANGE',mailing_address_current='100 OLD ST',mailing_address_observed='200 NEW ST',matched_account_number='P1',matched_record_id='pid-1',created_at='2026-01-01')
+    unmatched=add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='HIGH',confidence='UNMATCHED',created_at='2026-10-23')
     items=intelligence.list_intelligence_queue('district-1',signal_type='mailing_address_change')
-    assert [i.id for i in items]==[unmatched['id'],linked['id']]
-    assert all(i.priority=='HIGH' for i in items)
-    assert items[0].confidence=='UNMATCHED'
-    assert 'No PID linked' in items[0].priority_reason
-    assert fake_supabase.intelligence_items[unmatched['id']]['priority']=='MEDIUM'
+    assert [i.id for i in items]==[linked['id'],unmatched['id']]
+    assert [i.priority for i in items]==['HIGH','LOW']
+    assert 'updated mailing' in items[0].priority_reason
+    assert items[1].confidence=='UNMATCHED'
 
 
-def test_mailing_linked_pid_keeps_existing_medium_priority(fake_supabase):
-    add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='MEDIUM',matched_record_id='pid-1')
+def test_mailing_linked_account_without_update_is_not_high(fake_supabase):
+    add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='HIGH',matched_record_id='pid-1',confidence='HIGH')
+    assert intelligence.list_intelligence_queue('district-1',signal_type='mailing_address_change')[0].priority=='LOW'
+
+
+def test_possible_mailing_match_stays_medium(fake_supabase):
+    add_intelligence_item(fake_supabase,signal_type='mailing_address_change',priority='HIGH',matched_record_id='pid-1',confidence='MEDIUM',classification='POSSIBLE_MAILING_ADDRESS_CHANGE',mailing_address_current='100 OLD ST',mailing_address_observed='200 NEW ST')
     assert intelligence.list_intelligence_queue('district-1',signal_type='mailing_address_change')[0].priority=='MEDIUM'
