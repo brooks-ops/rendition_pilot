@@ -265,3 +265,20 @@ def test_resolving_never_touches_appraisal_fields(fake_supabase):
 def test_unknown_source_table_raises(fake_supabase):
     with pytest.raises(intelligence.IntelligenceQueueError):
         intelligence.get_intelligence_item("not_a_real_table", "x")
+
+
+
+def test_inactive_queue_orders_full_matches_before_unmatched(fake_supabase):
+    weak=add_closure_review(fake_supabase,created_at='2026-10-23')
+    full=add_closure_review(fake_supabase,created_at='2026-01-01',match_confidence='HIGH',matched_account_id='cad-2',matched_account_number='P2',match_reason='Imported CAD personal-property account: situs address and strong CAD owner/business/DBA name match')
+    items=intelligence.list_intelligence_queue('district-1',signal_type='sales_tax_inactive')
+    assert items[0].id==full['id'] and items[0].priority=='HIGH'
+    assert items[0].priority_reason=='PID + address + DBA/owner match'
+    assert items[-1].id==weak['id'] and items[-1].priority=='LOW'
+
+
+def test_new_business_priority_and_order_remain_unchanged(fake_supabase):
+    newest=add_intelligence_item(fake_supabase,created_at='2026-10-23',priority='HIGH')
+    older=add_intelligence_item(fake_supabase,created_at='2026-01-01',priority='LOW')
+    items=intelligence.list_intelligence_queue('district-1',signal_type='new_business')
+    assert [(i.id,i.priority) for i in items]==[(newest['id'],'HIGH'),(older['id'],'LOW')]
