@@ -1,5 +1,8 @@
 from __future__ import annotations
 import gzip
+import hashlib
+import zlib
+from copy import deepcopy
 import json
 import math
 import re
@@ -23,13 +26,19 @@ class Conflict(ValueError):pass
 class Store:
     def __init__(self,directory):
         self.directory=Path(directory)
-        self.manifest=json.loads((self.directory/'manifest.json').read_text())
+        manifest=(self.directory/'manifest.json').read_bytes()
+        self.manifest=json.loads(manifest)
+        self.read_version='1:'+hashlib.sha256(manifest).hexdigest()
+        self._read_cache=None
         self.definitions={m['model']:m for m in self.manifest['models']}
         self.graphs={}
         self.lock=threading.RLock()
         with self.connect() as db:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS records(id TEXT PRIMARY KEY, metadata TEXT NOT NULL, overrides TEXT NOT NULL DEFAULT '{}', extra_cells TEXT NOT NULL DEFAULT '{}');
+                CREATE INDEX IF NOT EXISTS records_model_idx ON records(json_extract(metadata,'$.model'));
+                CREATE INDEX IF NOT EXISTS records_account_idx ON records(json_extract(metadata,'$.account'));
+                CREATE TABLE IF NOT EXISTS read_cache(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, version TEXT NOT NULL, payload BLOB NOT NULL);
                 CREATE TABLE IF NOT EXISTS state(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
                 INSERT OR IGNORE INTO state VALUES(1,0);
                 CREATE TABLE IF NOT EXISTS previews(id TEXT PRIMARY KEY, revision INTEGER, payload TEXT, created_at TEXT);
@@ -64,10 +73,50 @@ class Store:
                 self.graphs.pop(next(iter(self.graphs)))
             return self.graphs[model]
 
-    def records(self,db=None):
+    def records(self,db=None,model=None,account=None):
         if db is None:
-            with self.connect() as conn:return self.records(conn)
-        return [{**json.loads(r['metadata']),'overrides':json.loads(r['overrides']),'extra_cells':json.loads(r['extra_cells'])} for r in db.execute('SELECT * FROM records')]
+            with self.connect() as conn:return self.records(conn,model=model,account=account)
+        query='SELECT * FROM records';clauses=[];params=[]
+        if model is not None:clauses.append("json_extract(metadata,'$.model')=?");params.append(model)
+        if account is not None:clauses.append("json_extract(metadata,'$.account')=?");params.append(account)
+        if clauses:query+=' WHERE '+' AND '.join(clauses)
+        return [{**json.loads(r['metadata']),'overrides':json.loads(r['overrides']),'extra_cells':json.loads(r['extra_cells'])} for r in db.execute(query,params)]
+
+    def read_view(self):
+        """Immutable-to-callers read projection, checked against every saved revision.
+
+        The compressed SQLite copy travels with durable workspace snapshots. Formula
+        graphs remain bounded to two models; searching never needs to reload them.
+        """
+        with self.lock,self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            revision=db.execute('SELECT revision FROM state').fetchone()[0]
+            if self._read_cache and self._read_cache[0]==revision:return self._read_cache
+            saved=db.execute('SELECT * FROM read_cache WHERE id=1').fetchone()
+            if saved and saved['revision']==revision and saved['version']==self.read_version:
+                try:
+                    data=json.loads(gzip.decompress(saved['payload']))
+                    self._read_cache=(revision,data['items'],data['models'])
+                    return self._read_cache
+                except (ValueError,KeyError,TypeError,OSError,EOFError,zlib.error):pass
+            records=self.records(db);items=[];models=[]
+            for model,spec in self.definitions.items():
+                cells=self.graph(model)[spec['sheet']];labels={}
+                model_records=[r for r in records if r['model']==model]
+                new_engine=self.effective_engine(model,model_records) if any(r.get('new_property') and not r.get('calculated') for r in model_records) else None
+                for r in model_records:items.append(self.snapshot(r,new_engine if r.get('new_property') and not r.get('calculated') else None))
+                for field,column in spec['fields'].items():
+                    if not field.startswith('mix_'):continue
+                    prefix='_'.join(field.split('_')[:2]);quantity=spec['fields'][prefix+'_units']
+                    bed=str(cells.get(quantity+'1',{}).get('v') or 'Units').replace('# of ','')
+                    suffix={'units':'Units','monthly_rent':'Monthly rent','unit_area_sq_ft':'Unit area (sq ft)'}[field[len(prefix)+1:]]
+                    labels[field]=f'{bed} - configuration {int(field.split("_")[1])} - {suffix}'
+                models.append({'id':model,'label':LABELS[model],'fields':spec['fields'],'field_labels':labels})
+            items.sort(key=lambda r:(str(r['values'].get('account') or ''),r['model'],r['source_row']))
+            data={'items':items,'models':models}
+            db.execute('INSERT OR REPLACE INTO read_cache VALUES(1,?,?,?)',(revision,self.read_version,gzip.compress(json.dumps(data,separators=(',',':')).encode(),compresslevel=3)))
+            self._read_cache=(revision,items,models)
+            return self._read_cache
 
     def effective_engine(self,model,records,changes=None):
         sheets=dict(self.graph(model));sheet=self.definitions[model]['sheet'];main=None;overrides={}
@@ -125,40 +174,27 @@ class Store:
         return True
 
     def catalog(self,filters=None,offset=0,limit=60):
-        filters=filters or {};records=self.records();items=[];accounts=set();categories=set();classes=set();qualities=set()
-        # Current calculated results are stored with each committed scenario batch.
-        for r in records:
-            if r.get('reference_only') and not filters.get('include_references'):continue
-            snapshot=self.snapshot(r)
-            if r.get('calculated'):
-                snapshot['values'].update(r['calculated']['values']);snapshot['errors'].update(r['calculated']['errors'])
-            if not filters.get('model') or r['model']==filters['model']:
+        filters=filters or {};revision,records,models=self.read_view();items=[];accounts=set();categories=set();classes=set();qualities=set()
+        for snapshot in records:
+            if snapshot.get('reference_only') and not filters.get('include_references'):continue
+            if not filters.get('model') or snapshot['model']==filters['model']:
                 categories.add(str(snapshot['values'].get('category') or ''))
                 classes.add(str(snapshot['values'].get('classification') or ''))
                 qualities.add(str(snapshot['values'].get('quality') or ''))
             if self.match(snapshot,filters):items.append(snapshot);accounts.add(snapshot['values'].get('account'))
-        items.sort(key=lambda r:(str(r['values'].get('account') or ''),r['model'],r['source_row']))
-        with self.connect() as db:revision=db.execute('SELECT revision FROM state').fetchone()[0]
-        models=[]
-        for key,spec in self.definitions.items():
-            labels={}
-            cells=self.graph(key)[spec['sheet']]
-            for field,column in spec['fields'].items():
-                if field.startswith('mix_'):
-                    prefix='_'.join(field.split('_')[:2]);quantity=spec['fields'][prefix+'_units']
-                    bed=str(cells.get(quantity+'1',{}).get('v') or 'Units').replace('# of ','')
-                    suffix={'units':'Units','monthly_rent':'Monthly rent','unit_area_sq_ft':'Unit area (sq ft)'}[field[len(prefix)+1:]]
-                    labels[field]=f'{bed} - configuration {int(field.split("_")[1])} - {suffix}'
-            models.append({'id':key,'label':LABELS[key],'fields':spec['fields'],'field_labels':labels})
-        return {'items':items[offset:offset+limit],'total':len(items),'accounts':len(accounts),'revision':revision,'categories':sorted(categories-{''}),'classifications':sorted(classes-{''}),'qualities':sorted(qualities-{''}),'models':models}
+        return {'items':deepcopy(items[offset:offset+limit]),'total':len(items),'accounts':len(accounts),'revision':revision,'categories':sorted(categories-{''}),'classifications':sorted(classes-{''}),'qualities':sorted(qualities-{''}),'models':deepcopy(models)}
 
     def detail(self,record_id):
-        records=self.records();r=next((r for r in records if r['id']==record_id),None)
-        if not r:raise KeyError('Account row not found')
-        engine=self.effective_engine(r['model'],records)
-        result=self.snapshot(r,engine,details=True)
-        result['related']=[self.snapshot(x) for x in records if x['account']==r['account'] and x['id']!=r['id']]
-        return result
+        with self.lock,self.connect() as db:
+            db.execute('BEGIN')
+            raw=db.execute('SELECT metadata FROM records WHERE id=?',(record_id,)).fetchone()
+            if not raw:raise KeyError('Account row not found')
+            meta=json.loads(raw['metadata']);records=self.records(db,model=meta['model'])
+            r=next(r for r in records if r['id']==record_id)
+            engine=self.effective_engine(r['model'],records)
+            result=self.snapshot(r,engine,details=True)
+            result['related']=[self.snapshot(x) for x in self.records(db,account=r['account']) if x['id']!=r['id']]
+            return result
 
     def validate(self,field,value):
         if field in TEXT_FIELDS:
@@ -190,7 +226,7 @@ class Store:
                     for value in u['values_by_category'].values():self.validate(u['field'],value)
                 if u.get('operation','set') not in ('set','add','percent'):raise ValueError('Unsupported update operation')
             for r in records:
-                if r.get('reference_only'):continue
+                if r.get('reference_only') or filters.get('model') and r['model']!=filters['model']:continue
                 snap=self.snapshot(r)
                 if not self.match(snap,filters):continue
                 spec=self.definitions[r['model']]['fields']

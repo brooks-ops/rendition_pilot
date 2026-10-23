@@ -7,8 +7,10 @@ from .store import DISPLAY_LABELS, TEXT_FIELDS
 def category_summary(store, filters):
     model=filters.get('model')
     if model not in store.definitions:raise ValueError('Choose a valuation model')
-    with store.lock,store.connect() as db:
-        rows=[store.snapshot(r) for r in store.records(db) if r['model']==model and not r.get('reference_only')]
+    with store.lock:
+        revision,index,models=store.read_view()
+        rows=[r for r in index if r['model']==model and not r.get('reference_only')]
+        model_meta=next(m for m in models if m['id']==model)
         rows=[r for r in rows if store.match(r,filters)]
         fields=[]
         for key,column in store.definitions[model]['fields'].items():
@@ -27,12 +29,7 @@ def category_summary(store, filters):
             if key in ('year_built','effective_year'):unit='year'
             if key=='effective_age':unit='years'
             if group=='Value components' or key.startswith('room_revenue') or key=='other_income':unit='$'
-            if key.startswith('mix_'):
-                prefix='_'.join(key.split('_')[:2]);quantity=store.definitions[model]['fields'][prefix+'_units']
-                cells=store.graph(model)[store.definitions[model]['sheet']]
-                bed=str(cells.get(quantity+'1',{}).get('v') or 'Units').replace('# of ','')
-                suffix={'units':'Units','monthly_rent':'Monthly rent','unit_area_sq_ft':'Unit area (sq ft)'}[key[len(prefix)+1:]]
-                label=f'{bed} · configuration {int(key.split("_")[1])} · {suffix}'
+            if key.startswith('mix_'):label=model_meta['field_labels'].get(key,label)
             fields.append(dict(key=key,column=column,label=label,group=group,unit=unit,minimum=min(numbers) if numbers else None,maximum=max(numbers) if numbers else None,median=median(numbers) if numbers else None,missing=len(values)-len(numbers),overrides=sum(key in r['override_fields'] for r in rows)))
         categories=[]
         for name,count in sorted(Counter(str(r['values'].get('category') or '') for r in rows).items()):
@@ -43,4 +40,4 @@ def category_summary(store, filters):
                 values=Counter(r['values'].get(field['key']) for r in members if isinstance(r['values'].get(field['key']),(int,float)))
                 inputs[field['key']]={'values':[{'value':v,'count':n} for v,n in sorted(values.items())],'missing':count-sum(values.values())}
             categories.append(dict(name=name,count=count,inputs=inputs,cap_rates=[{'value':value,'count':n} for value,n in sorted(rates.items())],missing_cap_rates=count-sum(rates.values())))
-        return dict(model=model,categories=categories,count=len(rows),accounts=len({r['account'] for r in rows}),fields=fields,revision=db.execute('SELECT revision FROM state').fetchone()[0],sheet=store.definitions[model]['sheet'])
+        return dict(model=model,categories=categories,count=len(rows),accounts=len({r['account'] for r in rows}),fields=fields,revision=revision,sheet=store.definitions[model]['sheet'])

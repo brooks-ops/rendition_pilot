@@ -95,10 +95,11 @@ def preview_account_list(store,payload):
         seen.add(account);accounts.append(account)
     if len(accounts)>MAX_ACCOUNTS:raise ValueError(f'Import up to {MAX_ACCOUNTS} distinct accounts per batch. Split this list into smaller batches.')
     matches={account:[] for account in accounts}
-    for raw in store.records():
-        if raw.get('reference_only'):continue
-        account=raw['account'].strip().upper()
-        if account in matches:matches[account].append(store.snapshot(raw))
+    _,rows,_=store.read_view()
+    for row in rows:
+        if row.get('reference_only'):continue
+        account=row['account'].strip().upper()
+        if account in matches:matches[account].append(row)
     return {'source':source,'account_count':len(accounts),'matched_count':sum(bool(matches[a]) for a in accounts),'model_rows':sum(map(len,matches.values())),'items':[{'account':a,'rows':matches[a]} for a in accounts if matches[a]],'unmatched':[a for a in accounts if not matches[a]],'duplicate_count':len(duplicates),'duplicates':list(dict.fromkeys(duplicates)),'invalid_count':len(invalid),'invalid':invalid[:100]}
 
 

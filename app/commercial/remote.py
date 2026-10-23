@@ -3,6 +3,7 @@ import os
 import sqlite3
 import tempfile
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import quote
 import requests
@@ -34,16 +35,19 @@ def load_store(directory,district):
             manifest=object_request('GET',district,'manifest.json')
             if manifest.status_code==404 or (manifest.status_code==400 and manifest.json().get('statusCode')=='404'):raise HTTPException(409,'Commercial models have not been imported for your district.')
             manifest.raise_for_status();metadata=manifest.json()
-            names=list(metadata['graphs'].values())+['workspace.sqlite3']
-            # Always restore the durable database on first load in this process.
+            same_manifest=(directory/'manifest.json').exists() and (directory/'manifest.json').read_bytes()==manifest.content
+            names=list(dict.fromkeys(list(metadata['graphs'].values())+['workspace.sqlite3']))
             for name in names:
-                if Path(name).name!=name:raise ValueError('Invalid commercial data filename')
-                if name!='workspace.sqlite3' and (directory/name).exists():continue
+                if not isinstance(name,str) or Path(name).name!=name or name in ('.','..','manifest.json'):raise ValueError('Invalid commercial data filename')
+            def download(name):
+                if name!='workspace.sqlite3' and same_manifest and (directory/name).exists():return
                 response=object_request('GET',district,name);response.raise_for_status()
                 target=directory/name
                 if name=='workspace.sqlite3':
                     for suffix in ('-wal','-shm'):Path(str(target)+suffix).unlink(missing_ok=True)
                 temp=target.with_suffix(target.suffix+'.download');temp.write_bytes(response.content);temp.replace(target)
+            # Bound concurrent transfers; a failed object still fails the entire restore.
+            with ThreadPoolExecutor(max_workers=3) as pool:list(pool.map(download,names))
             (directory/'manifest.json').write_bytes(manifest.content)
             return RemoteStore(directory,district)
         except HTTPException:raise
@@ -59,12 +63,14 @@ class RemoteStore(Store):
             backup=Path(temp)/'before.sqlite3'
             with self.connect() as source,sqlite3.connect(backup) as dest:source.backup(dest)
             result=operation(*args)
-            snapshot=Path(temp)/'after.sqlite3'
-            with self.connect() as source,sqlite3.connect(snapshot) as dest:source.backup(dest)
-            try:object_request('POST',self.remote_district,'workspace.sqlite3',snapshot.read_bytes()).raise_for_status()
-            except requests.RequestException as exc:
+            try:
+                self.read_view()
+                snapshot=Path(temp)/'after.sqlite3'
+                with self.connect() as source,sqlite3.connect(snapshot) as dest:source.backup(dest)
+                object_request('POST',self.remote_district,'workspace.sqlite3',snapshot.read_bytes()).raise_for_status()
+            except Exception as exc:
                 with sqlite3.connect(backup) as source,self.connect() as dest:source.backup(dest)
-                self._equity_pool=None
+                self._equity_pool=None;self._read_cache=None
                 raise HTTPException(503,'The change could not be saved to durable storage and was rolled back. Please try again.') from exc
             return result
 
