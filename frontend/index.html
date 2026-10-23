@@ -753,46 +753,7 @@
           <div id="intel-list"></div>
         </section>
 
-        <div class="modal-backdrop hidden" id="intel-detail-backdrop"></div>
-        <section class="card modal-panel hidden" id="intel-detail-card">
-          <h3>Item Detail</h3>
-          <div id="intel-detail-body"></div>
-          <section id="cad-review-panel" class="card hidden" style="margin-top:12px;">
-            <h4>Compare CAD BPP accounts</h4>
-            <div class="subtle">Compare each account with the Comptroller details above. Confirming or rejecting a match saves an advisory decision and leaves the alert open.</div>
-            <div class="button-row"><input id="cad-account-search" aria-label="Search CAD P account" placeholder="Find a P account by number"><button id="cad-account-find" class="secondary" type="button">Find account</button><button id="cad-account-address" class="secondary" type="button">Accounts at this address</button></div>
-            <div id="cad-review-status" role="status" class="subtle"></div>
-            <div id="cad-review-candidates" style="overflow-x:auto;"></div>
-            <div class="button-row"><button id="cad-review-prev" class="secondary hidden" type="button">Previous accounts</button><button id="cad-review-next" class="secondary hidden" type="button">More accounts</button></div>
-            <div class="field"><label for="cad-review-notes">Match review notes</label><textarea id="cad-review-notes" rows="2" placeholder="Evidence supporting your decision; required when confirming an address or suite conflict"></textarea></div>
-            <details><summary>Saved match decisions</summary><div id="cad-review-history" class="subtle"></div></details>
-          </section>
-          <div class="layout-3" style="margin-top:12px;">
-            <div class="field">
-              <label>&nbsp;</label>
-              <button id="intel-action-investigate" class="secondary" type="button">Investigate</button>
-            </div>
-            <div class="field">
-              <label for="intel-resolution">Resolution</label>
-              <select id="intel-resolution"></select>
-            </div>
-            <div class="field">
-              <label>&nbsp;</label>
-              <button id="intel-action-resolve" type="button">Resolve</button>
-            </div>
-          </div>
-          <div class="field">
-            <label for="intel-resolution-notes">Notes (optional)</label>
-            <input id="intel-resolution-notes" type="text" placeholder="Notes for this decision">
-          </div>
-          <div class="button-row">
-            <button id="intel-action-dismiss" class="secondary" type="button">Dismiss / False Positive</button>
-            <button id="intel-action-account-card" class="secondary hidden" type="button">Generate Account Card</button>
-            <button id="intel-detail-close" class="secondary" type="button">Close</button>
-          </div>
-          <div id="intel-detail-status" class="status hidden"></div>
-          <div id="intel-account-card" class="hidden" style="margin-top:12px;"></div>
-        </section>
+
       </div>
 
       <div id="view-mailing" class="view">
@@ -934,6 +895,44 @@
       </div>
     </section>
       </div>
+        <div class="modal-backdrop hidden" id="intel-detail-backdrop"></div>
+        <section class="card modal-panel hidden intel-review-drawer" id="intel-detail-card" role="dialog" aria-modal="true" aria-labelledby="intel-detail-title">
+          <header class="intel-review-header"><div><div id="intel-detail-kind" class="subtle"></div><h2 id="intel-detail-title">Account review</h2></div><button id="intel-detail-close" class="secondary" type="button" aria-label="Close review">✕</button></header>
+          <div id="intel-detail-body"></div>
+          <details id="cad-review-panel" class="hidden intel-support"><summary>Check or change the CAD account match</summary><div>
+            <div class="subtle">Compare each account with the Comptroller details above. Confirming or rejecting a match saves an advisory decision and leaves the alert open.</div>
+            <div class="button-row"><input id="cad-account-search" aria-label="Search CAD P account" placeholder="Find a P account by number"><button id="cad-account-find" class="secondary" type="button">Find account</button><button id="cad-account-address" class="secondary" type="button">Accounts at this address</button></div>
+            <div id="cad-review-status" role="status" class="subtle"></div>
+            <div id="cad-review-candidates" style="overflow-x:auto;"></div>
+            <div class="button-row"><button id="cad-review-prev" class="secondary hidden" type="button">Previous accounts</button><button id="cad-review-next" class="secondary hidden" type="button">More accounts</button></div>
+            <div class="field"><label for="cad-review-notes">Match review notes</label><textarea id="cad-review-notes" rows="2" placeholder="Evidence supporting your decision; required when confirming an address or suite conflict"></textarea></div>
+            <details><summary>Saved match decisions</summary><div id="cad-review-history" class="subtle"></div></details>
+          </div></details>
+          <section class="intel-outcome"><h3>Handle this account</h3>
+          <p id="intel-next-step" class="subtle"></p>
+          <div class="intel-outcome-fields">
+            <div class="field">
+              <label>&nbsp;</label>
+              <button id="intel-action-investigate" class="secondary" type="button">Start review</button>
+            </div>
+            <div class="field">
+              <label for="intel-resolution">Outcome</label>
+              <select id="intel-resolution" required></select>
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <button id="intel-action-resolve" type="button">Save outcome</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="intel-resolution-notes">Notes (optional)</label>
+            <textarea id="intel-resolution-notes" rows="2" placeholder="What did you verify or change?"></textarea>
+          </div>
+          <div class="button-row"><button id="intel-action-dismiss" class="secondary" type="button">Dismiss</button><span class="subtle">Saving records your review; it does not update the CAD system.</span></div>
+          <div id="intel-detail-status" class="status hidden" role="status"></div>
+          </section>
+          <details id="intel-extra-tools" class="intel-support hidden"><summary>New-account tools</summary><div><button id="intel-action-account-card" class="secondary hidden" type="button">Prepare new-account summary</button><div id="intel-account-card" class="hidden" style="margin-top:12px;"></div></div></details>
+        </section>
     </main>
   </div>
 
@@ -2424,6 +2423,8 @@
     };
 
     function intelResolutionLabel(code) {
+      const labels = {ADDRESS_UPDATED:"Mailing address updated in CAD",CURRENT_ADDRESS_CORRECT:"Existing address is correct",SOURCE_OUTDATED:"Source address is outdated",ACCOUNT_MISMATCH:"Not the correct account",INSUFFICIENT_EVIDENCE:"Need more evidence",BUSINESS_CLOSED:"Business closure verified",ACCOUNT_EXISTS:"Existing account verified",NEW_ACCOUNT_NEEDED:"New account needed"};
+      if (labels[code]) return labels[code];
       return String(code || "").replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
     }
 
@@ -2533,35 +2534,20 @@
         <div>Map: ${cadHtml(item.map_id)}</div>`;
     }
 
-    function mailingAddressDetailHtml(item) {
+    function intelligenceMainDetailsHtml(item) {
+      const mailing = item.signal_type === "mailing_address_change";
+      const account = item.matched_account_number || (item.is_ambiguous ? "Match needs review" : "No matched account");
+      const address = [item.source_address,item.source_city,item.source_state,item.source_zip].filter(Boolean).join(", ");
       const signals = item.match_signals || {};
-      const differenceRows = Object.keys(signals).length
-        ? Object.entries(signals).map(([key, value]) => `<div>${formatText(key.replaceAll("_", " "))}: <strong>${formatText(value)}</strong></div>`).join("")
-        : `<div class="subtle">No per-component differences recorded.</div>`;
-      return `
-        <div class="layout-3">
-          <div>
-            <h4>Current (On File)</h4>
-            <div>${formatText(item.mailing_address_current || "UNKNOWN -- no prior observation on record")}</div>
-            <div class="subtle">Business/Taxpayer: ${formatText(item.business_name)}</div>
-            <div>Sales tax ID: ${formatText(item.sales_tax_id || "Not provided")}</div>
-            ${item.sales_tax_location_number ? `<div>Location #: ${formatText(item.sales_tax_location_number)}</div>` : ""}
-          </div>
-          <div>
-            <h4>New Observation</h4>
-            <div>${formatText(item.mailing_address_observed || "N/A")}</div>
-            <div class="subtle">Source: ${formatText(item.source_label || item.source)}</div>
-            <div class="subtle">Detected: ${formatText(item.first_detected_at)}</div>
-          </div>
-          <div>
-            <h4>What Changed</h4>
-            ${differenceRows}
-          </div>
-        </div>
-        <div style="margin-top:10px;">Classification: <strong>${formatText(item.classification)}</strong> | Confidence: <strong>${formatText(item.confidence)}</strong></div>
-        <div class="subtle">${formatText(item.match_reason)}</div>
-        <div style="margin-top:10px;"><strong>Recommended:</strong> ${formatText(item.recommended_action)}</div>
-        <div class="subtle" style="margin-top:8px;">This is a review recommendation only -- RenditionPilot has not changed any official CAD mailing address. Confirm or correct below.</div>`;
+      return `<section class="intel-account-summary"><div><div class="small-label">CAD account</div><strong class="intel-account-number">${cadHtml(account)}</strong><div>${cadHtml(item.matched_owner_name || item.legal_name || "Owner not provided")}</div></div>
+        <div><div class="small-label">Sales tax ID</div><strong>${cadHtml(item.sales_tax_id || "Not provided")}</strong>${item.sales_tax_location_number ? `<div class="subtle">Location ${cadHtml(item.sales_tax_location_number)}</div>` : ""}</div>
+        ${item.matched_account_number ? '<button id="intel-copy-account" type="button" class="secondary">Copy account #</button>' : ""}</section>
+        ${mailing ? `<section class="intel-address-change"><div><div class="small-label">Previously observed mailing</div><p>${cadHtml(item.mailing_address_current || "Not available")}</p></div><div><div class="small-label">New mailing address</div><p>${cadHtml(item.mailing_address_observed || "Not available")}</p></div></section>` : `<div class="intel-business-address"><div class="small-label">Business address</div>${cadHtml(address || "Not provided")}</div>`}
+        <p class="intel-source-line">${cadHtml(item.source_label || item.source || "Source not provided")} · Detected ${cadHtml(cadDate(item.first_detected_at))} · ${cadHtml(item.status || "NEW")}</p>
+        <details class="intel-support"><summary>Supporting evidence</summary><div><p><strong>Why this was flagged:</strong> ${cadHtml(item.match_reason || "Review the source information.")}</p>
+        <p>Legal name: ${cadHtml(item.legal_name || "Not provided")}<br>Match confidence: ${cadHtml(item.confidence || "Not available")}${item.is_ambiguous ? " · Multiple possible matches" : ""}</p>
+        ${Object.entries(signals).map(([key,value])=>`<div>${cadHtml(key.replaceAll("_"," "))}: ${cadHtml(value)}</div>`).join("")}
+        ${!mailing ? propertyEvidenceHtml(item) : ""}</div></details>`;
     }
 
     function openIntelligenceDetail(itemId, sourceTable) {
@@ -2569,90 +2555,74 @@
       if (!item) return;
       appState.intelligence.selected = item;
 
-      const signals = item.match_signals || {};
-      const signalRows = Object.keys(signals).length
-        ? Object.entries(signals).map(([key, value]) => `<div>${cadHtml(key.replaceAll("_", " "))}: <strong>${cadHtml(value)}</strong></div>`).join("")
-        : `<div class="subtle">No per-signal breakdown available for this item.</div>`;
-
-      $("intel-detail-body").innerHTML = item.signal_type === "mailing_address_change" ? mailingAddressDetailHtml(item) : `
-        <div class="layout-3">
-          <div>
-            <h4>External Source (Comptroller)</h4>
-            <div>Source: ${cadHtml(item.source_label)}</div>
-            <div>Business/DBA: ${cadHtml(item.business_name)}</div>
-            <div>Legal/Taxpayer Name: ${cadHtml(item.legal_name)}</div>
-            <div>Sales tax ID (Comptroller taxpayer ID): ${cadHtml(item.sales_tax_id || "Not provided")}</div>
-            ${item.sales_tax_location_number ? `<div>Location #: ${cadHtml(item.sales_tax_location_number)}</div>` : ""}
-            <div>Address: ${cadHtml([item.source_address, item.source_city, item.source_state, item.source_zip].filter(Boolean).join(", "))}</div>
-            <div>Permit Start: ${cadHtml(item.permit_start_date)}</div>
-            <div>First Detected: ${cadHtml(item.first_detected_at)}</div>
-          </div>
-          <div>
-            <h4>CAD Account Match</h4>
-            <div>Matched Owner Name: ${cadHtml(item.matched_owner_name)}</div>
-            <div>Matched Account #: ${cadHtml(item.matched_account_number)}</div>
-            <div>Confidence: ${cadHtml(item.confidence)} (${cadHtml(item.confidence_score)})</div>
-            <div>Ambiguous: ${item.is_ambiguous ? "YES -- multiple similarly-scored records" : "No"}</div>
-            <div>Classification: ${cadHtml(item.classification)}</div>
-          </div>
-          <div>
-            <h4>Match Analysis</h4>
-            ${signalRows}
-          </div>
-          <div>
-            <h4>Property Enrichment</h4>
-            ${propertyEvidenceHtml(item)}
-          </div>
-        </div>
-        <div style="margin-top:10px;"><strong>Reason:</strong> ${cadHtml(item.match_reason)}</div>
-        <div><strong>Recommended:</strong> ${cadHtml(item.recommended_action)}</div>`;
-
+      const mailing = item.signal_type === "mailing_address_change";
+      $("intel-detail-title").textContent = item.business_name || item.legal_name || "Account review";
+      $("intel-detail-kind").textContent = mailing ? "Mailing address change" : item.signal_type === "sales_tax_inactive" ? "Sales tax inactive" : "Business intelligence";
+      $("intel-detail-body").innerHTML = intelligenceMainDetailsHtml(item);
+      $("intel-next-step").textContent = mailing ? "Verify the new mailing address, make any needed change in your CAD system, then record the outcome." : item.signal_type === "sales_tax_inactive" ? "Verify whether this business is still operating and record the account review outcome." : "Check the account match and determine whether an existing or new account is needed.";
+      const copy = $("intel-copy-account");
+      if (copy) copy.addEventListener("click", async () => { try { await navigator.clipboard.writeText(item.matched_account_number); copy.textContent="Copied"; } catch { copy.textContent="Select the account number above to copy"; } });
       const resolutionSelect = $("intel-resolution");
       const options = INTEL_RESOLUTION_OPTIONS[item.signal_type] || INTEL_RESOLUTION_OPTIONS.new_business;
-      resolutionSelect.innerHTML = options.map((code) => `<option value="${code}">${intelResolutionLabel(code)}</option>`).join("");
-      $("intel-resolution-notes").value = "";
+      resolutionSelect.innerHTML = '<option value="">Choose an outcome…</option>' + options.map((code) => `<option value="${code}">${intelResolutionLabel(code)}</option>`).join("");
+      resolutionSelect.value = options.includes(item.resolution) ? item.resolution : "";
+      $("intel-resolution-notes").value = item.resolution_notes || "";
       $("intel-detail-status").classList.add("hidden");
       $("intel-action-account-card").classList.toggle("hidden", item.signal_type !== "new_business");
+      $("intel-extra-tools").classList.toggle("hidden", item.signal_type !== "new_business");
+      $("intel-extra-tools").open = false;
+      $("intel-action-investigate").disabled = item.status !== "NEW";
       $("intel-account-card").classList.add("hidden");
       $("intel-account-card").innerHTML = "";
       $("intel-detail-backdrop").classList.remove("hidden");
       $("intel-detail-card").classList.remove("hidden");
       $("cad-review-panel").classList.toggle("hidden", item.signal_type === "mailing_address_change");
+      $("cad-review-panel").open = false;
       $("cad-review-notes").value = "";
       $("cad-account-search").value = "";
-      if (item.signal_type !== "mailing_address_change") loadCadCandidates(0);
+      $("cad-review-status").textContent = "";
+      $("cad-review-candidates").replaceChildren();
+      $("cad-review-history").replaceChildren();
+      $("cad-review-panel").ontoggle = () => { if ($("cad-review-panel").open && !$("cad-review-candidates").children.length) loadCadCandidates(0); };
+      appState.intelligence.returnFocus = document.activeElement;
+      document.body.style.overflow = "hidden";
+      $("intel-detail-close").focus();
     }
 
     function closeIntelligenceDetail() {
       appState.intelligence.selected = null;
       $("intel-detail-backdrop").classList.add("hidden");
       $("intel-detail-card").classList.add("hidden");
+      document.body.style.overflow = "";
+      appState.intelligence.returnFocus?.focus();
     }
 
     async function intelligenceAction(path, extraPayload) {
       const item = appState.intelligence.selected;
-      if (!item) return;
+      if (!item || appState.intelligence.saving) return;
       const statusEl = $("intel-detail-status");
+      if (path.endsWith("/resolve") && !extraPayload.resolution) {
+        statusEl.textContent="Choose an outcome before saving."; statusEl.className="status warn"; $("intel-resolution").focus(); return;
+      }
+      appState.intelligence.saving=true;
+      const buttons=["intel-action-investigate","intel-action-resolve","intel-action-dismiss"];
+      buttons.forEach(id=>$(id).disabled=true);
+      statusEl.textContent="Saving…"; statusEl.className="status";
       try {
-        const data = await fetchJson(path, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            access_token: appState.auth.access_token,
-            source_table: item.source_table,
-            item_id: item.id,
-            ...extraPayload
-          })
-        });
-        statusEl.textContent = "Saved.";
-        statusEl.className = "status success";
-        statusEl.classList.remove("hidden");
-        await Promise.all([refreshIntelligenceQueue(), refreshMailingQueue()]);
-        if (data.item) openIntelligenceDetail(data.item.id, data.item.source_table);
-      } catch (error) {
-        statusEl.textContent = error.message;
-        statusEl.className = "status error";
-        statusEl.classList.remove("hidden");
+        const data = await fetchJson(path, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:appState.auth.access_token,source_table:item.source_table,item_id:item.id,...extraPayload})});
+        if (path.endsWith("/investigate")) {
+          appState.intelligence.selected={...item,...data.item};
+          const sourceLine=$("intel-detail-body").querySelector(".intel-source-line");
+          if (sourceLine) sourceLine.textContent=`${item.source_label || item.source || ""} · Detected ${cadDate(item.first_detected_at)} · ${(appState.intelligence.selected.status || "").replaceAll("_"," ")}`;
+          statusEl.textContent="Marked in review. Choose an outcome when finished."; statusEl.className="status success";
+        } else { closeIntelligenceDetail(); showFlash(path.endsWith("/dismiss") ? "Item dismissed." : "Review outcome saved.","success"); }
+        try { await Promise.all([refreshIntelligenceQueue(),refreshMailingQueue()]); }
+        catch { showFlash("Your review was saved. Refresh the queue to see the latest status.","warn"); }
+      } catch(error) { statusEl.textContent=error.message; statusEl.className="status error"; }
+      finally {
+        appState.intelligence.saving=false;
+        buttons.forEach(id=>$(id).disabled=false);
+        $("intel-action-investigate").disabled=appState.intelligence.selected?.status !== "NEW";
       }
     }
 
@@ -3073,6 +3043,15 @@
       });
       $("intel-detail-close").addEventListener("click", closeIntelligenceDetail);
       $("intel-detail-backdrop").addEventListener("click", closeIntelligenceDetail);
+      $("intel-detail-card").addEventListener("keydown", event => {
+        if (event.key === "Escape") { event.preventDefault(); closeIntelligenceDetail(); }
+        if (event.key === "Tab") {
+          const controls=[...$("intel-detail-card").querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary,[href]')].filter(el=>el.getClientRects().length);
+          const first=controls[0],last=controls[controls.length-1];
+          if (event.shiftKey && document.activeElement===first) { event.preventDefault(); last?.focus(); }
+          else if (!event.shiftKey && document.activeElement===last) { event.preventDefault(); first?.focus(); }
+        }
+      });
       $("intel-action-investigate").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/investigate", {}));
       $("intel-action-resolve").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/resolve", {
         resolution: $("intel-resolution").value,

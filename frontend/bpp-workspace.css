@@ -77,3 +77,27 @@ body { font-size:14px; }
 @media(max-width:760px) { .bpp-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .bpp-stats > .field { padding:16px; border-bottom:1px solid var(--line); } .bpp-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
 .bpp-register .bpp-tax-id { font-variant-numeric:tabular-nums; white-space:nowrap; font-size:12px; }
+/* Focused account-review drawer. */
+.bpp-shell .intel-review-drawer { top:0; right:0; bottom:0; left:auto; transform:none; width:min(790px,100vw); height:100vh; max-height:100vh; margin:0; border-radius:0; padding:24px 28px; box-shadow:-10px 0 60px #09221a33; }
+.intel-review-header { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; border-bottom:1px solid var(--line); padding-bottom:18px; margin-bottom:22px; }
+.intel-review-header h2 { font-size:25px; margin:6px 0 0; letter-spacing:-.5px; }
+.intel-review-header button { flex-shrink:0; min-height:32px; padding:4px 10px; }
+.intel-account-summary { display:grid; grid-template-columns:1.3fr 1fr auto; align-items:center; gap:16px; background:var(--light); padding:18px; border:1px solid var(--line); border-radius:8px; }
+.intel-account-summary .small-label { font-size:10px; font-weight:500; margin-bottom:6px; }
+.intel-account-number { display:block; font-size:24px; margin-bottom:7px; }
+.intel-account-summary button { font-size:11px; }
+.intel-address-change { display:grid; grid-template-columns:1fr 1fr; margin:20px 0; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+.intel-address-change > div { padding:18px; }
+.intel-address-change > div:last-child { background:#edf5ef; border-left:1px solid var(--line); }
+.intel-address-change p { margin:8px 0 0; font-size:16px; line-height:1.6; }
+.intel-business-address { margin-top:20px; line-height:1.6; }
+.intel-source-line { font-size:11px; color:var(--muted); margin:18px 0; }
+.intel-support { margin:12px 0; box-shadow:none; }
+.intel-support > summary { padding:12px 14px; font-size:12px; }
+.intel-support > div { padding:0 14px 14px; font-size:12px; line-height:1.7; }
+.intel-outcome { border-top:1px solid var(--line); margin-top:22px; padding-top:22px; }
+.intel-outcome-fields { display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:end; }
+.intel-outcome .button-row { align-items:center; }
+.intel-outcome .button-row .subtle { flex:1; font-size:11px; }
+.intel-outcome textarea { min-height:74px; }
+@media(max-width:600px) { .bpp-shell .intel-review-drawer { padding:20px 16px; } .intel-account-summary { grid-template-columns:1fr 1fr; } .intel-account-summary button { grid-column:1/-1; } .intel-address-change { grid-template-columns:1fr; } .intel-address-change > div:last-child { border-left:0; border-top:1px solid var(--line); } .intel-outcome-fields { grid-template-columns:1fr; } .intel-outcome-fields label:empty { display:none; } }
