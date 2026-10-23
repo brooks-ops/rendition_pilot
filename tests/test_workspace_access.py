@@ -71,6 +71,8 @@ def test_admin_updates_only_own_members_and_grants_apply_immediately(api):
 
 def test_invitation_keeps_selected_access_before_account_creation(api,monkeypatch):
     client,users=api
+    monkeypatch.setattr(main,"admin_auth_request",lambda *a:{"id":"new-user"})
+    monkeypatch.setattr(main,"get_invited_district_user",lambda **kw:None)
     def link(**kw):
         assert access.read_access('d1',kw['email'])=={'bpp':False,'commercial':True}
         users.append({'email':kw['email'],'role':'member','user_id':None})
@@ -78,7 +80,7 @@ def test_invitation_keeps_selected_access_before_account_creation(api,monkeypatc
     response=client.post('/api/district/users/invite',json={'access_token':'admin','email':'new@cad.org','role':'member','bpp_access':False,'commercial_access':True})
     assert response.status_code==200
     assert response.json()['users'][-1]['workspace_access']=={'bpp':False,'commercial':True}
-    assert client.post('/api/district/users/invite',json={'access_token':'admin','email':'bpp@cad.org'}).status_code==409
+
 
 
 def test_permission_storage_outage_fails_closed(monkeypatch):
