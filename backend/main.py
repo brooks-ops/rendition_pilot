@@ -62,6 +62,7 @@ from app.comptroller import property_enrichment as comptroller_property_enrichme
 from app.comptroller import readiness as comptroller_readiness
 from app.comptroller.service import ComptrollerServiceError
 from app.rendition_persistence import RenditionPersistenceError, persist_locked_review
+from app import activity_analytics
 from app.commercial.api import commercial_router
 from app.workspace_access import access_for, read_access, require_access, save_access
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -597,7 +598,23 @@ async def enforce_bpp_workspace(request,call_next):
             district=await run_in_threadpool(get_authenticated_district_context,token)
             await run_in_threadpool(require_access,district,'bpp')
         except HTTPException as exc:return JSONResponse({'detail':exc.detail},status_code=exc.status_code)
-    return await call_next(request)
+    activity_payload = None
+    if protected and path in ('/api/review/lock','/api/review/save'):
+        try: activity_payload = await request.json()
+        except (ValueError, RuntimeError): pass
+    response = await call_next(request)
+    if protected and isinstance(activity_payload, dict) and response.status_code < 300 and path in ('/api/review/lock','/api/review/save'):
+        payload = activity_payload
+        record = payload.get('final_record', {}) if path.endswith('/save') else payload
+        account = str(record.get('account_number') or '').strip().upper()
+        metadata = (payload.get('result') or {}).get('metadata') or {}
+        if not isinstance(metadata, dict): metadata = {}
+        year = record.get('tax_year') or metadata.get('tax_year') or 'unspecified'
+        if account:
+            await run_in_threadpool(activity_analytics.record_activity, district,
+                'rendition_locked' if path.endswith('/lock') else 'rendition_report_generated',
+                'rendition', 'rendition_account_year', f'{year}:{account}', outcome=record.get('decision'))
+    return response
 
 
 
@@ -2199,7 +2216,7 @@ def intelligence_cad_candidates(request: CadCandidatesRequest):
 
 @app.post("/api/admin/intelligence/cad-decision")
 def intelligence_cad_decision(request: CadDecisionRequest):
-    _, item, jurisdiction = _cad_item_context(request)
+    district, item, jurisdiction = _cad_item_context(request)
     user = get_supabase_user(request.access_token)
     try:
         decision = comptroller_cad_review.save_decision(jurisdiction, item, property_record_id=request.property_record_id,
@@ -2209,6 +2226,7 @@ def intelligence_cad_decision(request: CadDecisionRequest):
             warning = None
         except ComptrollerServiceError:
             warning = "Decision saved. Queue evidence could not refresh; refresh the queue or retry later."
+        activity_analytics.record_activity(district, 'cad_match_decided', 'business_intelligence', request.source_table, item.id, outcome=request.decision)
         return {"decision": to_jsonable(decision), "warning": warning}
     except comptroller_cad_review.CadReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -2316,6 +2334,9 @@ def intelligence_investigate(request: IntelligenceInvestigateRequest) -> dict[st
         )
     except comptroller_intelligence.IntelligenceQueueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    activity_analytics.record_activity(district, 'review_started',
+        'mailing_changes' if item.signal_type == 'mailing_address_change' else 'business_intelligence',
+        request.source_table, item.id, outcome=item.resolution)
     return {"item": to_jsonable(asdict(item))}
 
 
@@ -2334,6 +2355,9 @@ def intelligence_resolve(request: IntelligenceResolveRequest) -> dict[str, Any]:
         )
     except comptroller_intelligence.IntelligenceQueueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    activity_analytics.record_activity(district, 'review_completed',
+        'mailing_changes' if item.signal_type == 'mailing_address_change' else 'business_intelligence',
+        request.source_table, item.id, outcome=item.resolution)
     return {"item": to_jsonable(asdict(item))}
 
 
@@ -2358,6 +2382,7 @@ def intelligence_account_card(request: IntelligenceItemRequest) -> dict[str, Any
         card = comptroller_new_account_enrichment.generate_account_card(item, jurisdiction)
     except comptroller_new_account_enrichment.NewAccountEnrichmentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    activity_analytics.record_activity(district, 'account_summary_generated', 'business_intelligence', request.source_table, item.id)
     return {"card": to_jsonable(comptroller_new_account_enrichment.account_card_to_dict(card))}
 
 
@@ -2464,9 +2489,35 @@ def intelligence_dismiss(request: IntelligenceDismissRequest) -> dict[str, Any]:
         )
     except comptroller_intelligence.IntelligenceQueueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    activity_analytics.record_activity(district, 'review_dismissed',
+        'mailing_changes' if item.signal_type == 'mailing_address_change' else 'business_intelligence',
+        request.source_table, item.id, outcome=item.resolution)
     return {"item": to_jsonable(asdict(item))}
 
 
 @app.get("/commercial")
 def commercial_workspace():
     return FileResponse(FRONTEND_DIR / "commercial.html")
+
+
+class ActivityReportRequest(BaseModel):
+    access_token: str
+    start: str
+    end: str
+    export: Literal['team', 'sales'] | None = None
+
+
+@app.post('/api/admin/activity')
+def appraiser_activity_report(request: ActivityReportRequest):
+    district = require_district_admin(request.access_token)
+    try:
+        data = activity_analytics.report(district.district_id, request.start, request.end)
+    except ValueError as exc:
+        raise HTTPException(400, 'Enter a valid date range of up to 366 days.') from exc
+    except ComptrollerServiceError as exc:
+        raise HTTPException(503, 'Activity analytics is unavailable. Please retry later.') from exc
+    if request.export:
+        return Response(activity_analytics.csv_report(data, sales=request.export == 'sales'),
+            media_type='text/csv', headers={'Content-Disposition': f'attachment; filename="rendition-pilot-{request.export}-activity.csv"', 'Cache-Control': 'no-store'})
+    from fastapi.responses import JSONResponse
+    return JSONResponse(data, headers={'Cache-Control': 'no-store'})

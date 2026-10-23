@@ -843,6 +843,21 @@
       </div>
 
       <div id="view-admin" class="view">
+        <section class="card" id="activity-analytics">
+          <h3>Appraiser activity</h3>
+          <p class="subtle">Recorded work across BPP and Commercial. Completed reviews and locked renditions count each work item once in this period; action totals include repeat work. Team counts may overlap when appraisers handle the same item.</p>
+          <div class="layout-3">
+            <div class="field"><label for="activity-start">From</label><input type="date" id="activity-start"></div>
+            <div class="field"><label for="activity-end">Through</label><input type="date" id="activity-end"></div>
+            <div class="field"><label>&nbsp;</label><button id="activity-refresh" type="button">Refresh activity</button></div>
+          </div>
+          <div class="button-row"><button id="activity-export-team" class="secondary" type="button">Export appraiser totals</button><button id="activity-export-sales" class="secondary" type="button">Export product impact</button></div>
+          <div id="activity-status" class="subtle" role="status"></div>
+          <div id="activity-totals" class="bpp-stats" style="margin:18px 0;"></div>
+          <div class="queue-table-wrap"><table><thead><tr><th style="min-width:160px;">Appraiser</th><th>Reviews complete</th><th>Renditions locked</th><th>Started</th><th>Dismissed</th><th>CAD decisions</th><th>Commercial batches</th><th>Reports / summaries</th><th>Active days</th><th>All actions</th></tr></thead><tbody id="activity-people"></tbody></table></div>
+          <details class="intel-support"><summary>Outcomes and daily activity</summary><div id="activity-breakdown"></div></details>
+          <p class="subtle">Product impact export contains aggregate totals only, without appraiser names or account details. Counts show activity in Rendition Pilot, not verified changes in CAD, appraisal value gains, or measured time savings. Analytics begins when tracking is enabled; earlier work is not backfilled.</p>
+        </section>
         <section class="card">
           <h3>Authorized CAD Users</h3>
           <div class="subtle" style="margin-bottom:12px;">Create a CAD login with a temporary password. The user must change it at first login. Remove revokes their district access; their shared login and appraisal records are retained.</div>
@@ -1189,7 +1204,7 @@
           $("bpp-page-title").textContent = button.textContent.trim();
           $("bpp-breadcrumb").textContent = button.textContent.trim();
           document.querySelectorAll(".bpp-navigation [data-view]").forEach(item => item.setAttribute("aria-current", item === button ? "page" : "false"));
-          if (button.dataset.view === "admin" && appState.auth?.district?.role === "admin") refreshDistrictUsers();
+          if (button.dataset.view === "admin" && appState.auth?.district?.role === "admin") { refreshDistrictUsers(); refreshActivityAnalytics(); }
           if (button.dataset.view === "intelligence" && canUseBpp()) refreshIntelligenceQueue();
           if (button.dataset.view === "mailing" && canUseBpp()) refreshMailingQueue();
           if (button.dataset.view === "readiness" && appState.auth?.district?.role === "admin") refreshReadiness().catch((error) => showFlash(error.message, "error"));
@@ -2597,6 +2612,40 @@
       appState.intelligence.returnFocus?.focus();
     }
 
+    function activityDates() {
+      if (!$('activity-end').value) {
+        const today = new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+        $('activity-end').value=today;
+        const start=new Date(today+'T12:00:00Z');start.setUTCDate(start.getUTCDate()-29);
+        $('activity-start').value=start.toISOString().slice(0,10);
+      }
+      return {start:$('activity-start').value,end:$('activity-end').value};
+    }
+
+    async function refreshActivityAnalytics(exportKind=null) {
+      if (appState.auth?.district?.role !== 'admin') return;
+      const dates=activityDates(),status=$('activity-status');
+      status.textContent='Loading activity…';
+      const controls=['activity-refresh','activity-export-team','activity-export-sales'];
+      controls.forEach(id=>$(id).disabled=true);
+      try {
+        const response=await fetch(API_BASE+'/api/admin/activity',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,...dates,export:exportKind})});
+        if (!response.ok) { const err=await response.json();throw new Error(err.detail || 'Activity could not load.'); }
+        if (exportKind) {
+          const url=URL.createObjectURL(await response.blob());const link=document.createElement('a');link.href=url;link.download=`rendition-pilot-${exportKind}-activity.csv`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+          status.textContent='Activity export downloaded.';return;
+        }
+        const data=await response.json(),t=data.totals;
+        $('activity-totals').innerHTML=[['Reviews complete',t.completed],['Renditions locked',t.renditions],['Active appraisers',t.active_appraisers],['All actions',t.actions]].map(([label,value])=>`<div class="field"><label>${label}</label><div class="bpp-stat-value">${Number(value).toLocaleString()}</div></div>`).join('');
+        $('activity-people').innerHTML=data.appraisers.length ? data.appraisers.map(row=>`<tr><td>${cadHtml(row.appraiser)}</td>${['completed','renditions','started','dismissed','cad_decisions','commercial_updates','reports','active_days','actions'].map(key=>`<td>${Number(row[key]).toLocaleString()}</td>`).join('')}</tr>`).join('') : '<tr><td colspan="10">No recorded activity in this period. New work will appear here automatically.</td></tr>';
+        $('activity-breakdown').innerHTML='<h4>Outcomes</h4>'+data.outcomes.map(row=>`<p>${cadHtml(row.module.replaceAll('_',' '))} · ${cadHtml(row.action.replaceAll('_',' '))}${row.outcome ? ' · '+cadHtml(intelResolutionLabel(row.outcome)) : ''}: <strong>${Number(row.work_items)} work items / ${Number(row.actions)} actions</strong></p>`).join('')+'<h4>Daily activity</h4>'+data.daily.map(row=>`<p>${cadHtml(row.work_day)}: ${Number(row.actions)} actions · ${Number(row.completed)} reviews complete · ${Number(row.renditions)} renditions locked</p>`).join('');
+        status.textContent=`${data.start} through ${data.end} · ${data.timezone}. Tracking enabled ${data.tracking_started_at ? new Date(data.tracking_started_at).toLocaleString() : 'now'}.`;
+      } catch(error) {
+        if (!exportKind) { $('activity-totals').replaceChildren();$('activity-people').replaceChildren();$('activity-breakdown').replaceChildren(); }
+        status.textContent=error.message;
+      } finally {controls.forEach(id=>$(id).disabled=false);}
+    }
+
     async function intelligenceAction(path, extraPayload) {
       const item = appState.intelligence.selected;
       if (!item || appState.intelligence.saving) return;
@@ -3052,6 +3101,9 @@
           else if (!event.shiftKey && document.activeElement===last) { event.preventDefault(); first?.focus(); }
         }
       });
+      $('activity-refresh').addEventListener('click',()=>refreshActivityAnalytics());
+      $('activity-export-team').addEventListener('click',()=>refreshActivityAnalytics('team'));
+      $('activity-export-sales').addEventListener('click',()=>refreshActivityAnalytics('sales'));
       $("intel-action-investigate").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/investigate", {}));
       $("intel-action-resolve").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/resolve", {
         resolution: $("intel-resolution").value,

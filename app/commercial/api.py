@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
+from app.activity_analytics import record_activity
 from .store import Store,Conflict
 from .remote import load_store
 
@@ -54,7 +55,10 @@ def commercial_router(resolve_context):
     @router.post('/apply')
     def apply(payload:dict):
         store,c=context(payload)
-        try:return store.commit(payload['token'],c.email,payload.get('reason',''))
+        try:
+            result = store.commit(payload['token'],c.email,payload.get('reason',''))
+            record_activity(c, 'commercial_update_applied', 'commercial', 'commercial_batch', result['batch_id'], units=result['updated'], dedup_key=result['batch_id'])
+            return result
         except Conflict as exc:raise HTTPException(409,str(exc))
         except (ValueError,KeyError) as exc:raise HTTPException(400,str(exc))
 
@@ -65,13 +69,19 @@ def commercial_router(resolve_context):
     @router.post('/undo')
     def undo(payload:dict):
         store,c=context(payload)
-        try:return store.undo(payload['batch_id'],c.email)
+        try:
+            result = store.undo(payload['batch_id'],c.email)
+            record_activity(c, 'commercial_update_undone', 'commercial', 'commercial_batch', payload['batch_id'], dedup_key=payload['batch_id'])
+            return result
         except Conflict as exc:raise HTTPException(409,str(exc))
 
     @router.post('/create')
     def create(payload:dict):
         store,c=context(payload)
-        try:return store.create(payload['template_id'],payload.get('fields',{}),c.email)
+        try:
+            result = store.create(payload['template_id'],payload.get('fields',{}),c.email)
+            record_activity(c, 'commercial_account_created', 'commercial', 'commercial_property', result['id'], dedup_key=result['id'])
+            return result
         except Conflict as exc:raise HTTPException(409,str(exc))
         except (ValueError,KeyError) as exc:raise HTTPException(400,str(exc))
 
@@ -88,6 +98,7 @@ def commercial_router(resolve_context):
         from .packet_import import individual_packet_zip
         try:data=individual_packet_zip(store,payload.get('ids',[]),payload.get('notes',''))
         except (ValueError,TypeError,KeyError) as exc:raise HTTPException(400,str(exc))
+        record_activity(c, 'commercial_report_generated', 'commercial', 'commercial_report_set', '|'.join(sorted(set(payload.get('ids',[])))) or 'report', units=len(set(payload.get('ids',[]))))
         return Response(data,media_type='application/zip',headers={'Content-Disposition':'attachment; filename="commercial-individual-packets.zip"'})
 
     @router.post('/packets')
@@ -102,5 +113,6 @@ def commercial_router(resolve_context):
             account=next(iter(accounts)) if len(accounts)==1 else ''
             filename=account+'.pdf' if re.fullmatch(r'R[0-9]+',account) else 'commercial-appraisal-packets.pdf'
         except (ValueError,KeyError) as exc:raise HTTPException(400,str(exc))
+        record_activity(c, 'commercial_report_generated', 'commercial', 'commercial_report_set', '|'.join(sorted(set(payload.get('ids',[])))) or 'report', units=len(set(payload.get('ids',[]))))
         return Response(data,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename="{filename}"'})
     return router
