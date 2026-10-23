@@ -292,3 +292,12 @@ class ImportedPropertyAdapter:
 
 def get_property_adapter(jurisdiction: Jurisdiction) -> ImportedPropertyAdapter:
     return ImportedPropertyAdapter()
+
+
+def eligible_for_current_dba_match(prop):
+    """Omitted accounts remain searchable history, outside the active DBA set.
+
+    Unknown statuses from counties without an active-only supplement retain
+    their existing behavior. Absence is not evidence of a business closure.
+    """
+    return (prop.account_status or "").strip().upper() != "NOT_IN_ACTIVE_DBA_EXPORT"

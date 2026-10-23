@@ -317,7 +317,7 @@ def match_imported_bpp_accounts(*, district_id, address, zip_code, legal_name, b
     scored independently. A property UUID is never presented as a rendition.
     """
     from app.comptroller.jurisdictions import get_jurisdiction_by_district_id
-    from app.comptroller.property_adapter import get_property_adapter
+    from app.comptroller.property_adapter import get_property_adapter, eligible_for_current_dba_match
     from app.comptroller.property_matching import classify_account_type, score_property_candidate
     from app.comptroller.address_normalizer import normalize_address
 
@@ -331,7 +331,7 @@ def match_imported_bpp_accounts(*, district_id, address, zip_code, legal_name, b
     adapter = get_property_adapter(jurisdiction)
     if confirmed:
         records = adapter.find_properties_by_real_account(jurisdiction, confirmed['account_number'])
-        prop = next((p for p in records if classify_account_type(p.real_account_number, prefixes=jurisdiction.account_type_prefixes) == 'PERSONAL'), None)
+        prop = next((p for p in records if eligible_for_current_dba_match(p) and classify_account_type(p.real_account_number, prefixes=jurisdiction.account_type_prefixes) == 'PERSONAL'), None)
         if prop:
             candidate = MatchCandidate(prop.property_id, prop.real_account_number, prop.owner_name or prop.business_name or prop.dba_name, prop.tax_year)
             signals = {'cad_account_source': 'real_property_records', 'human_decision': 'CONFIRMED',
@@ -350,6 +350,8 @@ def match_imported_bpp_accounts(*, district_id, address, zip_code, legal_name, b
     scored = []
     address_only = []
     for prop in properties:
+        if not eligible_for_current_dba_match(prop):
+            continue
         if classify_account_type(prop.real_account_number, prefixes=jurisdiction.account_type_prefixes) != "PERSONAL":
             continue
         if _clean_account_number(prop.real_account_number or "") in rejected:
