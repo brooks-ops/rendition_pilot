@@ -423,3 +423,13 @@ def test_multi_input_invalid_change_is_atomic(store):
     with pytest.raises(ValueError):store.preview({'updates':[{'field':'area_sq_ft','value':300},{'field':'cap_rate','value':-1}]})
     assert store.detail('R1')['values']['area_sq_ft']==200
     assert store.history()==[]
+
+
+def test_category_selection_is_explicit_and_supports_multiple_categories(store):
+    from app.commercial.category_updates import category_summary
+    assert category_summary(store,{'model':'office','categories':[]})['count']==0
+    assert category_summary(store,{'model':'office'})['categories']==[{'name':'Office A','count':2}]
+    p=store.preview({'filters':{'model':'office','categories':['Office A','Another category']},'field':'cap_rate','value':.2})
+    assert p['count']==2
+    with pytest.raises(ValueError,match='No eligible'):
+        store.preview({'filters':{'model':'office','categories':[]},'field':'cap_rate','value':.2})
