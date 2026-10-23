@@ -148,6 +148,7 @@ def match_health(jurisdiction, items, *, today: date | None = None):
     freshness = 'UNKNOWN' if age is None else 'FUTURE_DATE' if age < 0 else 'STALE' if age > 90 else 'CURRENT'
     prefix = (jurisdiction.account_type_prefixes.get('personal') or '').strip()
     filters = {'real_account_number': f'like.{prefix}*'} if prefix else {}
+    filters['and'] = '(or(account_status.is.null,account_status.neq.NOT_IN_ACTIVE_DBA_EXPORT))'
     total = _count_properties(jurisdiction, **filters)
     named = _count_properties(jurisdiction, **filters, **{'or': '(owner_name.not.is.null,business_name.not.is.null,dba_name.not.is.null)'})
     relevant = [i for i in items if i.signal_type in ('new_business', 'sales_tax_inactive')]
