@@ -428,7 +428,10 @@ def test_multi_input_invalid_change_is_atomic(store):
 def test_category_selection_is_explicit_and_supports_multiple_categories(store):
     from app.commercial.category_updates import category_summary
     assert category_summary(store,{'model':'office','categories':[]})['count']==0
-    assert category_summary(store,{'model':'office'})['categories']==[{'name':'Office A','count':2,'cap_rates':[{'value':.1,'count':2}],'missing_cap_rates':0}]
+    category=category_summary(store,{'model':'office'})['categories'][0]
+    assert category['name']=='Office A' and category['count']==2
+    assert category['inputs']['cap_rate']=={'values':[{'value':.1,'count':2}],'missing':0}
+    assert category['inputs']['area_sq_ft']=={'values':[{'value':200,'count':2}],'missing':0}
     p=store.preview({'filters':{'model':'office','categories':['Office A','Another category']},'field':'cap_rate','value':.2})
     assert p['count']==2
     with pytest.raises(ValueError,match='No eligible'):
@@ -449,3 +452,13 @@ def test_direct_category_cap_rates_and_model_scope(store):
         store.preview({'filters':{'model':'office'},'updates':[{'field':'mix_01_monthly_rent','value':1000}]})
     with pytest.raises(ValueError):
         store.preview({'filters':{'model':'office'},'updates':[{'field':'cap_rate','values_by_category':{'Office A':.2,'Office B':-1}}]})
+
+
+def test_multiple_category_inputs_apply_together(store):
+    p=store.preview({'filters':{'model':'office'},'updates':[{'field':'cap_rate','values_by_category':{'Office A':.2}},{'field':'area_sq_ft','values_by_category':{'Office A':250}}]})
+    assert len(p['items'][0]['field_changes'])==2
+    b=store.commit(p['token'],'appraiser','Review all assumptions')
+    assert store.detail('R1')['values']['cap_rate']==.2
+    assert store.detail('R1')['values']['area_sq_ft']==250
+    store.undo(b['batch_id'],'appraiser')
+    assert store.detail('R1')['values']['area_sq_ft']==200
