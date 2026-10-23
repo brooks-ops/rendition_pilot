@@ -52,12 +52,17 @@ class NormalizedRealProperty:
     source_system: str | None
     source_import_id: str | None
     source_updated_at: str | None
+    business_name: str | None = None
+    dba_name: str | None = None
+    account_status: str | None = None
+    situs_unit: str | None = None
 
 
 _SELECT = (
     "id,jurisdiction_id,source_property_id,tax_year,real_account_number,situs_address_raw,"
     "situs_address_normalized,situs_city,situs_state,situs_zip,owner_name,tug,"
-    "neighborhood,map_id,latitude,longitude,source_system,source_import_id,source_updated_at"
+    "neighborhood,map_id,latitude,longitude,source_system,source_import_id,source_updated_at,"
+    "business_name,dba_name,account_status,situs_unit"
 )
 
 
@@ -82,6 +87,8 @@ def _row_to_property(row: dict[str, Any]) -> NormalizedRealProperty:
         source_system=row.get("source_system"),
         source_import_id=row.get("source_import_id"),
         source_updated_at=row.get("source_updated_at"),
+        business_name=row.get("business_name"), dba_name=row.get("dba_name"),
+        account_status=row.get("account_status"), situs_unit=row.get("situs_unit"),
     )
 
 
@@ -104,7 +111,8 @@ def normalize_source_record(
 
     def raw(field: str) -> Any:
         column = field_mapping.get(field)
-        return raw_row.get(column) if column else None
+        value = raw_row.get(column) if column else None
+        return str(value).strip() or None if value is not None else None
 
     source_property_id = raw("source_property_id")
     if not source_property_id:
@@ -131,6 +139,9 @@ def normalize_source_record(
         "situs_state": raw("situs_state"),
         "situs_zip": situs_zip,
         "owner_name": raw("owner_name"),
+        "business_name": raw("business_name"), "dba_name": raw("dba_name"),
+        "account_status": raw("account_status"), "situs_unit": raw("situs_unit"),
+        "source_updated_at": raw("source_updated_at"),
         "tug": raw("tug"),
         "neighborhood": raw("neighborhood"),
         "map_id": raw("map_id"),

@@ -362,6 +362,9 @@ def run_new_business_detection(
             district_id=jurisdiction.district_id,
             permit_legal_name=candidate.legal_name,
             permit_location_name=candidate.location_name,
+            permit_location_id=candidate.permit_location_id,
+            permit_address=candidate.address,
+            permit_zip=candidate.zip,
             candidates=match_candidates,
             property_match=property_match,
         )
@@ -385,8 +388,8 @@ def run_new_business_detection(
         create_alert = classification != "EXISTING_ACCOUNT_HIGH_CONFIDENCE"
 
         if not dry_run:
-            if create_alert:
-                existing = _find_existing_item(candidate.source_record_id)
+            existing = _find_existing_item(candidate.source_record_id)
+            if create_alert or existing is not None:
                 payload = _build_item_payload(jurisdiction, candidate, match_result, classification, priority, property_match)
                 if existing is None:
                     created = _create_item(payload)

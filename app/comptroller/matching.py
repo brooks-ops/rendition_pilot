@@ -1,91 +1,7 @@
-"""Transparent, rule-based matching of a closed Comptroller permit location to
-a RenditionPilot rendition record.
-
-SCHEMA, VERIFIED LIVE 2026-08-21: there is no `accounts` table (or
-`renditions`/`rendition_accounts`/etc.) in the production Supabase project --
-those names, referenced by supabase/migrations/20260429_multi_district_renditions.sql,
-do not exist. `GET {SUPABASE_URL}/rest/v1/` (PostgREST's schema listing) shows
-the real tables are pipeline-shaped: `rendition_uploads` -> `rendition_jobs` ->
-`parsed_rendition_results`, plus `review_notes`/`manual_overrides`/`exports`.
-None of them are a master "account" registry, and NONE of them carry a situs
-address, city, ZIP, or DBA name as a column -- confirmed against
-`app/pipeline.py`'s `_extract_metadata()` (line ~3030), which is the only code
-that ever produces business-identity data from a rendition PDF, and only ever
-extracts `owner_name`, `account_number`, `tax_year`, `signed_date`. That dict
-is nested under a `"metadata"` key in the pipeline's result (`app/pipeline.py`
-lines 3203/3289), which is presumably what lands in `parsed_rendition_results.result`
-(jsonb) once persistence is wired up -- see the "NOT YET POPULATED" warning
-below.
-
-Given that, RenditionPilot has exactly ONE usable, uncorroborated matching
-signal today: business-name similarity against `owner_name`. There is no
-address/ZIP to cross-check it against, and `account_number` is a RenditionPilot-
-internal appraisal account number in a completely different numbering space
-from the Comptroller's `taxpayer_id`/`location_number` -- it cannot be
-compared for equality, only carried through as a display field on a match.
-
-Because of that, HIGH confidence is unreachable from name evidence alone: a
-single name-similarity signal, with nothing to corroborate it, is exactly the
-kind of "maybe, but I can't be sure" evidence that should never be labeled
-with the same confidence as a genuinely corroborated match (address + ZIP +
-name, in the original address-aware design this module had before the real
-schema was inspected).
-
-Property Enrichment (see property_matching.py/property_enrichment.py) adds
-that missing second signal back, from an independent source: a Comptroller
-permit's address can be resolved against a jurisdiction's real-property
-records (loaded from a county property export, not from RenditionPilot's own
-account data, which still has no address). `match_closure_to_account`'s
-optional `property_match` parameter carries that result in; HIGH is only ever
-returned when BOTH a strong name match AND an exact/strong property-address
-match agree on the SAME account number -- specifically, the candidate's
-BPP `account_number` matching one of the personal-property (P-account)
-numbers Property Enrichment found at that address, via
-`property_match.personal_property_accounts`.
-
-This is deliberately NOT compared against the property record's own
-`real_account_number`. A real Texas CAD property export mixes both account
-types under one column: 'R'-prefixed numbers for real property (the land)
-and 'P'-prefixed numbers for business personal property, and a single situs
-address routinely has one real-property record plus zero or more
-personal-property records for whatever businesses operate there (see
-property_matching.classify_account_type). A BPP rendition's account number
-is always P-style; comparing it against an R-style real-property account
-would never match, by definition, no matter how exact the address is --
-that would make HIGH permanently unreachable even with a perfect CRS
-export. An exact address match alone, a name match alone, or a real-account
-match alone is never enough for HIGH. Jurisdictions with no property data
-loaded (`property_match=None`, the default) get the exact unreachable-HIGH
-behavior described above, unchanged.
-
-NOT YET POPULATED: as of 2026-08-21, `rendition_uploads`, `rendition_jobs`,
-and `parsed_rendition_results` all exist but contain zero rows, and nothing
-in `backend/main.py` or `app/*.py` currently writes to any of them -- the
-deployed review flow (`/api/review/run`, `/api/review/lock`, `/api/review/save`)
-returns results to the browser and (in the legacy Streamlit app only) writes
-local files under Output/, but never persists to Supabase. This module is
-correct against the real schema and will start matching real data the moment
-that persistence gap is closed elsewhere in the app; until then, every
-closure will be UNMATCHED in production for lack of any candidate rows, which
-is the honest, correct behavior (never fabricate a match).
-
-Configuration (all env-var overridable, in case the schema/JSON shape above
-turns out to differ once real data exists):
-
-  COMPTROLLER_MATCH_TABLE                (default: parsed_rendition_results)
-  COMPTROLLER_MATCH_ID_COLUMN            (default: id)
-  COMPTROLLER_MATCH_DISTRICT_ID_COLUMN   (default: district_id)
-  COMPTROLLER_MATCH_TAX_YEAR_COLUMN      (default: tax_year)
-  COMPTROLLER_MATCH_ACCOUNT_NUMBER_PATH  (default: result->metadata->>account_number)
-  COMPTROLLER_MATCH_OWNER_NAME_PATH      (default: result->metadata->>owner_name)
-
-Matching is deliberately simple and inspectable rather than a black box: the
-human-readable reason states exactly what did and didn't match, and a result
-is flagged `ambiguous` when two or more RenditionPilot records score similarly
-well against the same closure (e.g. the same owner name recurring across
-multiple rendition years/uploads) -- in that case the single "best" pick is
-not treated as confidently identified, since nothing here can distinguish
-*which* of several same-named records is the one that actually closed.
+"""Match permit locations to district-scoped imported CAD BPP accounts by
+address and owner name, falling back to uploaded rendition name evidence.
+Imported records retain their own IDs and source; they are never treated
+as uploaded renditions. Land accounts cannot become BPP matches.
 """
 
 from __future__ import annotations
@@ -394,18 +310,113 @@ def _classify_confidence(cs: CandidateScore) -> str:
     return "UNMATCHED"
 
 
+def match_imported_bpp_accounts(*, district_id, address, zip_code, legal_name, business_name, permit_location_id=None):
+    """Resolve imported personal-property accounts using both situs and owner.
+
+    Land accounts are excluded, and each business at a shared situs is
+    scored independently. A property UUID is never presented as a rendition.
+    """
+    from app.comptroller.jurisdictions import get_jurisdiction_by_district_id
+    from app.comptroller.property_adapter import get_property_adapter
+    from app.comptroller.property_matching import classify_account_type, score_property_candidate
+    from app.comptroller.address_normalizer import normalize_address
+
+    jurisdiction = get_jurisdiction_by_district_id(district_id)
+    if not jurisdiction or not jurisdiction.has_capability("real_property_linkage"):
+        return None
+    from app.comptroller.cad_review import decision_history, current_decisions
+    history = decision_history(jurisdiction.id, permit_location_id) if permit_location_id else []
+    confirmed, decisions = current_decisions(history)
+    rejected = {account for account, row in decisions.items() if row['decision'] == 'REJECTED'}
+    adapter = get_property_adapter(jurisdiction)
+    if confirmed:
+        records = adapter.find_properties_by_real_account(jurisdiction, confirmed['account_number'])
+        prop = next((p for p in records if classify_account_type(p.real_account_number, prefixes=jurisdiction.account_type_prefixes) == 'PERSONAL'), None)
+        if prop:
+            candidate = MatchCandidate(prop.property_id, prop.real_account_number, prop.owner_name or prop.business_name or prop.dba_name, prop.tax_year)
+            signals = {'cad_account_source': 'real_property_records', 'human_decision': 'CONFIRMED',
+                       'reviewed_by': confirmed['reviewed_by'], 'reviewed_at': confirmed['reviewed_at'],
+                       'source_import_id': prop.source_import_id or 'UNKNOWN', 'tax_year': str(prop.tax_year or 'UNKNOWN'),
+                       'rejected_accounts': ', '.join(sorted(rejected)), 'existing_rendition_record': 'NOT CHECKED (human-reviewed CAD account)'}
+            return MatchResult('HIGH', 1.0, f"Appraiser confirmed CAD account {prop.real_account_number} on {confirmed['reviewed_at']}; {confirmed.get('notes') or 'saved match decision'}", candidate, signals=signals)
+    rejected_signals = {'rejected_accounts': ', '.join(sorted(rejected)), 'cad_account_source': 'real_property_records'}
+    normalized = normalize_address(address, zip_code=zip_code)
+    if not normalized.normalized:
+        return MatchResult("UNMATCHED", 0.0, "No address available; rejected accounts remain excluded.", None, signals=rejected_signals) if rejected else None
+    properties = get_property_adapter(jurisdiction).find_properties_by_address(
+        jurisdiction, normalized.base_address, limit=500,
+    )
+    truncated = len(properties) >= 500
+    scored = []
+    address_only = []
+    for prop in properties:
+        if classify_account_type(prop.real_account_number, prefixes=jurisdiction.account_type_prefixes) != "PERSONAL":
+            continue
+        if _clean_account_number(prop.real_account_number or "") in rejected:
+            continue
+        address_score = score_property_candidate(normalized, prop)
+        if (not address_score.street_number_match or address_score.street_name_signal not in ("MATCH", "NORMALIZED MATCH")
+                or address_score.suite_conflict or address_score.zip_signal == "NO MATCH"):
+            continue
+        candidate = MatchCandidate(prop.property_id, prop.real_account_number, prop.owner_name or prop.business_name or prop.dba_name, prop.tax_year)
+        comparisons = [score_candidate(MatchCandidate(prop.property_id, prop.real_account_number, name, prop.tax_year),
+                                      permit_legal_name=legal_name, permit_location_name=business_name)
+                       for name in (prop.owner_name, prop.business_name, prop.dba_name)]
+        dba_score = max(c.dba_score for c in comparisons)
+        legal_score = max(c.legal_score for c in comparisons)
+        best = max(comparisons, key=lambda c:c.score)
+        name_score = CandidateScore(best.score, ["strong CAD owner/business/DBA name match" if best.name_strong else "partial CAD name match" if best.name_partial else "CAD names unavailable or differ"], best.name_strong, best.name_partial, dba_score, legal_score)
+        address_only.append((candidate, address_score))
+        if name_score.score >= NAME_PARTIAL_THRESHOLD:
+            scored.append((candidate, name_score, address_score))
+    if not scored:
+        if not address_only:
+            return MatchResult("UNMATCHED", 0.0, "No eligible CAD account remains after appraiser rejections.", None, signals=rejected_signals) if rejected else None
+        accounts = sorted({c.account_number for c, _ in address_only})
+        ambiguous = len(accounts) > 1 or truncated
+        candidate, address_score = address_only[0]
+        signals = build_signal_breakdown(None, None)
+        signals.update(rejected_signals)
+        signals.update({"cad_account_source": "real_property_records",
+                        "address": address_score.street_name_signal,
+                        "zip": address_score.zip_signal, "suite_unit": address_score.suite_signal,
+                        "personal_property_accounts": ", ".join(accounts),
+                        "business_dba_name": "NOT AVAILABLE" if not any(c.owner_name for c, _ in address_only) else "NO MATCH",
+                        "legal_entity_name": "NOT AVAILABLE" if not any(c.owner_name for c, _ in address_only) else "NO MATCH"})
+        reason = ("Possible imported CAD BPP account(s) at this situs: " + ", ".join(accounts[:10])
+                  + (" (additional accounts omitted)" if len(accounts) > 10 or truncated else "")
+                  + "; address alone cannot identify the business; verify owner/business name before confirming")
+        return MatchResult("LOW", 0.0, reason, None if ambiguous else candidate, ambiguous, signals)
+    scored.sort(key=lambda entry: entry[1].score, reverse=True)
+    candidate, name_score, address_score = scored[0]
+    ambiguous = truncated or any(other.account_number != candidate.account_number and score.score >= name_score.score - AMBIGUITY_SCORE_GAP
+                    for other, score, _ in scored[1:])
+    confidence = "HIGH" if name_score.name_strong and not ambiguous and address_score.suite_signal != "MISSING" else "LOW" if ambiguous else "MEDIUM"
+    signals = build_signal_breakdown(candidate, name_score)
+    signals.update(rejected_signals)
+    signals.update({"existing_rendition_record": "NOT CHECKED (imported CAD account)",
+                    "cad_account_source": "real_property_records",
+                    "address": address_score.street_name_signal, "zip": address_score.zip_signal,
+                    "suite_unit": address_score.suite_signal, "personal_property_accounts": candidate.account_number,
+                    "property_account": "Imported BPP account: " + candidate.account_number})
+    reason = "Imported CAD personal-property account: situs address and " + "; ".join(name_score.reasons)
+    if ambiguous:
+        reason += "; multiple P accounts at this address have similarly matching names; review required"
+    return MatchResult(confidence, round(name_score.score, 3), reason, candidate, ambiguous, signals,
+                       _detect_name_divergence(name_score))
+
+
 def match_closure_to_account(
     *,
     district_id: str | None,
     permit_legal_name: str | None,
     permit_location_name: str | None,
     candidates: list[MatchCandidate] | None = None,
-    # Accepted and ignored: RenditionPilot has no situs/city/ZIP data to
-    # match against (see module docstring). Kept so callers built against the
-    # earlier address-aware signature don't need to change their call sites.
+    # Imported CAD records provide situs evidence independently of renditions.
     permit_address: str | None = None,
     permit_city: str | None = None,
     permit_zip: str | None = None,
+    permit_location_id: str | None = None,
     # Optional independent corroboration from Property Enrichment (see
     # property_matching.PropertyMatchResult). None (the default) means "no
     # property data loaded for this jurisdiction" and reproduces the exact
@@ -431,13 +442,31 @@ def match_closure_to_account(
             signals=empty_signals,
         )
 
+    imported_match = None
+    if permit_address or permit_location_id:
+        try:
+            imported_match = match_imported_bpp_accounts(
+                district_id=district_id, address=permit_address, zip_code=permit_zip,
+                legal_name=permit_legal_name, business_name=permit_location_name,
+                permit_location_id=permit_location_id,
+            )
+        except (RuntimeError, requests.RequestException) as exc:
+            return MatchResult("UNMATCHED", 0.0, f"Imported CAD account lookup failed: {exc}", None, signals=empty_signals)
+        if imported_match is not None and imported_match.confidence == "HIGH":
+            return imported_match
+
     if candidates is None:
         try:
             candidates = fetch_candidate_records(district_id)
         except MatchingConfigError as exc:
             return MatchResult(confidence="UNMATCHED", score=0.0, reason=str(exc), candidate=None, signals=empty_signals)
 
+    if imported_match:
+        rejected = set(filter(None, (imported_match.signals.get('rejected_accounts') or '').split(', ')))
+        candidates = [candidate for candidate in candidates if _clean_account_number(candidate.account_number or "") not in rejected]
     if not candidates:
+        if imported_match is not None:
+            return imported_match
         return MatchResult(
             confidence="UNMATCHED",
             score=0.0,
@@ -455,6 +484,8 @@ def match_closure_to_account(
 
     confidence = _classify_confidence(best_score)
     if confidence == "UNMATCHED":
+        if imported_match is not None:
+            return imported_match
         return MatchResult(
             confidence="UNMATCHED",
             score=round(best_score.score, 3),
