@@ -50,6 +50,7 @@ def test_month_end_command_invalid_month_returns_error(capsys):
 
 
 def test_month_end_command_reports_email_failure_with_nonzero_exit(monkeypatch, capsys):
+    monkeypatch.setenv("SMTP_USERNAME", "configured@example.com")
     fake_result = MonthEndResult(
         review_month=date(2026, 8, 1),
         dry_run=False,
@@ -386,3 +387,16 @@ def test_account_card_command_reports_missing_item(monkeypatch, capsys):
 
     assert exit_code == 1
     assert "not found" in capsys.readouterr().err
+
+
+def test_month_end_without_optional_smtp_succeeds(monkeypatch, capsys):
+    monkeypatch.delenv("SMTP_USERNAME", raising=False)
+    monkeypatch.delenv("SMTP_PASSWORD", raising=False)
+    result = MonthEndResult(
+        review_month=date(2026, 8, 1), dry_run=False, candidates_processed=3,
+        matched_high=0, matched_medium=0, matched_low=0, unmatched=3,
+        email_error="SMTP_USERNAME and SMTP_PASSWORD must both be set.",
+    )
+    monkeypatch.setattr(cli, "process_month_end", lambda month, dry_run=False: result)
+    assert cli.main(["month-end", "--month", "2026-08"]) == 0
+    assert "email skipped" in capsys.readouterr().out

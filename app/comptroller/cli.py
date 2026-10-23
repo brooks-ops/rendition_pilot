@@ -35,6 +35,7 @@ above predate it and still take a plain county name, unchanged.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -134,6 +135,11 @@ def cmd_month_end(args: argparse.Namespace) -> int:
 
     if result.email_sent:
         print(f"[month-end] {target_month:%Y-%m}: export email sent.")
+        return 0
+
+    if (result.email_error == "SMTP_USERNAME and SMTP_PASSWORD must both be set."
+            and not os.getenv("SMTP_USERNAME") and not os.getenv("SMTP_PASSWORD")):
+        print(f"[month-end] {target_month:%Y-%m}: export email skipped (SMTP not configured); review data saved.")
         return 0
 
     # The review data above is already saved regardless -- an email failure
