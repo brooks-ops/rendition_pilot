@@ -2468,11 +2468,12 @@
     }
 
     function intelligenceTableHtml(items) {
-      return `<div class="bpp-register"><table><thead><tr><th>Business / owner</th><th>Address</th><th>CAD account</th><th>Priority</th><th>Status</th></tr></thead><tbody>${items.map(item => {
+      return `<div class="bpp-register"><table><thead><tr><th>Business / owner</th><th>Sales tax ID</th><th>Address</th><th>CAD account</th><th>Priority</th><th>Status</th></tr></thead><tbody>${items.map(item => {
         const mailing = item.signal_type === "mailing_address_change";
         const address = mailing ? item.mailing_address_observed : [item.source_address,item.source_city,item.source_state,item.source_zip].filter(Boolean).join(", ");
         return `<tr data-intel-id="${cadHtml(item.id)}" data-intel-table="${cadHtml(item.source_table)}" tabindex="0">
           <td><button type="button" class="bpp-account-link">${cadHtml(item.business_name || item.legal_name || "Unnamed business")}</button><div class="subtle">${cadHtml(mailing ? "Mailing change" : item.signal_type === "new_business" ? "New business" : "Sales tax inactive")} · ${cadHtml(item.source_label)} · ${cadHtml(item.first_detected_at || "")}</div></td>
+          <td><span class="bpp-tax-id">${cadHtml(item.sales_tax_id || "Not provided")}</span>${item.sales_tax_location_number ? `<div class="subtle">Location ${cadHtml(item.sales_tax_location_number)}</div>` : ""}</td>
           <td>${cadHtml(address || "Address unavailable")}${mailing ? `<div class="subtle">On file: ${cadHtml(item.mailing_address_current || "Unknown")}</div>` : ""}</td>
           <td><strong>${cadHtml(item.matched_account_number || (item.is_ambiguous ? "Multiple possible accounts" : "No account identified"))}</strong><div class="subtle">${cadHtml(item.matched_owner_name || "")} ${item.confidence ? `· ${cadHtml(item.confidence)}` : ""}</div></td>
           <td><span class="bpp-priority ${item.priority === "HIGH" ? "high" : item.priority === "MEDIUM" ? "medium" : "low"}">${cadHtml(item.priority)}</span><div class="subtle">${cadHtml(item.priority_reason || item.match_reason || "")}</div></td>
@@ -2523,6 +2524,8 @@
             <h4>Current (On File)</h4>
             <div>${formatText(item.mailing_address_current || "UNKNOWN -- no prior observation on record")}</div>
             <div class="subtle">Business/Taxpayer: ${formatText(item.business_name)}</div>
+            <div>Sales tax ID: ${formatText(item.sales_tax_id || "Not provided")}</div>
+            ${item.sales_tax_location_number ? `<div>Location #: ${formatText(item.sales_tax_location_number)}</div>` : ""}
           </div>
           <div>
             <h4>New Observation</h4>
@@ -2558,6 +2561,8 @@
             <div>Source: ${cadHtml(item.source_label)}</div>
             <div>Business/DBA: ${cadHtml(item.business_name)}</div>
             <div>Legal/Taxpayer Name: ${cadHtml(item.legal_name)}</div>
+            <div>Sales tax ID (Comptroller taxpayer ID): ${cadHtml(item.sales_tax_id || "Not provided")}</div>
+            ${item.sales_tax_location_number ? `<div>Location #: ${cadHtml(item.sales_tax_location_number)}</div>` : ""}
             <div>Address: ${cadHtml([item.source_address, item.source_city, item.source_state, item.source_zip].filter(Boolean).join(", "))}</div>
             <div>Permit Start: ${cadHtml(item.permit_start_date)}</div>
             <div>First Detected: ${cadHtml(item.first_detected_at)}</div>

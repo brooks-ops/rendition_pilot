@@ -161,11 +161,15 @@ class UnifiedIntelligenceItem:
     # every other signal type.
     mailing_address_current: str | None = None
     mailing_address_observed: str | None = None
+    sales_tax_id: str | None = None
+    sales_tax_location_number: str | None = None
 
 
 def _from_intelligence_row(row: dict[str, Any]) -> UnifiedIntelligenceItem:
     return UnifiedIntelligenceItem(
         id=row["id"],
+        sales_tax_id=str(row["source_taxpayer_id"]).strip() if row.get("source_taxpayer_id") is not None else None,
+        sales_tax_location_number=str(row["source_location_number"]).strip() if row.get("source_location_number") is not None else None,
         source_table=SOURCE_TABLE_INTELLIGENCE,
         signal_type=row.get("signal_type", "new_business"),
         status=row.get("status", "NEW"),
@@ -213,6 +217,8 @@ def _from_closure_review_row(row: dict[str, Any]) -> UnifiedIntelligenceItem:
     workflow_status = row.get("workflow_status", "PENDING_REVIEW")
     return UnifiedIntelligenceItem(
         id=row["id"],
+        sales_tax_id=str(row["comptroller_taxpayer_id"]).strip() if row.get("comptroller_taxpayer_id") is not None else None,
+        sales_tax_location_number=str(row["comptroller_location_number"]).strip() if row.get("comptroller_location_number") is not None else None,
         source_table=SOURCE_TABLE_CLOSURE_REVIEW,
         signal_type="sales_tax_inactive",
         status=_CLOSURE_STATUS_MAP.get(workflow_status, "NEW"),
