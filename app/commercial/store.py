@@ -44,6 +44,8 @@ class Store:
                 CREATE TABLE IF NOT EXISTS previews(id TEXT PRIMARY KEY, revision INTEGER, payload TEXT, created_at TEXT);
                 CREATE TABLE IF NOT EXISTS batches(id TEXT PRIMARY KEY, actor TEXT, reason TEXT, created_at TEXT, changes TEXT, undone INTEGER NOT NULL DEFAULT 0);
             ''')
+            from .sketch import SCHEMA as SKETCH_SCHEMA
+            db.executescript(SKETCH_SCHEMA)
             for record in self.manifest['records']:
                 db.execute('INSERT OR IGNORE INTO records(id,metadata) VALUES(?,?)',(record['id'],json.dumps(record)))
             for raw in db.execute('SELECT id,metadata FROM records').fetchall():
@@ -348,3 +350,12 @@ class Store:
             db.execute('INSERT INTO batches(id,actor,reason,created_at,changes) VALUES(?,?,?,?,?)',(uuid.uuid4().hex,actor,f'Add {account} to {LABELS[meta["model"]]}',datetime.now(timezone.utc).isoformat(),json.dumps([{'id':record_id,'before':None,'after':{'metadata':meta,'overrides':overrides}}])))
             db.execute('UPDATE state SET revision=revision+1');db.execute('DELETE FROM previews')
         return self.detail(record_id)
+
+
+    def save_sketch(self, account, document, revision, actor, approve=False):
+        from .sketch import save
+        return save(self, account, document, revision, actor, approve)
+
+    def upload_sketch_photo(self, account, encoded, role, caption, revision, actor):
+        from .sketch import upload
+        return upload(self, account, encoded, role, caption, revision, actor)

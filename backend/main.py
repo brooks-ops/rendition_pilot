@@ -506,6 +506,7 @@ def provider_status_snapshot() -> dict[str, Any]:
                 and (get_secret("AZURE_DOCUMENT_INTELLIGENCE_KEY", "") or get_secret("AZURE_FORM_RECOGNIZER_KEY", ""))
             ),
         },
+        "commercial_sketch_ai": {"configured": bool(os.getenv('COMMERCIAL_SKETCH_API_KEY') or os.getenv('OPENAI_API_KEY'))},
         "openai_review": {
             "configured": False,
             "enabled": False,

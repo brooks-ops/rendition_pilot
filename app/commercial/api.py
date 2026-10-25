@@ -118,4 +118,78 @@ def commercial_router(resolve_context):
         except (ValueError,KeyError) as exc:raise HTTPException(400,str(exc))
         record_activity(c, 'commercial_report_generated', 'commercial', 'commercial_report_set', '|'.join(sorted(set(payload.get('ids',[])))) or 'report', units=len(set(payload.get('ids',[]))), outcome='COMBINED_PDF')
         return Response(data,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename="{filename}"'})
+    def sketch_context(payload):
+        store,c=context(payload)
+        try: account=store.detail(payload['id'])['account']
+        except KeyError:raise HTTPException(404,'Property row not found')
+        return store,c,account
+
+    def sketch_result(store,account,document=None):
+        from . import sketch
+        document=document or sketch.get(store,account)
+        available=sketch.photos(store,account)
+        return {'document':document,'photos':available,'summary':sketch.summary(document,available),
+                'history':sketch.history(store,account),'ai_available':bool(os.getenv('COMMERCIAL_SKETCH_API_KEY') or os.getenv('OPENAI_API_KEY'))}
+
+    @router.post('/sketch')
+    def sketch_detail(payload:dict):
+        store,c,account=sketch_context(payload)
+        return sketch_result(store,account)
+
+    @router.post('/sketch/save')
+    def sketch_save(payload:dict):
+        from .sketch import SketchError,SketchConflict
+        store,c,account=sketch_context(payload)
+        try:
+            revision=payload.get('revision')
+            if isinstance(revision,bool) or not isinstance(revision,int) or revision<0:raise SketchError('Invalid sketch revision.')
+            document=store.save_sketch(account,payload.get('document'),revision,c.email,payload.get('approve') is True)
+        except SketchConflict as exc:raise HTTPException(409,str(exc))
+        except SketchError as exc:raise HTTPException(400,str(exc))
+        record_activity(c,'commercial_sketch_approved' if document['status']=='APPROVED' else 'commercial_sketch_saved','commercial','commercial_sketch',account,dedup_key=f"{account}:{document['revision']}")
+        return sketch_result(store,account,document)
+
+    @router.post('/sketch/photo')
+    def sketch_photo(payload:dict):
+        from .sketch import SketchError,SketchConflict
+        store,c,account=sketch_context(payload)
+        try:
+            revision=payload.get('revision')
+            if isinstance(revision,bool) or not isinstance(revision,int):raise SketchError('Invalid sketch revision.')
+            document=store.upload_sketch_photo(account,payload.get('image'),payload.get('role'),payload.get('caption'),revision,c.email)
+        except SketchConflict as exc:raise HTTPException(409,str(exc))
+        except SketchError as exc:raise HTTPException(400,str(exc))
+        record_activity(c,'commercial_sketch_photo_added','commercial','commercial_sketch',account,dedup_key=f"{account}:{document['revision']}")
+        return sketch_result(store,account,document)
+
+    @router.post('/sketch/generate')
+    def sketch_generate(payload:dict):
+        from . import sketch
+        store,c,account=sketch_context(payload)
+        document=sketch.get(store,account)
+        if payload.get('revision')!=document['revision']:raise HTTPException(409,'Reload the latest sketch before generating an outline.')
+        if document['components'] and payload.get('replace_existing') is not True:raise HTTPException(409,'Confirm replacement of existing components before generating.')
+        try:
+            draft=sketch.generate(document,sketch.photos(store,account))
+            if not draft['components']:return {'no_outline':True,'warnings':draft['warnings'] or ['No reliable building outline was found. Try a clearer overhead or trace manually.']}
+            saved=store.save_sketch(account,draft,document['revision'],c.email,False)
+        except sketch.SketchConflict as exc:raise HTTPException(409,str(exc))
+        except sketch.SketchError as exc:raise HTTPException(400,str(exc))
+        record_activity(c,'commercial_sketch_generated','commercial','commercial_sketch',account,dedup_key=f"{account}:{saved['revision']}")
+        return sketch_result(store,account,saved)
+
+    @router.post('/sketch/export')
+    def sketch_export(payload:dict):
+        from . import sketch
+        store,c,account=sketch_context(payload)
+        document=sketch.get(store,account);available=sketch.photos(store,account)
+        if payload.get('format')=='json':
+            import json
+            data=json.dumps({'format':'rendition-pilot-sketch-v1','document':document,'photos':[{k:v for k,v in p.items() if k!='data_url'} for p in available],'summary':sketch.summary(document,available)},indent=2).encode()
+            media='application/json';extension='json'
+        elif payload.get('format')=='pdf':data=sketch.export_pdf(document,available);media='application/pdf';extension='pdf'
+        else:data=sketch.export_svg(document,available);media='image/svg+xml';extension='svg'
+        filename=re.sub(r'[^a-zA-Z0-9_-]','_',account)+'-sketch.'+extension
+        return Response(data,media_type=media,headers={'Content-Disposition':f'attachment; filename="{filename}"','Cache-Control':'no-store'})
+
     return router

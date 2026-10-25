@@ -12,3 +12,5 @@ python-dotenv
 pytest
 google-auth
 reportlab
+
+Pillow

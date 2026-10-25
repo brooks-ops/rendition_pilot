@@ -1,5 +1,6 @@
 """Private district-scoped storage for the single-instance Render deployment."""
 import os
+import base64
 import sqlite3
 import tempfile
 import threading
@@ -64,6 +65,7 @@ class RemoteStore(Store):
             with self.connect() as source,sqlite3.connect(backup) as dest:source.backup(dest)
             result=operation(*args)
             try:
+                self.sync_sketch_photos()
                 self.read_view()
                 snapshot=Path(temp)/'after.sqlite3'
                 with self.connect() as source,sqlite3.connect(snapshot) as dest:source.backup(dest)
@@ -77,3 +79,16 @@ class RemoteStore(Store):
     def commit(self,*args):return self.durable_change(super().commit,*args)
     def undo(self,*args):return self.durable_change(super().undo,*args)
     def create(self,*args):return self.durable_change(super().create,*args)
+
+    def save_sketch(self,*args):return self.durable_change(super().save_sketch,*args)
+    def upload_sketch_photo(self,*args):return self.durable_change(super().upload_sketch_photo,*args)
+
+    def sync_sketch_photos(self):
+        # Immutable private photo objects keep the shared workspace snapshot small.
+        with self.connect() as db:
+            pending=db.execute("SELECT id,image FROM building_sketch_photos WHERE image LIKE 'data:%'").fetchall()
+            for photo in pending:
+                name='sketch-photo-'+photo['id']+'.jpg'
+                raw=base64.b64decode(photo['image'].split(',',1)[1])
+                object_request('POST',self.remote_district,name,raw).raise_for_status()
+                db.execute('UPDATE building_sketch_photos SET image=? WHERE id=?',('remote:'+name,photo['id']))
