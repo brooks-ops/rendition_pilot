@@ -35,3 +35,8 @@ Sketch draft saves, approvals, generated drafts, and photo additions are recorde
 ## Verification
 
 `tests/test_commercial_sketch.py` covers geometry validity, physical scale/aspect ratio, approval requirements, revision conflicts, server identity/account scoping, invalid images, remote rollback, private photo references, restart persistence, valuation isolation, AI credential absence, AI-output validation, and PDF/SVG export. Browser verification uses a synthetic overhead and local sample accounts; no fake inspections are inserted in production. Native file-chooser automation can require the Chrome extension's file-URL permission; backend upload and image display are independently verified when that test permission is unavailable.
+
+
+## Photo-first capture workflow
+
+The default screen requests an overhead image, front angle, and side angle. Create building sketch uploads pending photos and generates a saved AI draft without a separate upload/save step. Reviewers can confirm all visible component outlines together, select a numbered wall and enter one independently verified length to scale the whole sketch, then approve. Manual tracing, corner editing, splitting, and technical exports are behind correction/manual tools. Latest front and side images take precedence over retained older photos during inference. Aerial imagery acquisition, uncalibrated automatic measurements, and editable Orion delivery remain unimplemented; approval saves only within Rendition Pilot.

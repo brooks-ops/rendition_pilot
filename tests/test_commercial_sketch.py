@@ -75,6 +75,8 @@ def test_ai_missing_configuration_never_fabricates_geometry(monkeypatch):
 
 def test_ai_output_is_unverified_unscaled_and_validated(monkeypatch):
     available=[dict(id='overhead',role='overhead',width=1000,height=500,data_url=image())]
+    available += [dict(id=f'old-{i}',role='detail',data_url=f'data:old-{i}') for i in range(6)]
+    available += [dict(id='front-new',role='front',data_url='data:front-new'),dict(id='side-new',role='side',data_url='data:side-new')]
     result=sketch.AIOutline(components=[sketch.AIComponent(label='Main',kind='main',points=[sketch.AIPoint(x=x,y=y) for x,y in [[10,10],[100,10],[100,100],[10,100]]])],warnings=['Roof edge uncertain'])
     calls=[]
     class FakeClient:
@@ -86,6 +88,9 @@ def test_ai_output_is_unverified_unscaled_and_validated(monkeypatch):
     assert generated['components'][0]['source']=='ai'
     assert not generated['components'][0]['verified'] and generated['calibration'] is None
     assert calls[0]['store'] is False
+    images=[part['image_url'] for part in calls[0]['input'][0]['content'] if part['type']=='input_image']
+    assert images[1:3]==['data:front-new','data:side-new']
+    assert len(images)==6
     result.components[0].points[0].x=1001
     with pytest.raises(sketch.SketchError):sketch.generate(doc,available)
 
