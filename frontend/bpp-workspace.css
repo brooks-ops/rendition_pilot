@@ -12,7 +12,7 @@ body { font-size:14px; }
 .bpp-navigation .tab-btn.active, .bpp-navigation .tab-btn:hover { color:#ffffff; background:#2d4846; }
 .bpp-navigation #commercial-tab { margin-top:20px; border-top:1px solid #35504d; border-radius:0; padding-top:20px; order:10; }
 .bpp-sidefoot { margin-top:auto; padding:25px 12px 0; line-height:1.7; color:#a8bcb2; font-size:11px; }
-.bpp-topbar { min-height:77px; border-bottom:1px solid var(--line); padding:14px 36px; display:flex; align-items:center; justify-content:space-between; gap:20px; background:#fbfcf9; }
+.bpp-topbar { min-height:77px; border-bottom:1px solid var(--line); padding:14px 36px; display:flex; align-items:center; justify-content:space-between; gap:20px; background:var(--panel); }
 .bpp-breadcrumb { font-size:12px; color:var(--muted); }
 .bpp-breadcrumb span { padding:0 10px; }
 .bpp-breadcrumb strong { color:var(--ink); font-weight:500; }
@@ -27,12 +27,12 @@ body { font-size:14px; }
 .bpp-shell label { font-size:11px; letter-spacing:.02em; }
 .bpp-shell input, .bpp-shell select, .bpp-shell textarea { border-radius:7px; }
 .bpp-shell button { border-radius:7px; }
-.bpp-shell .layout-4:has(> .mini-card) { gap:0; border:1px solid var(--line); border-radius:10px; overflow:hidden; margin-bottom:25px; background:white; }
-.bpp-shell .layout-4 > .mini-card { border:0; border-right:1px solid var(--line); border-radius:0; background:white; padding:22px 25px; }
+.bpp-shell .layout-4:has(> .mini-card) { gap:0; border:1px solid var(--line); border-radius:10px; overflow:hidden; margin-bottom:25px; background:var(--panel); }
+.bpp-shell .layout-4 > .mini-card { border:0; border-right:1px solid var(--line); border-radius:0; background:var(--panel); padding:22px 25px; }
 .bpp-shell .layout-4 > .mini-card:last-child { border-right:0; }
 .bpp-shell .mini-card .label { font-size:11px; }
 .bpp-shell .mini-card .value { font-size:28px; font-weight:550; }
-.bpp-register { overflow:auto; border:1px solid var(--line); border-radius:10px; background:white; }
+.bpp-register { overflow:auto; border:1px solid var(--line); border-radius:10px; background:var(--panel); }
 .bpp-register table { min-width:850px; }
 .bpp-register th { padding:12px 14px; font-size:10px; letter-spacing:.8px; white-space:nowrap; }
 .bpp-register td { padding:16px 14px; font-size:12px; vertical-align:middle; }
@@ -65,13 +65,13 @@ body { font-size:14px; }
 .bpp-reader-info { border:0; box-shadow:none; margin:0 0 14px; background:transparent; }
 .bpp-reader-info > summary { padding:0; font-size:11px; color:var(--muted); font-weight:500; }
 .bpp-reader-info > div { padding:10px 0; }
-.bpp-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border:1px solid var(--line); border-radius:10px; background:white; overflow:hidden; }
+.bpp-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border:1px solid var(--line); border-radius:10px; background:var(--panel); overflow:hidden; }
 .bpp-stats > .field { padding:22px 25px; margin:0; border-right:1px solid var(--line); }
 .bpp-stats > .field:last-child { border-right:0; }
 .bpp-stats label { margin-bottom:10px; text-transform:uppercase; color:var(--muted); font-weight:500; }
 .bpp-stat-value { font-size:28px; font-weight:550; letter-spacing:-.8px; color:var(--ink); }
 .bpp-filters { display:grid; grid-template-columns:repeat(4,minmax(90px,1fr)) auto; gap:12px; align-items:end; }
-.bpp-shell .bpp-data-tools { padding:0; box-shadow:none; background:#f6f8f5; }
+.bpp-shell .bpp-data-tools { padding:0; box-shadow:none; background:var(--panel-2); }
 .bpp-shell .bpp-data-tools > summary { padding:12px 16px; font-size:12px; }
 .bpp-shell .bpp-data-tools > .button-row, .bpp-shell .bpp-data-tools > #cad-health, .bpp-shell .bpp-data-tools > details { margin:12px 16px; }
 @media(max-width:760px) { .bpp-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .bpp-stats > .field { padding:16px; border-bottom:1px solid var(--line); } .bpp-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } }
