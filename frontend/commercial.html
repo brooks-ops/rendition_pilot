@@ -26,7 +26,7 @@
 </div></main></div>
 <div class="selection hidden" id="selectionBar"><span><strong id="selectedCount">0</strong> model rows selected</span><div class="actions"><button id="clearSelection">Clear</button><button id="compareSelected">Compare</button><button id="packetSelected" class="primary">Build packets →</button></div></div>
 <div id="drawerOverlay" class="overlay hidden"><div id="drawer" class="drawer" role="dialog" aria-modal="true" aria-label="Property workspace"></div></div>
-<dialog id="newDialog"><form id="newForm"><h2>Add a property to a model</h2><p class="muted" style="font-size:12px;line-height:1.6">Start from an existing model row, then review the new property's assumptions. The source workbooks stay intact.</p><div id="newTemplate" class="notice"></div><div class="formgrid"><div class="field"><label for="newAccount">R account number</label><input id="newAccount" pattern="[Rr][0-9]+" placeholder="R123456" required></div><div class="field"><label for="newName">Property name</label><input id="newName"></div><div class="field full"><label for="newAddress">Property address</label><input id="newAddress"></div><div class="field full"><label for="newCategory">Category</label><input id="newCategory"></div></div><div id="newError"></div><div class="actions"><button type="button" id="cancelNew">Cancel</button><button type="submit" class="primary">Create property</button></div></form></dialog>
+<dialog id="newDialog"><form id="newForm"><h2>Add a property to a model</h2><p class="muted" style="font-size:12px;line-height:1.6">Add the account details, then capture an overhead image and two field angles to create its building sketch. Review the inherited model inputs afterward.</p><div id="newTemplate" class="notice"></div><div class="formgrid"><div class="field"><label for="newAccount">R account number</label><input id="newAccount" pattern="[Rr][0-9]+" placeholder="R123456" required></div><div class="field"><label for="newName">Property name</label><input id="newName"></div><div class="field full"><label for="newAddress">Property address</label><input id="newAddress"></div><div class="field full"><label for="newCategory">Category</label><input id="newCategory"></div></div><div id="newError"></div><div class="actions"><button type="button" id="cancelNew">Cancel</button><button type="submit" class="primary">Create property &amp; start sketch</button></div></form></dialog>
 <div id="toast" class="toast hidden" role="status"></div>
 <script>
 const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -121,7 +121,24 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
 $('accountsBody').onchange=e=>{if(e.target.dataset.select){const r=state.items.find(r=>r.id===e.target.dataset.select);setSelected(r,e.target.checked)}};
 $('drawerOverlay').addEventListener('click',e=>{if(e.target===$('drawerOverlay'))$('drawerOverlay').classList.add('hidden')});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.getElementById('commercial-sketch-dialog')?.open)$('drawerOverlay').classList.add('hidden')});
 $('addProperty').onclick=()=>{const template=[...state.selected.values()].find(r=>!state.model||r.model===state.model)||state.items[0];if(template)startNew(template);else toast('Open an existing property to choose the starting model.')};$('cancelNew').onclick=()=>$('newDialog').close();
-$('newForm').onsubmit=async e=>{e.preventDefault();try{const spec=state.models.find(m=>m.id===state.template.model).fields;const fields={account:$('newAccount').value};if(spec.name)fields.name=$('newName').value;if(spec.address)fields.address=$('newAddress').value;if(spec.category)fields.category=$('newCategory').value;const r=await api('create',{template_id:state.template.id,fields});$('newDialog').close();toast('New property created. Review its inherited model inputs.');await loadCatalog();await openDetail(r.id)}catch(e){error(e,'newError')}};
+$('newForm').onsubmit=async e=>{
+ e.preventDefault();const form=$('newForm');if(form.dataset.saving)return;
+ form.dataset.saving='true';const submit=form.querySelector('[type=submit]');submit.disabled=true;$('cancelNew').disabled=true;$('newError').innerHTML='';
+ let created;
+ try{
+  const spec=state.models.find(m=>m.id===state.template.model).fields;
+  const fields={account:$('newAccount').value};
+  if(spec.name)fields.name=$('newName').value;if(spec.address)fields.address=$('newAddress').value;if(spec.category)fields.category=$('newCategory').value;
+  created=await api('create',{template_id:state.template.id,fields});
+ }catch(err){error(err,'newError');return;}
+ finally{delete form.dataset.saving;submit.disabled=false;$('cancelNew').disabled=false;}
+ $('newDialog').close();state.detail=created;renderDetail('sketch');$('drawerOverlay').classList.remove('hidden');
+ toast('Property created. Add three photos to start its building sketch.');
+ // Use the newly created record, never the starting template, for the account sketch.
+ try{await CommercialSketch.open({record:created,api});}
+ catch(err){toast('Property created, but the sketch could not open. Use Start photo sketch to retry.');}
+ try{await loadCatalog();}catch(err){toast('Property created. Refresh the property list when the connection returns.');}
+};
 let packetImportResult=null,packetImportVersion=0;
 function resetPacketImport(){packetImportVersion++;packetImportResult=null;$('packetImportPreview').innerHTML='';}
 $('packetAccountFile').onchange=()=>{resetPacketImport();if($('packetAccountFile').files.length)$('packetAccountText').value='';};
