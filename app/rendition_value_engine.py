@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.value_evidence import non_value_line
+
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -622,7 +624,7 @@ def _candidate_lines(section_text: str) -> list[str]:
     lines = []
     for raw_line in (section_text or "").splitlines():
         line = re.sub(r"\s+", " ", raw_line or "").strip()
-        if not line:
+        if not line or non_value_line(line):
             continue
         upper = line.upper()
         if upper.startswith("SCHEDULE "):

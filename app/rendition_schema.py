@@ -282,6 +282,10 @@ def apply_rendition_valuation_rules(schema: dict[str, Any]) -> dict[str, Any]:
         sum(section["total"] for section in schedule_breakdown.values() if isinstance(section, dict) and "total" in section),
         2,
     )
+    all_items = schedule_a_items + schedule_b_items + schedule_c_items + schedule_d_items + schedule_e_items
+    if not any(any(getattr(item, key) is not None for key in ("good_faith_value", "historical_cost", "exact_value")) for item in all_items):
+        recommended_value = None
+        review_flags = sorted(set(review_flags + ["no_reported_value_detected"]))
     confidence = _numeric_confidence_to_label(
         min(
             1.0,
@@ -316,18 +320,24 @@ def apply_rendition_valuation_rules(schema: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def process_uploaded_rendition(file: str | os.PathLike[str]) -> dict[str, Any]:
+def process_uploaded_rendition(file: str | os.PathLike[str], *, pages: list[dict[str, Any]] | None = None, fast_review: bool | None = None) -> dict[str, Any]:
     extraction_provider = "embedded_text"
     document_ai_used = False
     document_ai_error = None
 
-    extraction = extract_pdf_text(file)
+    if pages is None:
+        extraction = extract_pdf_text(file)
+    else:
+        text = "\n\n".join(page.get("text", "") or "" for page in pages)
+        quality = assess_extracted_text_quality(text, pages=pages)
+        extraction = {"text": text, "pages": pages, "quality_score": quality["score"], "quality_details": quality}
     extracted_text = extraction["text"]
     quality_details = extraction["quality_details"]
     missing_schedules = quality_details.get("missing_schedules") or []
 
     schema: dict[str, Any]
-    fast_review = os.getenv("RENDITION_FAST_REVIEW", "").strip().lower() in {"1", "true", "yes"}
+    if fast_review is None:
+        fast_review = os.getenv("RENDITION_FAST_REVIEW", "").strip().lower() in {"1", "true", "yes"}
     if should_use_document_ai(extracted_text, quality_details) and not fast_review:
         try:
             document_ai_result = run_google_document_ai(file)

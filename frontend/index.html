@@ -1953,7 +1953,7 @@
       const depreciation = result.depreciated_override_result || {};
       $("analysis-empty").classList.add("hidden");
       $("analysis-body").classList.remove("hidden");
-      $("analysis-recommended").textContent = formatMoney(getRecommendedValue(result));
+      $("analysis-recommended").textContent = getRecommendedValue(result) === null ? "No reported value" : formatMoney(getRecommendedValue(result));
       $("analysis-provider").textContent = result.extraction_provider ? `Extraction provider: ${result.extraction_provider}` : "";
       $("analysis-path").textContent = prettifyPath(assessment.recommended_path);
       $("analysis-percent-good").textContent = formatPercent(depreciation.percent_good);
@@ -2173,8 +2173,14 @@
         showFlash("Upload a rendition PDF first.", "error");
         return;
       }
+      if (appState.single.running) return;
+      appState.single.running = true;
+      const reviewFile = appState.single.file;
+      $("single-run").disabled = true;
+      $("single-run").textContent = "Reading rendition…";
+      try {
       hideFlash();
-      showFlash("Running review...", "warn");
+      showFlash("Reading the rendition and checking reported values…", "warn");
       const previewPromise = fetchJson("/api/pdf/render", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2194,10 +2200,21 @@
           include_pdf_pages: false
         })
       });
-      const previewPayload = await previewPromise;
-      if (previewPayload?.pages) payload.pdf_pages = previewPayload.pages;
+      if (appState.single.file !== reviewFile) return;
       renderSingleResult(payload);
-      showFlash("Review completed.", "success");
+      showFlash(getRecommendedValue(payload.result) === null ? "Review completed. No reported value detected; appraiser review required." : "Review completed.", "success");
+      // PDF images can finish separately; they must not hold up the analysis.
+      previewPromise.then(previewPayload => {
+        if (appState.single.file === reviewFile && appState.single.result === payload.result && previewPayload?.pages) {
+          appState.single.pdfPages = previewPayload.pages;
+          renderPdfPreview();
+        }
+      });
+      } finally {
+        appState.single.running = false;
+        $("single-run").disabled = false;
+        $("single-run").textContent = "Run Review";
+      }
     }
 
     function renderWorkspaceUsers(){
