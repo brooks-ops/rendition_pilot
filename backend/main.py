@@ -2265,7 +2265,7 @@ def _cad_item_context(request):
     jurisdiction = comptroller_jurisdictions.get_jurisdiction_by_district_id(district.district_id)
     if not jurisdiction:
         raise HTTPException(status_code=404, detail="No CAD jurisdiction is configured for this district.")
-    if item.signal_type not in ("new_business", "sales_tax_inactive"):
+    if item.signal_type not in ("new_business", "sales_tax_inactive", "county_clerk_dba"):
         raise HTTPException(status_code=400, detail="CAD account review applies to business and closure items.")
     return district, item, jurisdiction
 

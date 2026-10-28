@@ -78,7 +78,10 @@ def candidate_review(jurisdiction, item, *, account_number: str | None = None, o
             continue
         score = score_property_candidate(normalized, prop)
         cad_names = [prop.owner_name, prop.business_name, prop.dba_name]
-        name_score = max((_name_similarity(a, b) for a in [item.legal_name, item.business_name] for b in cad_names), default=0)
+        source_names = [item.legal_name, item.business_name]
+        if filing_id:
+            source_names.extend(((item.raw.get('evidence') or {}).get('filing') or {}).get('owners') or [])
+        name_score = max((_name_similarity(a, b) for a in source_names for b in cad_names), default=0)
         conflict = score.suite_conflict or score.zip_signal == 'NO MATCH' or not score.street_number_match or score.street_name_signal not in ('MATCH','NORMALIZED MATCH')
         row = asdict(prop)
         row.update({'address_signal': score.street_name_signal, 'zip_signal': score.zip_signal,
