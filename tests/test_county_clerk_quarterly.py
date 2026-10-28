@@ -91,3 +91,15 @@ def test_collection_status_uses_authenticated_district(monkeypatch):
     assert client.post('/api/county-clerk/collection-status',json={'access_token':'bad'}).status_code==403
     r=client.post('/api/county-clerk/collection-status',json={'access_token':'own','district_id':'foreign'})
     assert r.json()=={'district_id':'own-county','cadence':'quarterly'}
+
+
+def test_verified_manual_backfill_fulfills_october_without_claiming_automation(monkeypatch):
+    run={'scheduled_for':'2026-10-01','status':'COMPLETED','records_retrieved':1160,
+         'source_import':{'status':'COMPLETED','coverage':'COMPLETE','search_start':'2026-01-01','search_end':'2026-09-30','extracted_count':1160,'metadata':{'collection_method':'bounded_browser_assisted','unattended':False}}}
+    monkeypatch.setattr(service,'request',lambda *a,**kw:[run])
+    r=collection_status.for_source(SOURCE,now=date(2026,10,28))
+    assert r['status']=='BACKFILLED' and r['october_collection_complete']
+    assert not r['automation_enabled'] and r['last_successful_sync'] is None
+    assert '1,160' in r['message'] and 'Browser-assisted' in r['message']
+    run['source_import']['coverage']='INCOMPLETE'
+    assert not collection_status.for_source(SOURCE,now=date(2026,10,28))['october_collection_complete']

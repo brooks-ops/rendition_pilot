@@ -324,3 +324,14 @@ def test_missing_sales_tax_id_is_not_invented(fake_supabase):
     add_intelligence_item(fake_supabase)
     add_closure_review(fake_supabase)
     assert all(i.sales_tax_id is None for i in intelligence.list_intelligence_queue('district-1'))
+
+
+def test_all_signals_sort_by_priority_before_recency(fake_supabase):
+    newest_low=add_intelligence_item(fake_supabase,created_at='2026-10-28',priority='LOW')
+    old_high=add_intelligence_item(fake_supabase,created_at='2026-01-01',priority='HIGH')
+    medium=add_intelligence_item(fake_supabase,created_at='2026-10-27',priority='MEDIUM')
+    dba=add_intelligence_item(fake_supabase,created_at='2026-10-29',signal_type='county_clerk_dba',priority='HIGH',evidence={'filing':{'assumed_name':'UNKNOWN SHOP'}})
+    items=intelligence.list_intelligence_queue('district-1')
+    assert [i.priority for i in items]==['HIGH','MEDIUM','LOW','LOW']
+    assert items[0].id==old_high['id'] and items[1].id==medium['id']
+    assert next(i for i in items if i.id==dba['id']).priority=='LOW'

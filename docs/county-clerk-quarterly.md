@@ -8,7 +8,7 @@ no official account is created, modified or closed from a filing alone.
 
 The Lubbock captured-record importer is service-only and explicitly invoked.
 It reparses original browser captures, checks identities, verifies all reported
-results were captured, restricts the batch to 30 documents and validates dates.
+results were captured, validates all pages, caps the batch at 3,000 filings, and validates dates.
 It uses the existing address/name matcher for each full owner separately.
 Only unambiguous HIGH matches are linked automatically; other suggestions need
 review. Other counties require their own validated source format/configuration.
@@ -57,9 +57,10 @@ October coverage readiness, last successful source retrieval and plan history.
 **Actual unattended quarterly collection remains blocked.** Published EagleWeb
 notices reviewed on October 28 do not settle permission for automation. No
 approved retrieval method or complete unattended collection has been verified.
-The full year-to-date records have not been collected; the 28 imported prototype
-filings cover October 19–28 only and do not fulfill the October 1 run.
-The existing 30-record bounded capture importer is not a full-year collector.
+A complete browser-assisted backfill can fulfill October coverage without
+activating unattended collection. Its linked import must show complete
+January–September coverage and reconciled counts. The original 28 prototype
+filings cover October 19–28 and cannot fulfill the October run by themselves.
 See `eagleweb-terms-review-2026-10-28.md` for the exact findings and limitations.
 
 A future collector must implement approved access, complete pagination, full

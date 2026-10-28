@@ -19,6 +19,7 @@ def test_counts_are_district_scoped(monkeypatch):
 
 def test_dashboard_never_calls_pdf_import_a_sync(monkeypatch):
     monkeypatch.setattr(service,'history',lambda district:{'source':{'county':'LUBBOCK','state':'TX','last_successful_import_at':'2026-10-28','last_successful_retrieval_at':None,'automation_enabled':True},'imports':[{'id':'i','filename':'partial.pdf','status':'PARTIAL'}],'next_window':{'start':None}})
+    monkeypatch.setattr(sync_status,'for_source',lambda source:{'message':'Collection is blocked','status':'BLOCKED','october_collection_complete':False})
     calls=[]
     def count(table,district_id,**filters):calls.append((table,district_id,filters));return 0
     monkeypatch.setattr(sync_status,'count_rows',count)

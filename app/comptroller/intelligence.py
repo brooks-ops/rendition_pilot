@@ -314,7 +314,11 @@ def list_intelligence_queue(
     from app.comptroller.priority import match_priority
     ranked = []
     for item in items:
-        if item.signal_type == 'sales_tax_inactive':
+        if item.signal_type == 'county_clerk_dba':
+            from app.county_clerk.priority import filing_priority
+            rank,priority,reason=filing_priority(evidence=item.raw.get('evidence'),account=item.matched_account_number,record_id=item.raw.get('matched_record_id'),ambiguous=item.is_ambiguous)
+            item=replace(item,priority=priority,priority_reason=reason,priority_rank=rank)
+        elif item.signal_type == 'sales_tax_inactive':
             rank, priority, reason = match_priority(account=item.matched_account_number,
                 record_id=item.raw.get('matched_record_id') or item.raw.get('matched_account_id'),
                 signals=item.match_signals,reason=item.match_reason,ambiguous=item.is_ambiguous,confidence=item.confidence)
@@ -351,12 +355,10 @@ def list_intelligence_queue(
     if filing_type:items=[i for i in items if i.raw.get("filing_type")==filing_type]
     if assigned_to:items=[i for i in items if (not i.raw.get("assigned_to") if assigned_to=="UNASSIGNED" else i.raw.get("assigned_to")==assigned_to)]
     items.sort(key=lambda i: i.created_at or "", reverse=True)
-    # Reorder inactive records within their existing queue positions; other
-    # signal types keep their established order and priority.
-    inactive = iter(sorted((i for i in items if i.signal_type == "sales_tax_inactive"),key=lambda i:i.priority_rank))
-    items = [next(inactive) if i.signal_type == "sales_tax_inactive" else i for i in items]
-    mailing = iter(sorted((i for i in items if i.signal_type == "mailing_address_change"),key=lambda i:i.priority_rank))
-    items = [next(mailing) if i.signal_type == "mailing_address_change" else i for i in items]
+    # Stable sort: newest first within equal evidence ranks, all High before
+    # Medium before Low across every signal type (including new DBA backfills).
+    tiers={'HIGH':0,'MEDIUM':1,'LOW':2}
+    items.sort(key=lambda i:(tiers.get(i.priority,3),i.priority_rank))
     return items
 
 
