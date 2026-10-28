@@ -172,3 +172,10 @@ def test_equity_analysis_records_only_successful_generation(monkeypatch):
     assert events==[]
     assert client.post('/api/commercial/equity',json={'id':'good'}).status_code==200
     assert events[0][0][1:]==('commercial_equity_generated','commercial','commercial_property','good')
+
+
+@pytest.fixture(autouse=True)
+def isolated_work_claims(monkeypatch):
+    monkeypatch.setattr(main.bpp_work_claims,'claim',lambda *a:None)
+    monkeypatch.setattr(main.bpp_work_claims,'claims',lambda *a:{})
+    monkeypatch.setattr(main.bpp_work_claims,'release',lambda *a,**kw:None)

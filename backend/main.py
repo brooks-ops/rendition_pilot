@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app import bpp_work_claims
 
 import base64
 import gc
@@ -2176,7 +2177,7 @@ def intelligence_queue(request: IntelligenceQueueRequest) -> dict[str, Any]:
         )
     except ComptrollerServiceError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"items": to_jsonable([asdict(item) for item in items])}
+    return {"items": to_jsonable(bpp_work_claims.attach([asdict(item) for item in items],district))}
 
 
 def _require_own_district_item(district, source_table: str, item_id: str) -> comptroller_intelligence.UnifiedIntelligenceItem:
@@ -2188,11 +2189,49 @@ def _require_own_district_item(district, source_table: str, item_id: str) -> com
     return item
 
 
+def _claim_bpp_work(district,item):
+    if item.status in ("RESOLVED","DISMISSED"):
+        raise HTTPException(status_code=409,detail="This review is already complete. Refresh the queue to see the saved outcome.")
+    try:
+        return bpp_work_claims.claim(district,item)
+    except bpp_work_claims.WorkConflict as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ComptrollerServiceError as exc:
+        raise HTTPException(status_code=503,detail="Work ownership could not be checked. Try again before changing this account.") from exc
+
+
+def _release_completed_bpp_work(district,item):
+    try:
+        bpp_work_claims.release(district,item)
+        return None
+    except (ComptrollerServiceError,bpp_work_claims.WorkConflict):
+        return "Review saved, but the work claim could not be released. Release the account again or ask an admin to clear it."
+
+
+@app.post("/api/admin/intelligence/work-status")
+def intelligence_work_status(request: ComptrollerStatusRequest):
+    district=require_bpp_access(request.access_token)
+    return {"claims":{key:bpp_work_claims.view(row,district) for key,row in bpp_work_claims.claims(district.district_id).items()}}
+
+
+@app.post("/api/admin/intelligence/release")
+def intelligence_release(request: IntelligenceItemRequest):
+    district=require_bpp_access(request.access_token)
+    item=_require_own_district_item(district,request.source_table,request.item_id)
+    try:
+        bpp_work_claims.release(district,item,admin=True)
+    except bpp_work_claims.WorkConflict as exc:
+        raise HTTPException(status_code=403,detail=str(exc)) from exc
+    activity_analytics.record_activity(district,'review_released',
+        'mailing_changes' if item.signal_type=='mailing_address_change' else 'business_intelligence',request.source_table,item.id)
+    return {"released":True}
+
+
 @app.post("/api/admin/intelligence/item")
 def intelligence_item_detail(request: IntelligenceItemRequest) -> dict[str, Any]:
     district = require_bpp_access(request.access_token)
     item = _require_own_district_item(district, request.source_table, request.item_id)
-    return {"item": to_jsonable(asdict(item))}
+    return {"item": to_jsonable(bpp_work_claims.attach([asdict(item)],district)[0])}
 
 
 def _cad_item_context(request):
@@ -2218,6 +2257,11 @@ def intelligence_cad_candidates(request: CadCandidatesRequest):
 @app.post("/api/admin/intelligence/cad-decision")
 def intelligence_cad_decision(request: CadDecisionRequest):
     district, item, jurisdiction = _cad_item_context(request)
+    _claim_bpp_work(district,item)
+    if request.decision == 'CONFIRMED':
+        prop = comptroller_cad_review.get_property_adapter(jurisdiction).get_property_by_id(jurisdiction,request.property_record_id)
+        if prop:
+            _claim_bpp_work(district,replace(item,matched_account_number=prop.real_account_number))
     user = get_supabase_user(request.access_token)
     try:
         decision = comptroller_cad_review.save_decision(jurisdiction, item, property_record_id=request.property_record_id,
@@ -2327,7 +2371,8 @@ def intelligence_cad_import(request: CadImportRequest, background_tasks: Backgro
 @app.post("/api/admin/intelligence/investigate")
 def intelligence_investigate(request: IntelligenceInvestigateRequest) -> dict[str, Any]:
     district = require_bpp_access(request.access_token)
-    _require_own_district_item(district, request.source_table, request.item_id)
+    original = _require_own_district_item(district, request.source_table, request.item_id)
+    _claim_bpp_work(district,original)
     user = get_supabase_user(request.access_token)
     try:
         item = comptroller_intelligence.investigate_item(
@@ -2338,13 +2383,14 @@ def intelligence_investigate(request: IntelligenceInvestigateRequest) -> dict[st
     activity_analytics.record_activity(district, 'review_started',
         'mailing_changes' if item.signal_type == 'mailing_address_change' else 'business_intelligence',
         request.source_table, item.id, outcome=item.resolution)
-    return {"item": to_jsonable(asdict(item))}
+    return {"item": to_jsonable(bpp_work_claims.attach([asdict(item)],district)[0])}
 
 
 @app.post("/api/admin/intelligence/resolve")
 def intelligence_resolve(request: IntelligenceResolveRequest) -> dict[str, Any]:
     district = require_bpp_access(request.access_token)
-    _require_own_district_item(district, request.source_table, request.item_id)
+    original = _require_own_district_item(district, request.source_table, request.item_id)
+    _claim_bpp_work(district,original)
     user = get_supabase_user(request.access_token)
     try:
         item = comptroller_intelligence.resolve_item(
@@ -2356,10 +2402,11 @@ def intelligence_resolve(request: IntelligenceResolveRequest) -> dict[str, Any]:
         )
     except comptroller_intelligence.IntelligenceQueueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    warning = _release_completed_bpp_work(district,original)
     activity_analytics.record_activity(district, 'review_completed',
         'mailing_changes' if item.signal_type == 'mailing_address_change' else 'business_intelligence',
         request.source_table, item.id, outcome=item.resolution)
-    return {"item": to_jsonable(asdict(item))}
+    return {"item": to_jsonable(asdict(item)),"warning":warning}
 
 
 @app.post("/api/admin/intelligence/account-card")
@@ -2479,7 +2526,8 @@ def production_readiness(request: ProductionReadinessRequest) -> dict[str, Any]:
 @app.post("/api/admin/intelligence/dismiss")
 def intelligence_dismiss(request: IntelligenceDismissRequest) -> dict[str, Any]:
     district = require_bpp_access(request.access_token)
-    _require_own_district_item(district, request.source_table, request.item_id)
+    original = _require_own_district_item(district, request.source_table, request.item_id)
+    _claim_bpp_work(district,original)
     user = get_supabase_user(request.access_token)
     try:
         item = comptroller_intelligence.dismiss_item(
@@ -2490,10 +2538,11 @@ def intelligence_dismiss(request: IntelligenceDismissRequest) -> dict[str, Any]:
         )
     except comptroller_intelligence.IntelligenceQueueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    warning = _release_completed_bpp_work(district,original)
     activity_analytics.record_activity(district, 'review_dismissed',
         'mailing_changes' if item.signal_type == 'mailing_address_change' else 'business_intelligence',
         request.source_table, item.id, outcome=item.resolution)
-    return {"item": to_jsonable(asdict(item))}
+    return {"item": to_jsonable(asdict(item)),"warning":warning}
 
 
 @app.get("/commercial")

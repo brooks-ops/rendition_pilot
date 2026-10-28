@@ -101,3 +101,5 @@ body { font-size:14px; }
 .intel-outcome .button-row .subtle { flex:1; font-size:11px; }
 .intel-outcome textarea { min-height:74px; }
 @media(max-width:600px) { .bpp-shell .intel-review-drawer { padding:20px 16px; } .intel-account-summary { grid-template-columns:1fr 1fr; } .intel-account-summary button { grid-column:1/-1; } .intel-address-change { grid-template-columns:1fr; } .intel-address-change > div:last-child { border-left:0; border-top:1px solid var(--line); } .intel-outcome-fields { grid-template-columns:1fr; } .intel-outcome-fields label:empty { display:none; } }
+
+.bpp-work-badge{display:inline-block;margin-top:7px;padding:5px 8px;border:1px solid var(--line,#ded7c9);border-radius:5px;background:var(--panel,#faf6ed);font-size:11px;line-height:1.5;overflow-wrap:anywhere}

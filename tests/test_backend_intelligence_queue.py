@@ -55,6 +55,9 @@ def make_item(item_id="intel-1", district_id="district-1", **overrides):
 
 @pytest.fixture(autouse=True)
 def stub_auth(monkeypatch):
+    monkeypatch.setattr("backend.main.bpp_work_claims.claim",lambda context,item: {"actor_id":context.user_id})
+    monkeypatch.setattr("backend.main.bpp_work_claims.claims",lambda district_id: {})
+    monkeypatch.setattr("backend.main.bpp_work_claims.release",lambda *a,**kw: None)
     monkeypatch.setattr("backend.main.require_bpp_access", lambda access_token: make_district())
     monkeypatch.setattr("backend.main.get_supabase_user", lambda access_token: {"id": "user-1", "email": "admin@lubbockcad.org"})
 

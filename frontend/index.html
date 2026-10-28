@@ -229,7 +229,7 @@
     }
   </style>
   <link rel="stylesheet" href="/frontend/rendition-theme.css?v=20261024-beige">
-  <link rel="stylesheet" href="/frontend/bpp-workspace.css?v=20261024-beige">
+  <link rel="stylesheet" href="/frontend/bpp-workspace.css?v=20261028-beige">
 </head>
 <body>
   <div id="bpp-shell" class="bpp-shell">
@@ -914,7 +914,7 @@
         <div class="modal-backdrop hidden" id="intel-detail-backdrop"></div>
         <section class="card modal-panel hidden intel-review-drawer" id="intel-detail-card" role="dialog" aria-modal="true" aria-labelledby="intel-detail-title">
           <header class="intel-review-header"><div><div id="intel-detail-kind" class="subtle"></div><h2 id="intel-detail-title">Account review</h2></div><button id="intel-detail-close" class="secondary" type="button" aria-label="Close review">✕</button></header>
-          <div id="intel-detail-body"></div>
+          <div id="intel-work-status" class="status" role="status"></div><button id="intel-release-work" type="button" class="secondary hidden">Release account</button><div id="intel-detail-body"></div>
           <details id="cad-review-panel" class="hidden intel-support"><summary>Check or change the CAD account match</summary><div>
             <div class="subtle">Compare each account with the Comptroller details above. Confirming or rejecting a match saves an advisory decision and leaves the alert open.</div>
             <div class="button-row"><input id="cad-account-search" aria-label="Search CAD P account" placeholder="Find a P account by number"><button id="cad-account-find" class="secondary" type="button">Find account</button><button id="cad-account-address" class="secondary" type="button">Accounts at this address</button></div>
@@ -2512,7 +2512,7 @@
     }
 
     function intelligenceTableHtml(items) {
-      return `<div class="bpp-register"><table><thead><tr><th>Business / owner</th><th>Sales tax ID</th><th>Address</th><th>CAD account</th><th>Priority</th><th>Status</th></tr></thead><tbody>${items.map(item => {
+      return `<div class="bpp-register"><table><thead><tr><th>Business / owner</th><th>Sales tax ID</th><th>Address</th><th>CAD account</th><th>Priority</th><th>Status / appraiser</th></tr></thead><tbody>${items.map(item => {
         const mailing = item.signal_type === "mailing_address_change";
         const address = mailing ? item.mailing_address_observed : [item.source_address,item.source_city,item.source_state,item.source_zip].filter(Boolean).join(", ");
         return `<tr data-intel-id="${cadHtml(item.id)}" data-intel-table="${cadHtml(item.source_table)}" tabindex="0">
@@ -2521,7 +2521,7 @@
           <td>${cadHtml(address || "Address unavailable")}${mailing ? `<div class="subtle">On file: ${cadHtml(item.mailing_address_current || "Unknown")}</div>` : ""}</td>
           <td><strong>${cadHtml(item.matched_account_number || (item.is_ambiguous ? "Multiple possible accounts" : "No account identified"))}</strong><div class="subtle">${cadHtml(item.matched_owner_name || "")} ${item.confidence ? `· ${cadHtml(item.confidence)}` : ""}</div></td>
           <td><span class="bpp-priority ${item.priority === "HIGH" ? "high" : item.priority === "MEDIUM" ? "medium" : "low"}">${cadHtml(item.priority)}</span><div class="subtle">${cadHtml(item.priority_reason || item.match_reason || "")}</div></td>
-          <td><span class="bpp-status">${cadHtml(item.status)}</span></td></tr>`;
+          <td><span class="bpp-status">${cadHtml(item.status)}</span><div class="bpp-work-badge" data-work-key="${cadHtml(intelWorkKey(item))}" data-work-item="${cadHtml(`item:${item.source_table}:${item.id}`)}">${cadHtml(intelWorkLabel(item.work_claim))}</div></td></tr>`;
       }).join("")}</tbody></table></div>`;
     }
 
@@ -2573,6 +2573,33 @@
         ${!mailing ? propertyEvidenceHtml(item) : ""}</div></details>`;
     }
 
+    function intelWorkKey(item) { return item.matched_account_number ? 'account:'+String(item.matched_account_number).trim().toUpperCase() : `item:${item.source_table}:${item.id}`; }
+    function intelWorkLabel(claim) { return claim ? `In progress · ${claim.mine?'You':claim.actor_email}` : 'Available'; }
+    function renderIntelWork() {
+      const item=appState.intelligence.selected;if(!item)return;
+      const claim=item.work_claim, mine=!!claim?.mine, closed=['RESOLVED','DISMISSED'].includes(item.status);
+      $('intel-work-status').textContent=claim ? `${claim.mine?'You are working on this account':claim.actor_email+' is working on this account'} · Started ${new Date(claim.claimed_at).toLocaleString()}. ${mine?'Release it if you are handing it back.':'Read-only while claimed.'}` : 'Available · Start review to reserve this account before working on it.';
+      $('intel-work-status').className='status '+(mine?'success':claim?'warn':'');
+      $('intel-release-work').classList.toggle('hidden',!claim?.can_release);
+      $('intel-release-work').textContent=mine?'Release account':'Release appraiser’s claim';
+      $('intel-action-investigate').textContent=mine?'Working on this account':'Start review';
+      $('intel-action-investigate').disabled=!!claim||closed||appState.intelligence.saving;
+      ['intel-action-resolve','intel-action-dismiss','intel-resolution','intel-resolution-notes'].forEach(id=>$(id).disabled=!mine||closed||appState.intelligence.saving);
+      $('cad-review-panel').classList.toggle('intel-readonly',!mine||closed);$('cad-review-panel').inert=!mine||closed;
+    }
+    async function refreshIntelWork() {
+      if(!appState.auth?.access_token||document.hidden||appState.intelligence.workRefreshing)return;
+      appState.intelligence.workRefreshing=true;
+      try {
+        const data=await fetchJson('/api/admin/intelligence/work-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token})});
+        for(const list of [appState.intelligence.items||[],appState.mailingIntelligence.items||[]])for(const item of list)item.work_claim=data.claims[intelWorkKey(item)]||data.claims[`item:${item.source_table}:${item.id}`]||null;
+        if(appState.intelligence.selected)appState.intelligence.selected.work_claim=data.claims[intelWorkKey(appState.intelligence.selected)]||data.claims[`item:${appState.intelligence.selected.source_table}:${appState.intelligence.selected.id}`]||null;
+        document.querySelectorAll('[data-work-key]').forEach(el=>el.textContent=intelWorkLabel(data.claims[el.dataset.workKey]||data.claims[el.dataset.workItem]));renderIntelWork();
+      }catch(err){if(appState.intelligence.selected){$('intel-work-status').textContent='Could not refresh work ownership. Reconnect before starting work.';['intel-action-investigate','intel-action-resolve','intel-action-dismiss'].forEach(id=>$(id).disabled=true);}}
+      finally{appState.intelligence.workRefreshing=false;}
+    }
+    setInterval(()=>{if(appState.intelligence.selected||$('view-intelligence').classList.contains('active')||$('view-mailing').classList.contains('active'))refreshIntelWork();},30000);
+
     function openIntelligenceDetail(itemId, sourceTable) {
       const item = findIntelligenceItem(itemId, sourceTable);
       if (!item) return;
@@ -2594,7 +2621,7 @@
       $("intel-action-account-card").classList.toggle("hidden", item.signal_type !== "new_business");
       $("intel-extra-tools").classList.toggle("hidden", item.signal_type !== "new_business");
       $("intel-extra-tools").open = false;
-      $("intel-action-investigate").disabled = item.status !== "NEW";
+      renderIntelWork();refreshIntelWork();
       $("intel-account-card").classList.add("hidden");
       $("intel-account-card").innerHTML = "";
       $("intel-detail-backdrop").classList.remove("hidden");
@@ -2667,24 +2694,24 @@
         statusEl.textContent="Choose an outcome before marking complete."; statusEl.className="status warn"; $("intel-resolution").focus(); return;
       }
       appState.intelligence.saving=true;
-      const buttons=["intel-action-investigate","intel-action-resolve","intel-action-dismiss"];
+      const buttons=["intel-action-investigate","intel-action-resolve","intel-action-dismiss","intel-release-work"];
       buttons.forEach(id=>$(id).disabled=true);
       statusEl.textContent="Saving…"; statusEl.className="status";
       try {
         const data = await fetchJson(path, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_token:appState.auth.access_token,source_table:item.source_table,item_id:item.id,...extraPayload})});
-        if (path.endsWith("/investigate")) {
-          appState.intelligence.selected={...item,...data.item};
+        if (path.endsWith("/investigate") || path.endsWith("/release")) {
+          appState.intelligence.selected={...item,...data.item,work_claim:path.endsWith("/release")?null:data.item.work_claim};renderIntelWork();
           const sourceLine=$("intel-detail-body").querySelector(".intel-source-line");
           if (sourceLine) sourceLine.textContent=`${item.source_label || item.source || ""} · Detected ${cadDate(item.first_detected_at)} · ${(appState.intelligence.selected.status || "").replaceAll("_"," ")}`;
-          statusEl.textContent="Marked in review. Choose an outcome when finished."; statusEl.className="status success";
-        } else { closeIntelligenceDetail(); showFlash(path.endsWith("/dismiss") ? "Item dismissed." : "Account review marked complete.","success"); }
+          statusEl.textContent=path.endsWith("/release")?"Account released for another appraiser.":"Account reserved for you. Choose an outcome when finished."; statusEl.className="status success";
+        } else { closeIntelligenceDetail(); showFlash(data.warning || (path.endsWith("/dismiss") ? "Item dismissed." : "Account review marked complete."),data.warning?"warn":"success"); }
         try { await Promise.all([refreshIntelligenceQueue(),refreshMailingQueue()]); }
         catch { showFlash("Your review was saved. Refresh the queue to see the latest status.","warn"); }
       } catch(error) { statusEl.textContent=error.message; statusEl.className="status error"; }
       finally {
         appState.intelligence.saving=false;
         buttons.forEach(id=>$(id).disabled=false);
-        $("intel-action-investigate").disabled=appState.intelligence.selected?.status !== "NEW";
+        renderIntelWork();refreshIntelWork();
       }
     }
 
@@ -3118,6 +3145,7 @@
       $('activity-refresh').addEventListener('click',()=>refreshActivityAnalytics());
       $('activity-export-team').addEventListener('click',()=>refreshActivityAnalytics('team'));
       $('activity-export-sales').addEventListener('click',()=>refreshActivityAnalytics('sales'));
+      $("intel-release-work").addEventListener("click", () => {const c=appState.intelligence.selected?.work_claim;if(c&&!c.mine&&!confirm("Release this appraiser’s account claim? Coordinate with them before starting work."))return;intelligenceAction("/api/admin/intelligence/release", {});});
       $("intel-action-investigate").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/investigate", {}));
       $("intel-action-resolve").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/resolve", {
         resolution: $("intel-resolution").value,

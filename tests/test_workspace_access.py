@@ -135,3 +135,10 @@ def test_bpp_member_can_review_own_district_item(api,monkeypatch):
     monkeypatch.setattr(main.comptroller_jurisdictions,'get_jurisdiction_by_district_id',lambda _:None)
     assert client.post('/api/admin/intelligence/cad-health',json={'access_token':'bpp'}).status_code==200
     assert client.post('/api/admin/property/lookup',json={'access_token':'commercial','address':'100 Main St'}).status_code==403
+
+
+@pytest.fixture(autouse=True)
+def isolated_work_claims(monkeypatch):
+    monkeypatch.setattr(main.bpp_work_claims,'claim',lambda *a:None)
+    monkeypatch.setattr(main.bpp_work_claims,'claims',lambda *a:{})
+    monkeypatch.setattr(main.bpp_work_claims,'release',lambda *a,**kw:None)
