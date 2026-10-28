@@ -122,5 +122,6 @@ def test_validate_capability_fully_available(fake_supabase):
 
 
 def test_explicit_empty_prefix_config_does_not_inherit_lubbock_convention():
+    from app.comptroller import jurisdictions
     row={"id":"dallam","district_id":"d","name":"Dallam CAD","slug":"dallam","county_name":"Dallam","state":"TX","timezone":"America/Chicago","active":True,"comptroller_county_code":"56","comptroller_dataset_id":"3kx8-uryv","account_type_prefixes":{}}
     assert jurisdictions._row_to_jurisdiction(row).account_type_prefixes=={}

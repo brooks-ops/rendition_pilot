@@ -726,7 +726,7 @@
             </div>
             <div class="field">
               <label for="intel-filter-city">City</label>
-              <input id="intel-filter-city" type="text" placeholder="LUBBOCK">
+              <input id="intel-filter-city" type="text" placeholder="Filter by city">
             </div>
             <div class="field">
               <label>&nbsp;</label>
@@ -745,7 +745,7 @@
                 <div class="field"><label for="cad-import-date">Export as-of date</label><input id="cad-import-date" type="date"></div>
                 <div class="field"><label>&nbsp;</label><button id="cad-import-preview" class="secondary" type="button">Preview and map columns</button></div>
               </div>
-              <label><input id="cad-import-bpp-only" type="checkbox"> This export contains BPP accounts only (no land or building accounts).</label><p class="subtle">Select this for a BPP-only export, including counties with numeric account numbers. Leave it unchecked for an already-configured mixed-property export.</p><div id="cad-import-mapping" class="layout-3"></div><div id="cad-import-sample" style="overflow:auto;margin:12px 0"></div>
+              <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:normal;font-size:14px"><input id="cad-import-bpp-only" type="checkbox" style="width:18px;height:18px;margin:0;flex:none"> This export contains BPP accounts only (no land or building accounts).</label><p class="subtle">Select this for a BPP-only export, including counties with numeric account numbers. Leave it unchecked for an already-configured mixed-property export.</p><div id="cad-import-mapping" class="layout-3"></div><div id="cad-import-sample" style="overflow:auto;margin:12px 0"></div>
               <div id="cad-import-result" class="subtle" role="status"></div>
               <div class="button-row"><button id="cad-import-validate" class="secondary hidden" type="button">Check mapping</button><button id="cad-import-save" class="hidden" type="button" disabled>Import mapped records</button></div>
             </details>
