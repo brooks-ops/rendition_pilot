@@ -275,3 +275,67 @@ def test_agreement_checks_component_types_and_not_only_union_area():
     assert outline_agreement(a,b,(1000,700))['passed']
     b[0]['kind']='canopy'
     assert not outline_agreement(a,b,(1000,700))['passed']
+
+
+def test_apex_xml_matches_sample_structure_and_measured_totals():
+    from xml.etree import ElementTree as ET
+    doc={**rectangle(),'account':'R123456'}
+    doc['components'][0].update(area_code='350',area_description='MA - Main Area',label='Restaurant & shop')
+    xml=sketch.export_apex_xml(doc,[])
+    root=ET.fromstring(xml)
+    assert root.tag=='{urn:xmlns:apex:sketch:xml}sketch'
+    assert root.attrib=={'name':'R123456.AX6','unit':'foot'}
+    assert len(root.findall('commentTable'))==3
+    assert all(len(t.findall('comment'))==10 for t in root.findall('commentTable'))
+    node=root.find('page/area')
+    assert node.attrib=={'code':'350','index':'0','name':'Restaurant & shop','uniqueId':'0'}
+    assert [c.tag for c in node]==['actualSize','description','multiplier','netSize','perimeter','sign']
+    assert float(node.findtext('actualSize'))==70
+    assert float(node.findtext('netSize'))==70
+    assert float(node.findtext('perimeter'))==34
+    assert node.findtext('description')=='MA - Main Area'
+    assert node.findtext('multiplier')=='1' and node.findtext('sign')=='1'
+    assert b'&amp;' in xml
+
+
+def test_apex_xml_requires_verified_measurements_and_explicit_codes():
+    doc=rectangle()
+    with pytest.raises(sketch.SketchError,match='area code'):sketch.export_apex_xml(doc,[])
+    doc['components'][0]['area_code']='350'
+    doc['calibration']['verified']=False
+    with pytest.raises(sketch.SketchError):sketch.export_apex_xml(doc,[])
+    doc['calibration']['verified']=True
+    doc['components'][0]['area_code']='35<0'
+    with pytest.raises(sketch.SketchError,match='Area codes'):sketch.export_apex_xml(doc,[])
+
+
+def test_apex_code_fields_survive_save_and_multiple_sections_export(store):
+    from xml.etree import ElementTree as ET
+    from copy import deepcopy
+    doc=rectangle();doc['components'][0].update(area_code='350',area_description='Main')
+    canopy=deepcopy(doc['components'][0]);canopy.update(id='canopy',kind='canopy',label='Canopy',area_code='10013',area_description='Canopy Steel Frame',points=[[200,0],[300,0],[300,100],[200,100]])
+    doc['components'].append(canopy)
+    saved=store.save_sketch('R1',doc,0,'actor')
+    root=ET.fromstring(sketch.export_apex_xml(saved,[]))
+    nodes=root.findall('page/area')
+    assert [n.get('code') for n in nodes]==['350','10013']
+    assert len({n.get('uniqueId') for n in nodes})==2
+    assert [float(n.findtext('actualSize')) for n in nodes]==[70,70]
+
+
+def test_xml_download_endpoint_uses_saved_account_and_returns_actionable_errors(store,monkeypatch):
+    import importlib
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    api=importlib.import_module('app.commercial.api')
+    monkeypatch.setattr(api,'load_store',lambda *a:store)
+    app=FastAPI();app.include_router(api.commercial_router(lambda token:SimpleNamespace(district_id='d1',email='actor',user_id='u1')))
+    client=TestClient(app);rid=store.manifest['records'][0]['id'];account=store.detail(rid)['account']
+    assert client.post('/api/commercial/sketch/export',json={'id':rid,'format':'xml'}).status_code==400
+    doc=rectangle();doc['components'][0].update(area_code='350',area_description='Main')
+    store.save_sketch(account,doc,0,'actor')
+    response=client.post('/api/commercial/sketch/export',json={'id':rid,'format':'xml'})
+    assert response.status_code==200
+    assert response.headers['content-type'].startswith('application/xml')
+    assert response.headers['content-disposition']==f'attachment; filename="{account}.xml"'
+    assert sketch.get(store,account)['revision']==1

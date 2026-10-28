@@ -117,9 +117,11 @@ def validate(document, available, *, approve=False):
         if not isinstance(comp,dict) or comp.get('kind') not in KINDS:raise SketchError('Choose a valid building component type.')
         identity=str(comp.get('id') or uuid.uuid4().hex)
         if len(identity)>80 or identity in seen:raise SketchError('Component identities must be unique.')
+        code=str(comp.get('area_code') or '').strip()
+        if code and (not code.isascii() or not code.isdigit() or len(code)>12):raise SketchError('Area codes must contain up to 12 digits.')
         seen.add(identity)
         clean.append(dict(id=identity,label=str(comp.get('label') or 'Building component')[:100],kind=comp['kind'],
-                          points=polygon(comp.get('points')),source=comp.get('source') if comp.get('source') in ('ai','public_gis') else 'manual',verified=comp.get('verified') is True))
+                          area_code=code,area_description=str(comp.get('area_description') or '')[:200],points=polygon(comp.get('points')),source=comp.get('source') if comp.get('source') in ('ai','public_gis') else 'manual',verified=comp.get('verified') is True))
     overhead=document.get('overhead_id')
     ids={p['id'] for p in available}
     if overhead and (overhead not in ids or not any(p['id']==overhead and p['role']=='overhead' for p in available)):raise SketchError('The overhead photo is not attached to this account.')
@@ -226,6 +228,29 @@ def history(store,account):
 def generate(document, available):
     from .sketch_ai import generate as focused_generate
     return focused_generate(document,available)
+
+
+def export_apex_xml(document, available):
+    """Area summary interchange matching the supplied Apex v6 plaza.XML; no vectors."""
+    from xml.etree.ElementTree import Element, SubElement, tostring, indent
+    clean=validate(document,available,approve=True)
+    sizes=summary(clean,available)
+    if not clean['components'] or not sizes['scaled']:raise SketchError('Measure and verify the building sections before exporting XML.')
+    for comp in clean['components']:
+        if not comp['area_code']:raise SketchError('Enter an Orion area code for every building section before exporting XML.')
+    account=str(document.get('account') or 'sketch')
+    root=Element('tns:sketch',{'name':account+'.AX6','unit':'foot','xmlns:tns':'urn:xmlns:apex:sketch:xml'})
+    SubElement(root,'subject')
+    for index in range(1,4):
+        table=SubElement(root,'commentTable',{'index':str(index)})
+        for _ in range(10):SubElement(table,'comment',{'value':''})
+    page=SubElement(root,'page',{'index':'0'})
+    for index,(comp,size) in enumerate(zip(clean['components'],sizes['components'])):
+        node=SubElement(page,'area',{'code':comp['area_code'],'index':str(index),'name':comp['label'],'uniqueId':str(index)})
+        values=[('actualSize',f"{size['square_feet']:.2f}"),('description',comp['area_description']),('multiplier','1'),('netSize',f"{size['square_feet']:.2f}"),('perimeter',f"{sum(size['wall_feet']):.2f}"),('sign','1')]
+        for key,value in values:SubElement(node,key).text=value
+    indent(root,space='  ')
+    return b'\xef\xbb\xbf'+tostring(root,encoding='utf-8',xml_declaration=True).replace(b'\n',b'\r\n')
 
 
 def export_svg(document, available):
