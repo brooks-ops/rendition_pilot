@@ -77,7 +77,7 @@ def review(district_id):
                   'latest_import':pool.submit(read,'property_source_imports',select='id,source_as_of_date,imported_at,row_count,import_status,quality_summary',jurisdiction_id='eq.'+j['id'],import_status='in.(COMPLETED,LEGACY)',order='imported_at.desc',limit=1),
                   'permit_count':pool.submit(count,'comptroller_permit_locations',district_id='eq.'+district_id,county='eq.'+j['county_name']),
                   'account_count':pool.submit(count,'real_property_records',jurisdiction_id='eq.'+j['id']),
-                  'queue':pool.submit(read,'bpp_intelligence_items',signal_type='neq.county_clerk_dba',select='id,business_name,signal_type,status,priority,confidence,matched_account_number,created_at',district_id='eq.'+district_id,order='created_at.desc',limit=20)}
+                  'queue':pool.submit(read,'bpp_intelligence_items',select='id,business_name,signal_type,status,priority,confidence,matched_account_number,created_at',district_id='eq.'+district_id,order='created_at.desc',limit=20)}
                 for name,future in work.items():
                     try:
                         value=future.result();result[name]=(value[0] if value else None) if name.startswith('latest_') else value

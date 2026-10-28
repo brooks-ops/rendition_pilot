@@ -19,14 +19,14 @@ def source_for(district_id):
     rows=request('GET','county_clerk_sources',params={'select':'*','district_id':'eq.'+district_id,'manual_import_enabled':'eq.true','limit':2})
     if len(rows)!=1:raise ImportError('County Clerk PDF imports are not configured for this district. Ask the owner to configure its county source.')
     return rows[0]
-def storage(method,path,data=None):
+def storage(method,path,data=None,*,bucket=BUCKET,content_type="application/pdf"):
     url,key=get_supabase_config()
-    r=requests.request(method,url+'/storage/v1/object/'+BUCKET+'/'+path,headers={'apikey':key,'Authorization':'Bearer '+key,'Content-Type':'application/pdf'},data=data,timeout=90)
+    r=requests.request(method,url+'/storage/v1/object/'+bucket+'/'+path,headers={'apikey':key,'Authorization':'Bearer '+key,'Content-Type':content_type},data=data,timeout=90)
     r.raise_for_status();return r
 
 def name_key(name):return re.sub('[^a-z0-9]','',(name or '').lower())
 def match_context(source,records):
-    names=sorted({n for r in records for n in [r['assumed_name'],r.get('owner_name')] if n and len(name_key(n))>=3})
+    names=sorted({n for r in records for n in [r['assumed_name'],*(r.get('owners') or [r.get('owner_name')])] if n and len(name_key(n))>=3})
     return request('POST','rpc/dba_match_context',payload={'p_district_id':source['district_id'],'p_jurisdiction_id':source['jurisdiction_id'],'p_names':names})
 
 def classify(record,context,jurisdiction,*,decision=None):
@@ -104,9 +104,9 @@ def history(district_id):
     return {'source':source,'imports':rows,'next_window':next_window(source)}
 
 def original(district_id,import_id):
-    rows=request('GET','county_clerk_dba_imports',params={'select':'storage_path,filename','district_id':'eq.'+district_id,'id':'eq.'+import_id,'limit':1})
+    rows=request('GET','county_clerk_dba_imports',params={'select':'storage_path,filename,metadata','district_id':'eq.'+district_id,'id':'eq.'+import_id,'limit':1})
     if not rows:raise ImportError('This PDF import was not found in your district.')
-    return storage('GET',rows[0]['storage_path']).content,rows[0]['filename']
+    return storage('GET',rows[0]['storage_path'],bucket=rows[0].get('metadata',{}).get('storage_bucket',BUCKET)).content,rows[0]['filename']
 
 def refresh_item(item):
     filing_id=item.raw.get('source_dba_filing_id');rows=request('GET','county_clerk_dba_filings',params={'select':'*','district_id':'eq.'+item.district_id,'id':'eq.'+filing_id,'limit':1})
@@ -123,5 +123,9 @@ def refresh_item(item):
         from dataclasses import asdict
         p=get_property_adapter(j).get_property_by_id(j,decision['property_record_id'])
         if p:ctx['accounts'].append({**asdict(p),'id':p.property_id})
-    updated=classify(record,ctx,j,decision=decision)
+    if record.get('owners') and not decision:
+        from .detailed import classify_detail
+        updated=classify_detail(record,ctx,j,rejected_accounts=rejected)
+    else:
+        updated=classify(record,ctx,j,decision=decision)
     request('PATCH','bpp_intelligence_items',params={'id':'eq.'+item.id,'district_id':'eq.'+item.district_id},payload=updated)

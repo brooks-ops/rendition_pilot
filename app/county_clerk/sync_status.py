@@ -37,13 +37,13 @@ def dashboard(district_id):
     with ThreadPoolExecutor(max_workers=3) as pool:metrics=dict(zip(specs,pool.map(count,specs.values())))
     return {
         'configured':True,'county':source['county'],'state':source['state'],
-        'connection_status':'AWAITING_APPROVED_CONNECTION',
+        'connection_status':'AWAITING_APPROVED_CONNECTION','cadence':'weekly','scheduled_day':'Monday',
         'automation_enabled':False,'manual_sync_available':False,
         'last_successful_sync':source.get('last_successful_retrieval_at'),
         'last_successful_fallback_import':source.get('last_successful_import_at'),
         'metrics_scope':'All imported county filings, including PDF fallback imports. These are not daily automated-sync counts.',
         'metrics':metrics,
-        'sync_message':'Automatic daily collection has not been activated. No supported, authorized Lubbock retrieval method has been confirmed.',
+        'sync_message':'The existing intelligence job checks source readiness each Monday. Weekly collection has not been activated. No supported, authorized Lubbock retrieval method has been confirmed.',
         'activation_requirements':ACTIVATION_REQUIREMENTS,
         'sync_errors':[],
         'sync_error_note':'No direct collection runs have occurred; no successful unattended run has been demonstrated.',

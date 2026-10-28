@@ -168,6 +168,12 @@ class UnifiedIntelligenceItem:
 
 
 def _from_intelligence_row(row: dict[str, Any]) -> UnifiedIntelligenceItem:
+    if row.get('signal_type') == 'county_clerk_dba':
+        row = dict(row)
+        filing=(row.get('evidence') or {}).get('filing') or {}
+        address=filing.get('business_address') or {}
+        row.update(source_address=' '.join(filter(None,[address.get('line1'),address.get('line2')])) or None,
+                   source_city=address.get('city'),source_state=address.get('state'),source_zip=address.get('zip'))
     return UnifiedIntelligenceItem(
         id=row["id"],
         sales_tax_id=str(row["source_taxpayer_id"]).strip() if row.get("source_taxpayer_id") is not None else None,
@@ -308,8 +314,6 @@ def list_intelligence_queue(
     from app.comptroller.priority import match_priority
     ranked = []
     for item in items:
-        if item.signal_type == "county_clerk_dba":
-            continue  # Withdrawn feature; preserve saved records without exposing them.
         if item.signal_type == 'sales_tax_inactive':
             rank, priority, reason = match_priority(account=item.matched_account_number,
                 record_id=item.raw.get('matched_record_id') or item.raw.get('matched_account_id'),

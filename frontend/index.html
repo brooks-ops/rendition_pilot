@@ -688,6 +688,7 @@
         <section class="card">
           <h3>BPP Intelligence Queue</h3><div class="button-row" style="margin-bottom:12px"><button id="cad-open-import" type="button">Import accounts</button><span class="subtle">Upload or refresh your county’s BPP account export.</span></div>
           <div class="subtle" style="margin-bottom:12px;">Evidence-backed work for review -- possible new businesses, sales-tax closures, and (later) relocations/ownership changes. Every item is a signal for a human to review, never an automatic change to official CAD/appraisal data.</div>
+          <div id="intel-county-status" class="subtle hidden" style="margin-bottom:12px;"></div>
           <div class="bpp-stats" style="margin-bottom:25px;">
             <div class="field"><label>New</label><div id="intel-summary-new" class="bpp-stat-value">-</div></div>
             <div class="field"><label>High Priority</label><div id="intel-summary-high" class="bpp-stat-value">-</div></div>
@@ -702,6 +703,7 @@
                 <option value="new_business">New Business</option>
                 <option value="sales_tax_inactive">Sales Tax Inactive</option>
                 <option value="mailing_address_change">Mailing Address Change</option>
+                <option value="county_clerk_dba">County Clerk DBA</option>
               </select>
             </div>
             <div class="field">
@@ -2465,6 +2467,7 @@
     $("cad-import-file").addEventListener("change", () => { cadUi.upload=null; cadUi.validMapping=null; $("cad-import-save").disabled=true; $("cad-import-mapping").innerHTML="";$("cad-import-sample").innerHTML=""; });
 
     const INTEL_RESOLUTION_OPTIONS = {
+      county_clerk_dba: ["ACCOUNT_EXISTS", "NEW_ACCOUNT_NEEDED", "BUSINESS_CLOSED", "OWNERSHIP_CHANGE", "RELOCATION", "DUPLICATE", "NO_TAXABLE_BPP", "FALSE_MATCH", "OTHER"],
       new_business: ["ACCOUNT_EXISTS", "NEW_ACCOUNT_NEEDED", "OWNERSHIP_CHANGE", "RELOCATION", "DUPLICATE", "NO_TAXABLE_BPP", "FALSE_MATCH", "OTHER"],
       sales_tax_inactive: ["ACCOUNT_EXISTS", "BUSINESS_CLOSED", "OWNERSHIP_CHANGE", "RELOCATION", "DUPLICATE", "FALSE_MATCH", "OTHER"],
       mailing_address_change: ["ADDRESS_UPDATED", "CURRENT_ADDRESS_CORRECT", "SOURCE_OUTDATED", "DUPLICATE_SIGNAL", "ACCOUNT_MISMATCH", "INSUFFICIENT_EVIDENCE", "OTHER"]
@@ -2500,6 +2503,9 @@
       appState.intelligence.items = queue.items || [];
       renderIntelligenceQueue(appState.intelligence.items);
       refreshCadHealth();
+      fetchJson('/api/county-clerk/collection-status', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token})}).then(data=>{
+        const el=$('intel-county-status');el.classList.toggle('hidden',!data.configured);el.textContent=data.configured?data.message:'';
+      }).catch(()=>{const el=$('intel-county-status');el.classList.remove('hidden');el.textContent='County filing collection status is unavailable.';});
     }
 
     async function refreshMailingQueue() {
@@ -2541,7 +2547,7 @@
         const mailing = item.signal_type === "mailing_address_change";
         const address = mailing ? item.mailing_address_observed : [item.source_address,item.source_city,item.source_state,item.source_zip].filter(Boolean).join(", ");
         return `<tr data-intel-id="${cadHtml(item.id)}" data-intel-table="${cadHtml(item.source_table)}" tabindex="0">
-          <td><button type="button" class="bpp-account-link">${cadHtml(item.business_name || item.legal_name || "Unnamed business")}</button><div class="subtle">${cadHtml(mailing ? "Mailing change" : item.signal_type === "new_business" ? "New business" : "Sales tax inactive")} · ${cadHtml(item.source_label)} · ${cadHtml(item.first_detected_at || "")}</div></td>
+          <td><button type="button" class="bpp-account-link">${cadHtml(item.business_name || item.legal_name || "Unnamed business")}</button><div class="subtle">${cadHtml(mailing ? "Mailing change" : item.signal_type === "new_business" ? "New business" : item.signal_type === "county_clerk_dba" ? "County Clerk DBA" : "Sales tax inactive")} · ${cadHtml(item.source_label)} · ${cadHtml(item.first_detected_at || "")}</div></td>
           <td><span class="bpp-tax-id">${cadHtml(item.sales_tax_id || "Not provided")}</span>${item.sales_tax_location_number ? `<div class="subtle">Location ${cadHtml(item.sales_tax_location_number)}</div>` : ""}</td>
           <td>${cadHtml(address || "Address unavailable")}${mailing ? `<div class="subtle">On file: ${cadHtml(item.mailing_address_current || "Unknown")}</div>` : ""}</td>
           <td><strong>${cadHtml(item.matched_account_number || (item.is_ambiguous ? "Multiple possible accounts" : "No account identified"))}</strong><div class="subtle">${cadHtml(item.matched_owner_name || "")} ${item.confidence ? `· ${cadHtml(item.confidence)}` : ""}</div></td>
@@ -2582,6 +2588,14 @@
         <div>Map: ${cadHtml(item.map_id)}</div>`;
     }
 
+    function filingDetailsHtml(item) {
+      const f=item.raw?.evidence?.filing || {};
+      const owners=f.owners?.join("; ") || f.owner_name || "Not provided";
+      let source="";
+      try { const u=new URL(f.document_reference || f.source_url); if(u.protocol==="https:" && u.hostname==="erecord.lubbockcounty.gov" && u.pathname==="/recorder/eagleweb/viewDoc.jsp") source=`<a href="${cadHtml(u.href)}" target="_blank" rel="noopener noreferrer">View County Clerk record</a>`; } catch {}
+      return `<section class="intel-business-address"><strong>${cadHtml(f.filing_type || item.raw?.filing_type || "DBA filing")}</strong><p>Document ${cadHtml(f.document_number || "Not provided")} · Recorded ${cadHtml(f.recording_date || "Not provided")}<br>Owners: ${cadHtml(owners)}<br>Expires: ${cadHtml(f.expiration_date || "Not provided")}</p>${source}<p class="subtle">A filing is a research lead. Verify operations independently before changing a taxable account.</p></section>`;
+    }
+
     function intelligenceMainDetailsHtml(item) {
       const mailing = item.signal_type === "mailing_address_change";
       const account = item.matched_account_number || (item.is_ambiguous ? "Match needs review" : "No matched account");
@@ -2591,6 +2605,7 @@
         <div><div class="small-label">Sales tax ID</div><strong>${cadHtml(item.sales_tax_id || "Not provided")}</strong>${item.sales_tax_location_number ? `<div class="subtle">Location ${cadHtml(item.sales_tax_location_number)}</div>` : ""}</div>
         ${item.matched_account_number ? '<button id="intel-copy-account" type="button" class="secondary">Copy account #</button>' : ""}</section>
         ${mailing ? `<section class="intel-address-change"><div><div class="small-label">Previously observed mailing</div><p>${cadHtml(item.mailing_address_current || "Not available")}</p></div><div><div class="small-label">New mailing address</div><p>${cadHtml(item.mailing_address_observed || "Not available")}</p></div></section>` : `<div class="intel-business-address"><div class="small-label">Business address</div>${cadHtml(address || "Not provided")}</div>`}
+        ${item.signal_type === "county_clerk_dba" ? filingDetailsHtml(item) : ""}
         <p class="intel-source-line">${cadHtml(item.source_label || item.source || "Source not provided")} · Detected ${cadHtml(cadDate(item.first_detected_at))} · ${cadHtml(item.status || "NEW")}</p>
         <details class="intel-support"><summary>Supporting evidence</summary><div><p><strong>Why this was flagged:</strong> ${cadHtml(item.match_reason || "Review the source information.")}</p>
         <p>Legal name: ${cadHtml(item.legal_name || "Not provided")}<br>Match confidence: ${cadHtml(item.confidence || "Not available")}${item.is_ambiguous ? " · Multiple possible matches" : ""}</p>
@@ -2632,9 +2647,9 @@
 
       const mailing = item.signal_type === "mailing_address_change";
       $("intel-detail-title").textContent = item.business_name || item.legal_name || "Account review";
-      $("intel-detail-kind").textContent = mailing ? "Mailing address change" : item.signal_type === "sales_tax_inactive" ? "Sales tax inactive" : "Business intelligence";
+      $("intel-detail-kind").textContent = mailing ? "Mailing address change" : item.signal_type === "sales_tax_inactive" ? "Sales tax inactive" : item.signal_type === "county_clerk_dba" ? "County Clerk DBA" : "Business intelligence";
       $("intel-detail-body").innerHTML = intelligenceMainDetailsHtml(item);
-      $("intel-next-step").textContent = mailing ? "Verify the new mailing address, make any needed change in your CAD system, then record the outcome." : item.signal_type === "sales_tax_inactive" ? "Verify whether this business is still operating and record the account review outcome." : "Check the account match and determine whether an existing or new account is needed.";
+      $("intel-next-step").textContent = item.signal_type === "county_clerk_dba" ? "Verify the filing and account match, then mark as complete. A filing or abandonment alone does not prove opening or closure." : mailing ? "Verify the new mailing address, make any needed change in your CAD system, then record the outcome." : item.signal_type === "sales_tax_inactive" ? "Verify whether this business is still operating and record the account review outcome." : "Check the account match and determine whether an existing or new account is needed.";
       const copy = $("intel-copy-account");
       if (copy) copy.addEventListener("click", async () => { try { await navigator.clipboard.writeText(item.matched_account_number); copy.textContent="Copied"; } catch { copy.textContent="Select the account number above to copy"; } });
       const resolutionSelect = $("intel-resolution");

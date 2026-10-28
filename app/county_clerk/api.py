@@ -35,6 +35,13 @@ def router(require_bpp):
     def commit(request:Commit):
         district=require_bpp(request.access_token)
         return run(service.commit,district,data(request),request.filename,request.expected_sha256,request.acknowledge_incomplete)
+    @api.post('/collection-status')
+    def collection_status(request:Session):
+        district=require_bpp(request.access_token)
+        try:source=service.source_for(district.district_id)
+        except ImportError:return {'configured':False}
+        except (ComptrollerServiceError,service.requests.RequestException):raise HTTPException(503,'County filing status is unavailable.')
+        return {'configured':True,'cadence':'weekly','scheduled_day':'Monday','status':'BLOCKED','last_successful_sync':source.get('last_successful_retrieval_at'),'message':'Weekly source check: Monday. Automatic collection is blocked pending an approved connection. Imported filings can be reviewed below.'}
     @api.post('/sync-status')
     def sync_status(request:Session):
         district=require_bpp(request.access_token)
@@ -54,8 +61,9 @@ def router(require_bpp):
     @api.post('/original')
     def original(request:Original):
         district=require_bpp(request.access_token)
-        pdf,_=run(service.original,district.district_id,str(request.import_id))
-        return Response(pdf,media_type='application/pdf',headers={'Content-Disposition':'attachment; filename="county-clerk-original.pdf"','Cache-Control':'no-store'})
+        data,filename=run(service.original,district.district_id,str(request.import_id))
+        is_json=filename.endswith('.json')
+        return Response(data,media_type='application/json' if is_json else 'application/pdf',headers={'Content-Disposition':'attachment; filename="county-clerk-original.'+('json' if is_json else 'pdf')+'"','Cache-Control':'no-store'})
     @api.post('/filing')
     def filing(request:Filing):
         district=require_bpp(request.access_token)
