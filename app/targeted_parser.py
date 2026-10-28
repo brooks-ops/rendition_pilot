@@ -1,3 +1,4 @@
+from app.value_evidence import explicit_zero
 import re
 
 
@@ -222,6 +223,8 @@ class TargetedRenditionParser:
         text = self._word_text(word)
         if not text:
             return None
+        if explicit_zero(text):
+            return 0.0
 
         if not re.fullmatch(r"[$]?[0-9OoIl|!SsB][0-9OoIl|!SsB,.\s]{2,}", text):
             return None
@@ -389,6 +392,9 @@ class TargetedRenditionParser:
             return result
 
         labeled_candidates = []
+        # A reported total of zero is evidence, unlike an empty amount box.
+        if re.search(r"\b(?:GRAND\s+TOTAL|TOTAL(?:\s+MARKET\s+VALUE)?)\b[^\n\d$]*\$?\s*0(?:[.,]0{1,2})?(?![\w.,])", normalized):
+            labeled_candidates.append(0.0)
         total_patterns = [
             r"TOTAL(?:\s+[A-Z ]+)?[: ]+.*?(\$?\s*(?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[,.][0-9OoIl|!SsB]{3})+(?:[,.][0-9OoIl|!SsB]{1,2})?)",
             r"GRAND\s+TOTAL(?:\s+[A-Z ]+)?[: ]+.*?(\$?\s*(?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[,.][0-9OoIl|!SsB]{3})+(?:[,.][0-9OoIl|!SsB]{1,2})?)",
@@ -582,7 +588,7 @@ class TargetedRenditionParser:
                     value = self._money_word_value(word)
                     if value is None:
                         text_value = parse_money_text(self._word_text(word))
-                        if text_value is None or text_value < 1:
+                        if text_value is None or (text_value < 1 and not explicit_zero(self._word_text(word))):
                             continue
                         if float(text_value).is_integer() and 1900 <= int(text_value) <= 2100:
                             continue
@@ -706,7 +712,7 @@ class TargetedRenditionParser:
             money_candidates: list[float] = []
             for row_word in row_words:
                 value = parse_money_text(self._word_text(row_word))
-                if value is None or value < 1:
+                if value is None or (value < 1 and not explicit_zero(self._word_text(row_word))):
                     continue
                 if float(value).is_integer() and 1900 <= int(value) <= 2100:
                     continue
@@ -780,6 +786,8 @@ class TargetedRenditionParser:
             r"TOTAL\s+MARKET\s+VALUE\s*(\$?\s*(?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[,.][0-9OoIl|!SsB]{3})+(?:[,.][0-9OoIl|!SsB]{1,2})?)",
         ]
         labeled_totals = []
+        if re.search(r"\b(?:TOTAL\s+FIXED\s+ASSETS|GRAND\s+TOTAL|TOTAL\s+ASSETS|TOTAL\s+MARKET\s+VALUE)\b[^\n\d$]*\$?\s*0(?:[.,]0{1,2})?(?![\w.,])", combined):
+            labeled_totals.append(0.0)
         for pattern in total_patterns:
             for match in re.finditer(pattern, combined):
                 value = parse_money_text(match.group(1))

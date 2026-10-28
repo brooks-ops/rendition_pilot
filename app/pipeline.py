@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Protocol
 import requests
 
 from app.assessment_summary import AssessmentSummaryBuilder
-from app.value_evidence import non_value_at
+from app.value_evidence import non_value_at, explicit_zero
 from app.candidate_extractor import CandidateExtractor
 from app.extractor import PDFExtractor
 from app.rendition_schema import process_uploaded_rendition
@@ -144,6 +144,7 @@ MONEY_RE = re.compile(
         (?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[\s,.][0-9OoIl|!SsB]{3})+(?:[.,][0-9OoIl|!SsB]{1,2})?
         |
         [0-9OoIl|!SsB]{2,9}(?:[.,][0-9OoIl|!SsB]{1,2})?
+        | 0(?:[.,]0{1,2})?(?![\w.,])
     )
     \)?
     (?![\w])
@@ -264,7 +265,7 @@ def _money_candidates_with_spans(text: str) -> List[Dict[str, Any]]:
     for match in MONEY_RE.finditer(text or ""):
         raw = match.group(0)
         value = _parse_money(raw)
-        if value is None or not _is_plausible_money(value):
+        if value is None or (not _is_plausible_money(value) and not explicit_zero(raw)):
             continue
         candidates.append(
             {
@@ -2910,7 +2911,7 @@ def _find_explicit_dollar_values(text: str) -> List[float]:
     values: List[float] = []
     for match in re.finditer(r"\$\s*((?:[0-9OoIl|!SsB]\s+)?[0-9OoIl|!SsB]{1,3}(?:[,\s.][0-9OoIl|!SsB]{3})*|[0-9OoIl|!SsB]{2,9})(?:[.,][0-9OoIl|!SsB]{1,2})?", text or ""):
         value = _parse_money(match.group(0))
-        if value is None or not _is_plausible_money(value):
+        if value is None or (not _is_plausible_money(value) and not explicit_zero(match.group(0))):
             continue
         if value in {20000.0, 125000.0}:
             continue

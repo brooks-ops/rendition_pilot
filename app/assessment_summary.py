@@ -26,17 +26,16 @@ class AssessmentSummaryBuilder:
 
         schedule_e_total = schedule_e.get("total")
         attachment_total = attachments.get("best_attachment_total")
-        rendered_value = (
-            rendition_result.get("rendered_value")
-            or (rendition_result.get("resolved_values", {}) or {}).get("rendered_value")
-        )
+        rendered_value = rendition_result.get("rendered_value")
+        if rendered_value is None:
+            rendered_value = (rendition_result.get("resolved_values", {}) or {}).get("rendered_value")
         schedule_rule_value = rendition_result.get("recommended_value")
         recommended_value_source = rendition_result.get("recommended_value_source")
-        good_faith_value = (
-            rendition_result.get("good_faith_value")
-            or (rendition_result.get("resolved_values", {}) or {}).get("good_faith_value")
-            or (rendition_result.get("schedule_values", {}) or {}).get("good_faith_total")
-        )
+        good_faith_value = rendition_result.get("good_faith_value")
+        if good_faith_value is None:
+            good_faith_value = (rendition_result.get("resolved_values", {}) or {}).get("good_faith_value")
+        if good_faith_value is None:
+            good_faith_value = (rendition_result.get("schedule_values", {}) or {}).get("good_faith_total")
         depreciated_value = depreciated_override_result.get("depreciated_value")
         percent_good = depreciated_override_result.get("percent_good")
         valuation_flags = list(rendition_result.get("valuation_flags", []) or [])

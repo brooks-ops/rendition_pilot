@@ -19,3 +19,8 @@ def non_value_at(text: str, start: int, end: int) -> bool:
         return True
     # Do not pull digits out of an account/serial identifier such as P341728.
     return start > 0 and text[start-1].isalnum()
+
+
+def explicit_zero(raw: str) -> bool:
+    """Only actual zero digits qualify; blank cells and OCR letter O do not."""
+    return bool(re.fullmatch(r"\$?\s*0+(?:[.,]0{1,2})?", raw.strip()))

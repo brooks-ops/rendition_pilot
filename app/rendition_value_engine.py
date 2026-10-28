@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.value_evidence import non_value_line
+from app.value_evidence import non_value_line, explicit_zero
 
 import re
 from dataclasses import asdict, dataclass, field
@@ -32,7 +32,7 @@ SCHEDULE_E_BREAKDOWN_KEYS = [
 MAX_TRUSTED_EXTRACTED_VALUE = 20_000_000.0
 
 MONEY_TOKEN_RE = re.compile(
-    r"\$?\s*[0-9OoIl|!SsB][0-9OoIl|!SsB,\s.]{0,20}(?:[.,][0-9OoIl|!SsB]{1,2})?"
+    r"(?<![\w.])\$?0(?:[.,]0{1,2})?(?![\w.,])|\$?\s*[0-9OoIl|!SsB][0-9OoIl|!SsB,\s.]{0,20}(?:[.,][0-9OoIl|!SsB]{1,2})?"
 )
 YEAR_RE = re.compile(r"\b(19[5-9]\d|20[0-4]\d)\b")
 
@@ -641,12 +641,15 @@ def _candidate_lines(section_text: str) -> list[str]:
 
 def _parse_money_tokens(text: str) -> list[dict[str, Any]]:
     tokens: list[dict[str, Any]] = []
-    for match in MONEY_TOKEN_RE.finditer(text or ""):
+    zero_matches = list(re.finditer(r"(?<![\w.])\$?0(?:[.,]0{1,2})?(?![\w.,])", text or ""))
+    matches = zero_matches + [match for match in MONEY_TOKEN_RE.finditer(text or "")
+                              if not any(match.start() < zero.end() and zero.start() < match.end() for zero in zero_matches)]
+    for match in sorted(matches, key=lambda match: match.start()):
         raw = match.group(0).strip()
         value = parse_money_text(raw)
         if value is None:
             continue
-        if value < 100:
+        if value < 100 and not explicit_zero(raw):
             continue
         if float(value).is_integer() and 1900 <= int(value) <= 2100:
             continue
