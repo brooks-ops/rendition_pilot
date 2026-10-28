@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Protocol
 import requests
 
 from app.assessment_summary import AssessmentSummaryBuilder
+from app.value_evidence import non_value_at
 from app.candidate_extractor import CandidateExtractor
 from app.extractor import PDFExtractor
 from app.rendition_schema import process_uploaded_rendition
@@ -326,6 +327,8 @@ def _candidate_for_labeled_money(
     norm_text = _normalize_ocrish_text(text)
     for label_pos, label in label_hits:
         for money in money_candidates:
+            if non_value_at(text, money["start"], money["end"]):
+                continue
             distance = money["start"] - label_pos
             if -40 <= distance <= window:
                 score = base_confidence + max(0.0, (window - abs(distance)) / window) * 0.10
@@ -3160,7 +3163,7 @@ def run_rendition_pipeline(
     fast_review: Optional[bool] = None,
 ) -> Dict[str, Any]:
     extraction_bundle = _extract_pdf_bundle(pdf_path, fast_review=fast_review)
-    structured_result = process_uploaded_rendition(pdf_path)
+    structured_result = process_uploaded_rendition(pdf_path, pages=extraction_bundle.get("pages", []), fast_review=fast_review)
     pages = extraction_bundle.get("pages", [])
     ocr_reconciliation = extraction_bundle.get("ocr_reconciliation", {}) or {}
     targeted_parser = TargetedRenditionParser()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from app.value_evidence import non_value_at
 from typing import Any
 
 
@@ -62,6 +63,8 @@ class CandidateExtractor:
             page_type = self._classify_page(text)
 
             for match in self.money_pattern.finditer(text):
+                if non_value_at(text, match.start(), match.end()):
+                    continue
                 raw_value = match.group(0)
                 value = self._clean_number(raw_value)
 
