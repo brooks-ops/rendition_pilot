@@ -359,3 +359,7 @@ class Store:
     def upload_sketch_photo(self, account, encoded, role, caption, revision, actor):
         from .sketch import upload
         return upload(self, account, encoded, role, caption, revision, actor)
+
+    def import_public_sketch(self,account,bundle,revision,actor,replace=False):
+        from .sketch import import_public
+        return import_public(self,account,bundle,revision,actor,replace)
