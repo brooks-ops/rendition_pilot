@@ -1,0 +1,3754 @@
+[
+  {
+    "code": "100",
+    "name": "Bnk Barn- Gen Prp",
+    "description": "Bank Barn General Purpose",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "101",
+    "name": "Bnk Barn- Sp Prp",
+    "description": "Bank Barn Special Purpose",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "102",
+    "name": "Barn- Gen Prp",
+    "description": "Barn General Purpose",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "103",
+    "name": "Barn- Sp Prp",
+    "description": "Barn Special Purpose",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "104",
+    "name": "Wrhs",
+    "description": "Commodity Warehouse",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "105",
+    "name": "Conf Barn",
+    "description": "Confinement Barn",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "106",
+    "name": "CA Storage",
+    "description": "Controlled Atmosphere Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "107",
+    "name": "Corn Crib",
+    "description": "Corn Crib Spaced Board",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "108",
+    "name": "Corn Crib",
+    "description": "Corn Crib Wire",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "109",
+    "name": "Hog Breeding",
+    "description": "Hog Breeding",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "110",
+    "name": "Hog Farrowing",
+    "description": "Hog Farrowing",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "111",
+    "name": "Hog Finishing",
+    "description": "Hog Finishing",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "112",
+    "name": "Hog Nursery",
+    "description": "Hog Nursery",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "113",
+    "name": "Lfg Shed",
+    "description": "Loafing Shed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "114",
+    "name": "MilkHse Shed",
+    "description": "Milkhouse Shed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "115",
+    "name": "Poultry Hse 1 sty",
+    "description": "Poultry House Cage Op Scr 1 Sty",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "116",
+    "name": "Poultry Hse 2 sty",
+    "description": "Poultry House Cage Op Scr 2 Sty",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "117",
+    "name": "Poultry Hse Bredr",
+    "description": "Poultry House Floor Op Breeder",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "118",
+    "name": "Poultry Hse Brolr",
+    "description": "Poultry House Floor Op Broiler",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "119",
+    "name": "TurkeyBarn",
+    "description": "Turkey Barn",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "120",
+    "name": "Sheep Shed",
+    "description": "Sheep Shed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "121",
+    "name": "Tobac Barn Air Cr",
+    "description": "Tobacco Barn Air Curing",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "122",
+    "name": "Tobac Barn Flue Cr",
+    "description": "Tobacco Barn Flue Curing",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "123",
+    "name": "Seed Prc Storage",
+    "description": "Seed Processing Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "124",
+    "name": "Lean-to",
+    "description": "Lean-to Farm Utility",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "125",
+    "name": "Poultry Hse 1 sty",
+    "description": "Poultry House Cage Op Scr 1 Sty El",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "126",
+    "name": "Poultry Hse 2 sty",
+    "description": "Poultry House Cage Op Scr 2 Sty El",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "127",
+    "name": "Winery Shop",
+    "description": "Winery Shop",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "131",
+    "name": "Corn Crib",
+    "description": "Corn Crib Bin",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "132",
+    "name": "Lv Stck Shelter",
+    "description": "Individual Livestock Shelter",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "133",
+    "name": "Prefab Storage",
+    "description": "Prefabricated Storage Shed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "134",
+    "name": "GrnHse Mod Hp Sm",
+    "description": "Greenhouse Modified Hoop Small",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "135",
+    "name": "GrnHse Hp Arc Rb Sm",
+    "description": "Greenhouse Hoop Arch-Rib Small",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "136",
+    "name": "GrnHse Strt Wall Sm",
+    "description": "Greenhouse Straight-Wall Small",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "137",
+    "name": "GrnHse Mod Hp Lg",
+    "description": "Greenhouse Modified Hoop Large",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "138",
+    "name": "GrnHse Hp Arc Rb Lg",
+    "description": "Greenhouse Hoop Arch-Rib Large",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "139",
+    "name": "GrnHse Strt Wall Lg",
+    "description": "Greenhouse Straight-Wall Large",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "140",
+    "name": "GrnHse Mod Hp Md",
+    "description": "Greenhouse Modified Hoop Medium",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "141",
+    "name": "GrnHse Hp Arc Rb Md",
+    "description": "Greenhouse Hoop Arch-Rib Medium",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "142",
+    "name": "GrnHse Strt Wall Md",
+    "description": "Greenhouse Straight-Wall Medium",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "150",
+    "name": "Mnfct Hse S-Wide",
+    "description": "Manufactured Housing Single Section",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "151",
+    "name": "Mnfct Hse Mult-Wide",
+    "description": "Manufactured Housing Multi-section",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "152",
+    "name": "Res Gar Det",
+    "description": "Residential Garage - Detached",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "153",
+    "name": "Res Gar Att",
+    "description": "Residential Garage - Attached",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "154",
+    "name": "Res Gar Blt-in",
+    "description": "Residential Garage - Built-in",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "155",
+    "name": "Shelter",
+    "description": "Hunting Shelter",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "156",
+    "name": "School",
+    "description": "Alternative School",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "157",
+    "name": "Storage",
+    "description": "Maintenance Storage Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "158",
+    "name": "School",
+    "description": "Special Education Classroom",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "160",
+    "name": "M & E",
+    "description": "Machinery & Equipment",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "161",
+    "name": "Pers Prop",
+    "description": "Personal Property",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "162",
+    "name": "Outbuildings",
+    "description": "Outbuildings",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "163",
+    "name": "Site Impr",
+    "description": "Site Improvements",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "170",
+    "name": "GrnHse Inst Sm",
+    "description": "Institutional Greenhouse Small",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "171",
+    "name": "GrnHse Inst Md",
+    "description": "Institutional Greenhouse Medium",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "172",
+    "name": "GrnHse Inst Lg",
+    "description": "Institutional Greenhouse Large",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "173",
+    "name": "Church Ed Wing",
+    "description": "Church Educational Wing",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "174",
+    "name": "Pavilion",
+    "description": "Pavilion",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "175",
+    "name": "Skating Rink- Ice",
+    "description": "Skating Rink Ice",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "176",
+    "name": "Skating Rink- Roller",
+    "description": "Skating Rink Roller",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "177",
+    "name": "Twn Hse End",
+    "description": "Townhouse High-rise - End Unit",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "178",
+    "name": "Twn Hse Insd",
+    "description": "Townhouse High-rise - Inside Unit",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "179",
+    "name": "Twn Hse Det",
+    "description": "Townhouse High-rise - Detached",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "180",
+    "name": "Feed Handling",
+    "description": "Feed Handling and Mixing",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "181",
+    "name": "Storage- Prefab",
+    "description": "Secure Storage Shed Prefabricated",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "182",
+    "name": "Barn",
+    "description": "Calving Barn Shed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "183",
+    "name": "Golf Starter Booth",
+    "description": "Golf Starter Booth",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "184",
+    "name": "Arena Shelter",
+    "description": "Arena Shelter",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "185",
+    "name": "Truck Wash",
+    "description": "Truck Wash",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "186",
+    "name": "LUtility Building",
+    "description": "Light Commercial Manufacturing Utility Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "300",
+    "name": "Apartment",
+    "description": "Apartment",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "301",
+    "name": "Armory",
+    "description": "Armory",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "302",
+    "name": "Auditorium",
+    "description": "Auditorium",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "303",
+    "name": "Auto Showroom",
+    "description": "Automobile Showroom",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "304",
+    "name": "Bank",
+    "description": "Bank",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "305",
+    "name": "Barn (obs)",
+    "description": "Barn (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "306",
+    "name": "Bowling Center",
+    "description": "Bowling Center",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "308",
+    "name": "Church w/ School",
+    "description": "Church w/ Sunday School",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "309",
+    "name": "Church",
+    "description": "Church",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "310",
+    "name": "City Club",
+    "description": "City Club",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "311",
+    "name": "Clubhouse",
+    "description": "Clubhouse",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "313",
+    "name": "Convl Hospital",
+    "description": "Convalescent Hospital",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "314",
+    "name": "Country Club",
+    "description": "Country Club",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "315",
+    "name": "Creamery",
+    "description": "Creamery",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "316",
+    "name": "Dairy",
+    "description": "Dairy",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "317",
+    "name": "Dairy Sales Blg",
+    "description": "Dairy Sales Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "318",
+    "name": "Department Store",
+    "description": "Department Store",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "319",
+    "name": "Discount Store",
+    "description": "Discount Store",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "320",
+    "name": "Dispensary",
+    "description": "Dispensary",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "321",
+    "name": "Dormitory",
+    "description": "Dormitory",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "322",
+    "name": "Fire Station (Staff)",
+    "description": "Fire Station (Staff)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "323",
+    "name": "Fraternal Building",
+    "description": "Fraternal Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "324",
+    "name": "Fraternity House",
+    "description": "Fraternity House",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "326",
+    "name": "Storage Garage",
+    "description": "Storage Garage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "327",
+    "name": "Govt Building",
+    "description": "Governmental Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "328",
+    "name": "Storage Hangar",
+    "description": "Storage Hangar",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "329",
+    "name": "Hangar- Mnt & Office",
+    "description": "Hangar Maint & Office",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "330",
+    "name": "Home For The Elderly",
+    "description": "Home For The Elderly",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "331",
+    "name": "Hospital",
+    "description": "Hospital",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "332",
+    "name": "Hotel (obs)",
+    "description": "Hotel (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "334",
+    "name": "Indsrtl Mftg. (obs)",
+    "description": "Industrial Mftg. (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "335",
+    "name": "Jail - Corectnl Facility",
+    "description": "Jail - Correctional Facility",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "336",
+    "name": "Laundromat",
+    "description": "Laundromat",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "337",
+    "name": "Library- Public",
+    "description": "Library Public",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "338",
+    "name": "Loft",
+    "description": "Loft",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "339",
+    "name": "Lumber Strg Shed",
+    "description": "Lumber Storage Shed Horz.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "340",
+    "name": "Market",
+    "description": "Market",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "341",
+    "name": "Medical Office",
+    "description": "Medical Office",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "342",
+    "name": "Mortuary",
+    "description": "Mortuary",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "343",
+    "name": "Motel",
+    "description": "Motel",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "344",
+    "name": "Office Building",
+    "description": "Office Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "345",
+    "name": "Parking Structure",
+    "description": "Parking Structure",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "346",
+    "name": "Post Office (obs)",
+    "description": "Post Office (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "348",
+    "name": "Rectory",
+    "description": "Rectory",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "349",
+    "name": "Fast Food Restaurant",
+    "description": "Fast Food Restaurant",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "350",
+    "name": "Restaurant",
+    "description": "Restaurant",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "351",
+    "name": "Single-Family Res",
+    "description": "Single-Family Residence",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "352",
+    "name": "Multiple Res (Low Rise)",
+    "description": "Multiple Res (Low Rise)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "353",
+    "name": "Retail Store",
+    "description": "Retail Store",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "354",
+    "name": "Townhouse Inside Unit",
+    "description": "Townhouse Inside Unit",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "355",
+    "name": "Fine Arts & Crafts Bldg",
+    "description": "Fine Arts & Crafts Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "356",
+    "name": "Classroom",
+    "description": "Classroom",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "357",
+    "name": "Commons (Schools)",
+    "description": "Commons (Schools)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "358",
+    "name": "Gymnasium (School)",
+    "description": "Gymnasium (School)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "359",
+    "name": "Lecture Clsrm (School)",
+    "description": "Lecture Classroom (School)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "360",
+    "name": "Library- Media Center",
+    "description": "Library Media Center",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "361",
+    "name": "Manual Arts Bldg (School)",
+    "description": "Manual Arts Bldg (School)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "362",
+    "name": "Multi-Purp Bldg (School)",
+    "description": "Multi-Purpose Bldg (School)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "363",
+    "name": "Physical Ed Building",
+    "description": "Physical Education Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "364",
+    "name": "Science Classroom",
+    "description": "Science Classroom",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "365",
+    "name": "Elementary School (Entire)",
+    "description": "Elementary School (Entire)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "366",
+    "name": "Junior High School (Entire)",
+    "description": "Junior High School (Entire)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "367",
+    "name": "Arts & Crafts Bldg (Coll)",
+    "description": "Arts & Crafts Bldg (Coll)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "368",
+    "name": "Classroom (College)",
+    "description": "Classroom (College)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "369",
+    "name": "Commons (College)",
+    "description": "Commons (College)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "370",
+    "name": "Gymnasium (College)",
+    "description": "Gymnasium (College)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "371",
+    "name": "Lecture Hall (College)",
+    "description": "Lecture Hall (College)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "372",
+    "name": "Library- College",
+    "description": "Library College",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "373",
+    "name": "Technical Trades Bldg.",
+    "description": "Technical Trades Bldg.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "374",
+    "name": "Multi-Purp Bldg (College)",
+    "description": "Multi-Purp Bldg (College)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "375",
+    "name": "Phys Ed Bldg (College)",
+    "description": "Phys Ed Bldg (College)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "376",
+    "name": "Science Building (College)",
+    "description": "Science Building (College)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "377",
+    "name": "College (Entire)",
+    "description": "College (Entire)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "378",
+    "name": "Stable",
+    "description": "Stable",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "379",
+    "name": "Theater - Live Stage",
+    "description": "Theater - Live Stage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "380",
+    "name": "Theater - Cinema",
+    "description": "Theater - Cinema",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "381",
+    "name": "Veterinary Hospital",
+    "description": "Veterinary Hospital",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "383",
+    "name": "Tobacco Barn (obs)",
+    "description": "Tobacco Barn (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "384",
+    "name": "Barber Shop",
+    "description": "Barber Shop",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "386",
+    "name": "Mini-Wrhs",
+    "description": "Mini-Warehouse",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "387",
+    "name": "Transit Wrhs",
+    "description": "Transit Warehouse",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "388",
+    "name": "Undergrd Prkg Structure",
+    "description": "Underground Prkg Structure",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "389",
+    "name": "Equip. Storage Bldg. (obs)",
+    "description": "Equip. Storage Bldg. (Obs.)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "390",
+    "name": "Lumber Storage Bldg.- Vert.",
+    "description": "Lumber Storage Bldg. Vert.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "391",
+    "name": "Material Storage Building",
+    "description": "Material Storage Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "392",
+    "name": "Industrial Engineering",
+    "description": "Industrial Engineering",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "393",
+    "name": "Labor Dormitory",
+    "description": "Labor Dormitory",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "394",
+    "name": "Transient Labor Cabin",
+    "description": "Transient Labor Cabin",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "395",
+    "name": "Potato Storage",
+    "description": "Potato Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "396",
+    "name": "Hog Barn (obs)",
+    "description": "Hog Barn (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "397",
+    "name": "Sheep Barn",
+    "description": "Sheep Barn",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "398",
+    "name": "Fruit Packing Barn",
+    "description": "Fruit Packing Barn",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "399",
+    "name": "Cattle Shed (obs)",
+    "description": "Cattle Shed (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "400",
+    "name": "Hay Shed (obs)",
+    "description": "Hay Shed (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "401",
+    "name": "Townhouse- End Unit",
+    "description": "Townhouse End Unit",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "403",
+    "name": "Shower Building",
+    "description": "Shower Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "404",
+    "name": "Utility Building (obs)",
+    "description": "Utility Building (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "405",
+    "name": "Skating Rink (obs)",
+    "description": "Skating Rink (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "406",
+    "name": "Storage Wrhs",
+    "description": "Storage Warehouse",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "407",
+    "name": "Distribution Wrhs",
+    "description": "Distribution Warehouse",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "408",
+    "name": "Service Station",
+    "description": "Service Station",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "409",
+    "name": "T-Hangar",
+    "description": "T-Hangar",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "410",
+    "name": "Automotive Center",
+    "description": "Automotive Center",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "412",
+    "name": "Neighborhood Shpg Ctr",
+    "description": "Neighborhood Shopping Ctr",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "413",
+    "name": "Community Shpg Center",
+    "description": "Community Shopping Center",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "414",
+    "name": "Regional Shpg Center",
+    "description": "Regional Shopping Center",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "416",
+    "name": "Indoor Tennis Club",
+    "description": "Indoor Tennis Club",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "417",
+    "name": "Handball-Racqbl Club",
+    "description": "Handball-Racquetball Club",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "418",
+    "name": "Health Club",
+    "description": "Health Club",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "419",
+    "name": "Convenience Market",
+    "description": "Convenience Market",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "420",
+    "name": "Bulk Fertilizer Storage",
+    "description": "Bulk Fertilizer Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "421",
+    "name": "Grain Storage",
+    "description": "Grain Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "422",
+    "name": "Theater (obs)",
+    "description": "Theater (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "423",
+    "name": "Mini-Lube Garage",
+    "description": "Mini-Lube Garage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "424",
+    "name": "Group Care Home",
+    "description": "Group Care Home",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "426",
+    "name": "Day Care Center",
+    "description": "Day Care Center",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "427",
+    "name": "Fire Station (Volunteer)",
+    "description": "Fire Station (Volunteer)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "428",
+    "name": "Horse Arena",
+    "description": "Horse Arena",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "429",
+    "name": "Hog Shed- Modified",
+    "description": "Hog Shed Modified",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "430",
+    "name": "Hog Shed",
+    "description": "Hog Shed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "431",
+    "name": "Outpatient Surgical Center",
+    "description": "Outpatient Surgical Center",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "432",
+    "name": "Restroom Building",
+    "description": "Restroom Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "434",
+    "name": "Car Wash - Self Serve",
+    "description": "Car Wash - Self Serve",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "435",
+    "name": "Car Wash - Drive Thru",
+    "description": "Car Wash - Drive Thru",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "436",
+    "name": "Car Wash - Automatic",
+    "description": "Car Wash - Automatic",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "440",
+    "name": "Milkhouse",
+    "description": "Milkhouse",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "441",
+    "name": "Cocktail Lounge",
+    "description": "Cocktail Lounge",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "442",
+    "name": "Bar/Tavern",
+    "description": "Bar/Tavern",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "443",
+    "name": "Central Bank",
+    "description": "Central Bank",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "444",
+    "name": "Dental Office/Clinic",
+    "description": "Dental Office/Clinic",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "445",
+    "name": "Log Home",
+    "description": "Log Home",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "446",
+    "name": "Supermarket",
+    "description": "Supermarket",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "447",
+    "name": "Cold Storage Facility",
+    "description": "Cold Storage Facility",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "448",
+    "name": "Cold Storage- Farm",
+    "description": "Cold Storage Farm",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "450",
+    "name": "Cotton Gin",
+    "description": "Cotton Gin",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "451",
+    "name": "Multiple Res. (Sen. Citizen)",
+    "description": "Multiple Res. (Sen. Citizen)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "453",
+    "name": "Industrial Flex Building",
+    "description": "Industrial Flex Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "454",
+    "name": "Shell- Industrial",
+    "description": "Shell Industrial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "455",
+    "name": "Auto Dealership- Cmpt",
+    "description": "Auto Dealership Complete",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "456",
+    "name": "Tool Shed",
+    "description": "Tool Shed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "458",
+    "name": "Dscnt Wrhs Store",
+    "description": "Discount Warehouse Store",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "459",
+    "name": "Mixed Retail w/ Resid. Units",
+    "description": "Mixed Retail w/ Resid. Units",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "460",
+    "name": "Shell- Neigh. Shop. Ctr.",
+    "description": "Shell Neigh. Shop. Ctr.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "461",
+    "name": "Shell- Community Shop. Ctr.",
+    "description": "Shell Community Shop. Ctr.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "462",
+    "name": "Shell- Regional Shop. Ctr.",
+    "description": "Shell Regional Shop. Ctr.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "465",
+    "name": "Food Booth - Prefab",
+    "description": "Food Booth - Prefabricated",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "466",
+    "name": "Boat Storage Shed",
+    "description": "Boat Storage Shed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "467",
+    "name": "Boat Storage Building",
+    "description": "Boat Storage Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "468",
+    "name": "Material Storage Shed",
+    "description": "Material Storage Shed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "469",
+    "name": "Freestall Barn",
+    "description": "Freestall Barn",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "470",
+    "name": "Equip (Shop) Building",
+    "description": "Equipment (Shop) Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "471",
+    "name": "Lt. Comm Utility Build.",
+    "description": "Lt. Commercial Utility Build.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "472",
+    "name": "Equipment Shed",
+    "description": "Equipment Shed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "473",
+    "name": "Material Shelter",
+    "description": "Material Shelter",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "474",
+    "name": "Poultry Hse Cage op 1 sty",
+    "description": "Poultry House Cage Op. 1 Story",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "475",
+    "name": "Poultry Hse Flr op obs",
+    "description": "Poultry House Floor Op. (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "476",
+    "name": "Farm Impl Building",
+    "description": "Farm Implement Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "477",
+    "name": "Farm Utility Building",
+    "description": "Farm Utility Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "478",
+    "name": "Farm Implement Shed",
+    "description": "Farm Implement Shed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "479",
+    "name": "Farm Utility Strg Shed",
+    "description": "Farm Utility Storage Shed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "480",
+    "name": "Vegetable Storage",
+    "description": "Vegetable Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "481",
+    "name": "Museum",
+    "description": "Museum",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "482",
+    "name": "Convention Center",
+    "description": "Convention Center",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "483",
+    "name": "Fitness Center",
+    "description": "Fitness Center",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "484",
+    "name": "High School (Entire)",
+    "description": "High School (Entire)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "485",
+    "name": "Natatorium",
+    "description": "Natatorium",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "486",
+    "name": "Fieldhouse",
+    "description": "Fieldhouse",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "487",
+    "name": "Vocational School",
+    "description": "Vocational School",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "488",
+    "name": "Bookstore (School)",
+    "description": "Bookstore (School)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "489",
+    "name": "Jail - Police Station",
+    "description": "Jail - Police Station",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "490",
+    "name": "Kennels",
+    "description": "Kennels",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "491",
+    "name": "Community Service Bldg",
+    "description": "Community Service Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "492",
+    "name": "Shell- Office",
+    "description": "Shell Office",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "493",
+    "name": "Flathouse",
+    "description": "Flathouse",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "494",
+    "name": "Industrials- Light Mftg.",
+    "description": "Industrials Light Mftg.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "495",
+    "name": "Industrials- Heavy Mftg.",
+    "description": "Industrials Heavy Mftg.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "496",
+    "name": "Laboratory",
+    "description": "Laboratory",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "497",
+    "name": "Computer Center",
+    "description": "Computer Center",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "498",
+    "name": "Broadcasting Facility",
+    "description": "Broadcasting Facility",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "499",
+    "name": "Dry Cleaners-Laundry",
+    "description": "Dry Cleaners-Laundry",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "508",
+    "name": "Car Wash - Canopy",
+    "description": "Car Wash - Canopy",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "511",
+    "name": "Drug Store",
+    "description": "Drug Store",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "512",
+    "name": "Luxury Boutique",
+    "description": "Luxury Boutique",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "513",
+    "name": "Regional Dscnt Shp Center",
+    "description": "Regional Discount Shopping Center",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "514",
+    "name": "Community Center",
+    "description": "Community Center",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "515",
+    "name": "Casino",
+    "description": "Casino",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "516",
+    "name": "Fellowship Hall",
+    "description": "Fellowship Hall",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "517",
+    "name": "Narthex/Foyer",
+    "description": "Narthex/Foyer",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "518",
+    "name": "GrnHse Lath Shd",
+    "description": "Greenhouse Lath Shade House",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "519",
+    "name": "GrnHse Shade",
+    "description": "Greenhouse Shade Shelter",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "520",
+    "name": "GrnHse Mod Hp obs",
+    "description": "Greenhouse Modified Hoop (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "521",
+    "name": "GrnHse Hp Arc Rb obs",
+    "description": "Greenhouse Hoop Arch-Rib (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "522",
+    "name": "GrnHse Strt Wall obs",
+    "description": "Greenhouse Straight-Wall (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "523",
+    "name": "Golf Cart Storage",
+    "description": "Golf Cart Storage Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "524",
+    "name": "Corn Crib (obs)",
+    "description": "Corn Crib (Obsolete)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "525",
+    "name": "Mini Whs- High-Rise",
+    "description": "Mini Warehouse High-Rise",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "526",
+    "name": "Service Garage Shed",
+    "description": "Service Garage Shed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "527",
+    "name": "Municipal Service Garage",
+    "description": "Municipal Service Garage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "528",
+    "name": "Service Repair Garage",
+    "description": "Service Repair Garage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "529",
+    "name": "Snack Bar",
+    "description": "Snack Bar",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "530",
+    "name": "Cafeteria",
+    "description": "Cafeteria",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "531",
+    "name": "Mini-Mart Conv Store",
+    "description": "Mini-Mart Convenience Store",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "532",
+    "name": "Florist Shop",
+    "description": "Florist Shop",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "533",
+    "name": "Wrhs Food Store",
+    "description": "Warehouse Food Store",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "534",
+    "name": "Wrhs Showroom Store",
+    "description": "Warehouse Showroom Store",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "537",
+    "name": "Lodge",
+    "description": "Lodge",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "538",
+    "name": "Guest Cottage",
+    "description": "Guest Cottage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "539",
+    "name": "Bed and Breakfast Inn",
+    "description": "Bed and Breakfast Inn",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "540",
+    "name": "Motel Room- 2 Sty.",
+    "description": "Motel Room 2 Sty. Dbl. Row",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "541",
+    "name": "Motel Room- 2 Sty.",
+    "description": "Motel Room 2 Sty. Sgl. Row",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "542",
+    "name": "Motel Room- 1 Sty.",
+    "description": "Motel Room 1 Sty. Dbl. Row",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "543",
+    "name": "Motel Room- 1 Sty.",
+    "description": "Motel Room 1 Sty. Sgl. Row",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "544",
+    "name": "Motel- Office-Apt",
+    "description": "Motel Office-Apartment",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "546",
+    "name": "Senior Twnhse- End",
+    "description": "Senior Citizen Townhouse End Unit",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "547",
+    "name": "Senior Twnhse- Insd",
+    "description": "Senior Citizen Townhouse Inside Unit",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "548",
+    "name": "Urban Row- Detached",
+    "description": "Urban Row House Detached",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "549",
+    "name": "Urban Row- End Unit",
+    "description": "Urban Row House End Unit",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "550",
+    "name": "Urban Row- Insd Unit",
+    "description": "Urban Row House Inside Unit",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "551",
+    "name": "Rooming House",
+    "description": "Rooming House",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "552",
+    "name": "Recreational Enclosure",
+    "description": "Recreational Enclosure",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "554",
+    "name": "Shed Office Structure",
+    "description": "Shed Office Structure",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "555",
+    "name": "Lt. Comm Arch-rib- Quon",
+    "description": "Lt. Commercial Arch-rib Quon",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "556",
+    "name": "Bulk Oil Storage",
+    "description": "Bulk Oil Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "557",
+    "name": "Farm Util Arch-rib- Quon.",
+    "description": "Farm Utility Arch-rib Quon.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "558",
+    "name": "Farm Ipmt Arch-rib- Quon",
+    "description": "Farm Implement Arch-rib Quon",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "559",
+    "name": "Stable- High-value",
+    "description": "Stable High-value",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "560",
+    "name": "Equestrian Lean-To",
+    "description": "Equestrian Lean-To",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "561",
+    "name": "Feeder Barn",
+    "description": "Feeder Barn",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "562",
+    "name": "Farm Comdty Stg Shed",
+    "description": "Farm Commodity Storage Shed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "563",
+    "name": "Bag Fertilizer Storage",
+    "description": "Bag Fertilizer Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "564",
+    "name": "Dehydrator Building",
+    "description": "Dehydrator Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "565",
+    "name": "Farm Utility Shelter",
+    "description": "Farm Utility Shelter",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "566",
+    "name": "Farm Sun Shade Shelter",
+    "description": "Farm Sun Shade Shelter",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "567",
+    "name": "Poultry House",
+    "description": "Poultry House - Cage 2 Sty.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "568",
+    "name": "Poultry House",
+    "description": "Poultry House-Cage 2 Sty.El",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "569",
+    "name": "Poultry House",
+    "description": "Poultry House - Cage 3 Sty.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "570",
+    "name": "Poultry House",
+    "description": "Poultry House-Cage 1 Sty El",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "571",
+    "name": "Passenger Terminal",
+    "description": "Passenger Terminal",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "573",
+    "name": "Arcade Building",
+    "description": "Arcade Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "574",
+    "name": "Visitor Center",
+    "description": "Visitor Center",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "575",
+    "name": "Dining Atrium",
+    "description": "Dining Atrium",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "576",
+    "name": "Atrium",
+    "description": "Atrium",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "577",
+    "name": "Parking Level",
+    "description": "Parking Level",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "578",
+    "name": "Mini-Bank",
+    "description": "Mini-Bank",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "580",
+    "name": "Truck Stop",
+    "description": "Truck Stop",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "581",
+    "name": "Post Office- Main",
+    "description": "Post Office Main",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "582",
+    "name": "Post Office- Branch",
+    "description": "Post Office Branch",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "583",
+    "name": "Mail Processing Facility",
+    "description": "Mail Processing Facility",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "584",
+    "name": "Mega Wrhs",
+    "description": "Mega Warehouse",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "585",
+    "name": "Mechanical Penthouse",
+    "description": "Mechanical Penthouse",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "586",
+    "name": "Roadside Market",
+    "description": "Roadside Market",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "587",
+    "name": "Shell- Multiple Res",
+    "description": "Shell Multiple Residence",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "588",
+    "name": "Extended Stay Motel",
+    "description": "Extended Stay Motel",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "589",
+    "name": "Elderly Assist. Multi. Res.",
+    "description": "Elderly Assist. Multi. Res.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "594",
+    "name": "Hotel- Full Service",
+    "description": "Hotel Full Service",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "595",
+    "name": "Hotel- Limited Service",
+    "description": "Hotel Limited Service",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "596",
+    "name": "Shell- Apartment",
+    "description": "Shell Apartment",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "597",
+    "name": "Mxd Retail w/Ofc Units",
+    "description": "Mixed Retail w/ Office Units",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "598",
+    "name": "Relocatable Classroom",
+    "description": "Relocatable Classroom",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "599",
+    "name": "Relocatable Office",
+    "description": "Relocatable Office",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "600",
+    "name": "Administrative Office",
+    "description": "Administrative Office",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "700",
+    "name": "Mall Anchor Dept Store",
+    "description": "Mall Anchor Department Store",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "710",
+    "name": "Retirement Complex",
+    "description": "Retirement Community Complex",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "718",
+    "name": "Banquet Hall",
+    "description": "Banquet Hall",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "719",
+    "name": "Modular Restaurant",
+    "description": "Modular Restaurant",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "720",
+    "name": "Mega Wrhs Disc Store",
+    "description": "Mega Warehouse Discount Store",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "774",
+    "name": "Shell- Twnhse- End Unit",
+    "description": "Shell Townhouse End Unit",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "775",
+    "name": "Shell- Twnhse Inside Unit",
+    "description": "Shell Townhouse Inside Unit",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "984",
+    "name": "Luxury Apartment",
+    "description": "Luxury Apartment",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "985",
+    "name": "Senior Center",
+    "description": "Senior Center",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "986",
+    "name": "Int. Sp- Twnhse- Insd Unit",
+    "description": "Int. Space Townhouse Inside Unit",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "987",
+    "name": "Int. Sp- Mult Resid.",
+    "description": "Int. Space Multiple Resid.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "988",
+    "name": "Int. Sp- Twnhse End Unit",
+    "description": "Int. Space Townhouse End Unit",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "989",
+    "name": "Int. Sp- Apt",
+    "description": "Int. Space Apartment",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "990",
+    "name": "Int. Sp- Neigh. Shop Ctr",
+    "description": "Int. Space Neigh. Shop Ctr",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "991",
+    "name": "Int. Sp- Commun. Shop Ctr",
+    "description": "Int. Space Commun. Shop Ctr",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "992",
+    "name": "Int. Sp- Region. Shop Ctr",
+    "description": "Int. Space Region. Shop Ctr",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "993",
+    "name": "Interior Sp- Office",
+    "description": "Interior Space Office",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "994",
+    "name": "Int. Sp- Industrial",
+    "description": "Int. Space Industrial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "755",
+    "name": "Malls-Open",
+    "description": "Malls-Open",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "756",
+    "name": "Malls-Covered",
+    "description": "Malls-Covered",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "757",
+    "name": "Malls-Enclosed",
+    "description": "Malls-Enclosed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "758",
+    "name": "Malls-Elevator",
+    "description": "Malls-Elevator",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "759",
+    "name": "Mezz",
+    "description": "Mezzanines",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "760",
+    "name": "Mezz-Display",
+    "description": "Mezzanines-Display",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "761",
+    "name": "Mezz-Office",
+    "description": "Mezzanines-Office",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "762",
+    "name": "Mezz-Open",
+    "description": "Mezzanines-Open",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "763",
+    "name": "Mezz-Storage",
+    "description": "Mezzanines-Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "765",
+    "name": "Mezz-Classroom",
+    "description": "Mezzanines-Classroom",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "766",
+    "name": "Loft Floor/Farm Storage",
+    "description": "Loft Floor/Farm Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "10005",
+    "name": "Ext Balcony- Concrete",
+    "description": "Exterior Balcony Concrete",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "10006",
+    "name": "Ext Balcony- Steel",
+    "description": "Exterior Balcony Steel",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "10007",
+    "name": "Ext Balcony- Wood",
+    "description": "Exterior Balcony Wood",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "10011",
+    "name": "Canopy- WF",
+    "description": "Canopy Wood Frame",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "10012",
+    "name": "Canopy- WF lgt",
+    "description": "Canopy Wood Frame Light False Mansard",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "10013",
+    "name": "Canopy- SF",
+    "description": "Canopy Steel Frame",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "10014",
+    "name": "Canopy- SF lgt",
+    "description": "Canopy Steel Frame Light False Mansard",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "12003",
+    "name": "Ind Carport",
+    "description": "Individual Carport Cover",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "12037",
+    "name": "MF Porch Open slab",
+    "description": "Multi Family Porch Open Slab",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "12038",
+    "name": "MF Porch Open slab w/stp",
+    "description": "Multi Family Porch Open With Steps",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "12039",
+    "name": "MF Porch Wood Deck",
+    "description": "Multi Family Porch Wood Deck",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "12040",
+    "name": "MF Porch Comp Deck",
+    "description": "Multi Family Porch Cement Composite Deck",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "12041",
+    "name": "MF Porch Screen only",
+    "description": "Multi Family Porch Screen Only",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "12042",
+    "name": "MF Porch Knee Wall",
+    "description": "Multi Family Porch Knee-Wall W/Glass",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "12043",
+    "name": "MF Porch Roof",
+    "description": "Multi Family Porch Roof",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "12044",
+    "name": "MF Porch Ceiling",
+    "description": "Multi Family Porch Ceiling",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "14002",
+    "name": "Loading Well",
+    "description": "Loading Well",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "14003",
+    "name": "Ldg Dock Roof-Gd",
+    "description": "Loading Dock Roof Good",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "14004",
+    "name": "Ldg Dock Roof-Smpl",
+    "description": "Loading Dock Roof Simple",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "14006",
+    "name": "Shipg Dock St or Conc",
+    "description": "Shipping Dock Structural Steel or Concrete",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "14007",
+    "name": "Shipg Dock Wood",
+    "description": "Shipping Dock Wood",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "14008",
+    "name": "Loadg Dock St or Conc",
+    "description": "Loading Dock Steel or Concrete Pier",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "14009",
+    "name": "Loadg Dock Timber",
+    "description": "Loading Dock Timber Piers",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "14010",
+    "name": "Loadg Dock Dirt Fill",
+    "description": "Loading Dock Dirt Fill",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "14011",
+    "name": "Loadg Dock Wood",
+    "description": "Loading Dock Light Wood Piers and Girders",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "14012",
+    "name": "Loadg Dock St Rails",
+    "description": "Loading Ramp Steel Railing For Forklift",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "11003",
+    "name": "Mausoleum- Crypt",
+    "description": "Mausoleum Crypt",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "11004",
+    "name": "Mausoleum- Niche",
+    "description": "Mausoleum Niche",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "11005",
+    "name": "Crematory Retort",
+    "description": "Crematory Retort",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "12005",
+    "name": "Multiple Car Garage",
+    "description": "Multiple Car Garage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "12007",
+    "name": "Multiple Car Carport",
+    "description": "Multiple Car Carport",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6603006",
+    "name": "Building Ticket Booth",
+    "description": "Building Ticket Booth",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6603009",
+    "name": "Surface Parking Lot",
+    "description": "Surface Parking Lot",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602048",
+    "name": "Deck Sftwd",
+    "description": "Deck Softwood",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602049",
+    "name": "Deck Sftwd Trtd",
+    "description": "Deck Softwood Treated",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602050",
+    "name": "Deck Comp Wd",
+    "description": "Deck Wood Polymer Composite",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602051",
+    "name": "Deck Redwd or Mtl",
+    "description": "Deck Cedar Redwood or Metal",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602052",
+    "name": "Deck Vinyl or Hrdwd",
+    "description": "Deck Vinyl or Tropical Hardwood",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602053",
+    "name": "Deck Rail Sftwd",
+    "description": "Deck Railing Softwood",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602054",
+    "name": "Deck Rail Sftwd Trtd",
+    "description": "Deck Railing Softwood Treated",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602055",
+    "name": "Deck Rail Comp Wd",
+    "description": "Deck Railing Wood Polymer Composite",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602056",
+    "name": "Deck Rail Redwd or Mtl",
+    "description": "Deck Railing Cedar Redwood or Metal",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602057",
+    "name": "Deck Rail Vinyl or Hrdwd",
+    "description": "Deck Railing Vinyl or Tropical Hardwood",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602063",
+    "name": "Patio Roof Awng Fb",
+    "description": "Patio Roof Awning (Fabric)",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602064",
+    "name": "Patio Roof Almn/Slt",
+    "description": "Patio Roof Aluminum/Steel Baked Enamel",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602065",
+    "name": "Patio Roof Fbrgls/Scrn",
+    "description": "Patio Roof Fiberglass or Screen Only",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602066",
+    "name": "Patio Roof Wood",
+    "description": "Patio Roof Wood Including Built Up Composition",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602067",
+    "name": "Patio Roof Open Lattice",
+    "description": "Patio Roof Open Lattice Metal Vinyl or Wood",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602068",
+    "name": "Patio Roof Arch clmn Open",
+    "description": "Patio Roof Arch. Columns Open Lattice or Trellis",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602069",
+    "name": "Picnic Shelter",
+    "description": "Picnic Shelter",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602072",
+    "name": "Patio Encl Gls Wndw",
+    "description": "Patio Enclosure Glassine Window",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602073",
+    "name": "Patio Encl Acrl Wndw",
+    "description": "Patio Enclosure Acrylic Window",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602074",
+    "name": "Patio Encl Scrn Fbrgls",
+    "description": "Patio Enclosure Screened Only Fiberglass",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602075",
+    "name": "Patio Encl Scrn Alum/Stl",
+    "description": "Patio Enclosure Screened Only Steel or Aluminum",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602076",
+    "name": "Patio Encl Scrn Bronze",
+    "description": "Patio Enclosure Screened Only Bronze",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602078",
+    "name": "Gazebo- Std",
+    "description": "Gazebo Standard",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602079",
+    "name": "Gazebo- Dlx",
+    "description": "Gazebo Deluxe",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602084",
+    "name": "Pavilion",
+    "description": "Pavilion Cast Stone",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602088",
+    "name": "Cstm Deck Sftwd",
+    "description": "Custom Deck Softwood",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602089",
+    "name": "Cstm Deck Sftwd Trtd",
+    "description": "Custom Deck Softwood Treated",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602090",
+    "name": "Cstm Deck Comp Wd",
+    "description": "Custom Deck Wood Polymer Composite",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602091",
+    "name": "Cstm Deck Redwd or Mtl",
+    "description": "Custom Deck Cedar Redwood or Metal",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602092",
+    "name": "Cstm Deck Vinyl or Hrdwd",
+    "description": "Custom Deck Vinyl or Tropical Hardwood",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602001",
+    "name": "Asphalt",
+    "description": "Asphalt",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6602005",
+    "name": "Concrete",
+    "description": "Concrete Unreinforced",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6607005",
+    "name": "Pool Prd Conc",
+    "description": "Commercial Pool Poured Concrete",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6607006",
+    "name": "Pool Prd Conc Wntr Zone",
+    "description": "Commercial Pool Concrete In Winter Freeze Zone",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6607007",
+    "name": "Pool Gunite",
+    "description": "Commercial Pool Gunite",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6607009",
+    "name": "Pool Stl w/Conc Flr",
+    "description": "Stainless Steel Pool Concrete Floor",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6607010",
+    "name": "Pool Stl In Grnd",
+    "description": "Stainless Steel Pool In Ground",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6607011",
+    "name": "Pool Stl Elevated",
+    "description": "Stainless Steel Pool Elevated",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6607014",
+    "name": "Pool Motel Res Type",
+    "description": "Motel Pool Residential Type Construction",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6607016",
+    "name": "Pool Lg Muncpl w/BH",
+    "description": "Large Municipal Pool With Bath House",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6607057",
+    "name": "Pool Gunite Wntr Zone",
+    "description": "Commercial Gunite Pool Winter Freeze Zone",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707044",
+    "name": "Rec Encl min swim only",
+    "description": "Rec. Enclosure Min. Swimming Encl. Only",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707045",
+    "name": "Rec Encl min swim Lt Frm",
+    "description": "Rec. Enclosure Min. Swim Screen Encl. Lt. Frame",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707049",
+    "name": "Rec Encl Low Swim",
+    "description": "Recreational Enclosure Low Swimming",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707052",
+    "name": "Rec Encl Avg Swim",
+    "description": "Recreational Enclosure Average Swimming",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707055",
+    "name": "Rec Encl Gd Swim",
+    "description": "Rec. Enclosure Good Complete Swimming Facility",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6406127",
+    "name": "Solar Rm",
+    "description": "Solar Room",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6406128",
+    "name": "Solar Rm Cstm",
+    "description": "Solar Room Custom Design",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6406138",
+    "name": "Solar Rm Strt Eave",
+    "description": "Solar Room Straight Eave",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6406139",
+    "name": "Solar Rm Cstn Strt Eave",
+    "description": "Solar Room Custom Design Straight Eave",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6406140",
+    "name": "Solar Rm Cstn Strt Eave",
+    "description": "Solar Room Corner Hips and Valleys",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6406141",
+    "name": "Solar Rm Ltgs in Frm",
+    "description": "Solar Room Decorative Lights Incorp. Into Frame",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6406142",
+    "name": "Solar Rm Blt in Shade",
+    "description": "Solar Room Built In Shade",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6406143",
+    "name": "Solar Rm Motorized",
+    "description": "Solar Room Motorized Operation",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407001",
+    "name": "Qunset Gal Slt",
+    "description": "Quonset Building Galvanized Steel",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407002",
+    "name": "Qunset Pre-Eng Stl",
+    "description": "Pre-Engineered Steel Building Galvanized",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407003",
+    "name": "Qunset Sndwch Pnl",
+    "description": "Quonset Building Sandwich Panel",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407004",
+    "name": "Qunset Alum",
+    "description": "Quonset Building Aluminum Skin",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407005",
+    "name": "Qunset Enml Stl",
+    "description": "Quonset Building Enameled Steel",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407007",
+    "name": "Qunset Wd Pole",
+    "description": "Quonset Building Wood-Pole Framed Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407008",
+    "name": "Qunset Comp Plstc",
+    "description": "Quonset Building Constructed of Composite Plastic",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407009",
+    "name": "Qunset Grn Sndwch P",
+    "description": "Quonset Building For Grain Storage Sandwich Panel",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407010",
+    "name": "Qunset Grn Alum",
+    "description": "Quonset Building For Grain Storage Aluminum Skin",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407011",
+    "name": "Qunset Grn Enml Stl",
+    "description": "Quonset Building For Grain Storage Enameled Steel",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407013",
+    "name": "Qunset Grn Wd Pole",
+    "description": "Quonset Building Grain Storage Wood-Pole Framed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407014",
+    "name": "Qunset Grn Comp Plstc",
+    "description": "Quonset Building Grain Storage Composite Plastic",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407101",
+    "name": "Qunset Grn modified for",
+    "description": "Quonset Building Modified for Grain Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407102",
+    "name": "Pre-E Stl Sndwch Pnl",
+    "description": "Pre-Engineered Steel Building Sandwich Panel",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407103",
+    "name": "Pre-E Stl Alum",
+    "description": "Pre-Engineered Steel Building Aluminum Skin",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407104",
+    "name": "Pre-E Stl Enml Stl",
+    "description": "Pre-Engineered Steel Building Enameled Steel",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407105",
+    "name": "Pre-E Stl Slnt Wall",
+    "description": "Pre-Engineered Steel Building Slant-Wall Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407106",
+    "name": "Pre-E Stl Wd Pole",
+    "description": "Pre-Engineered Steel Building Wood-Pole Framed",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407107",
+    "name": "Pre-E Stl Comp Plstc",
+    "description": "Pre-Engineered Steel Building Composite Plastic",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407201",
+    "name": "Pre-E Stl Gal Slt",
+    "description": "Pre-Eng'g. Steel Bldg. Galvanized Rural",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407202",
+    "name": "Pre-E Stl Sndwch Pnl R",
+    "description": "Pre-Eng'g. Steel Bldg. Sandwich Panel Rural",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407203",
+    "name": "Pre-E Stl Alum R",
+    "description": "Pre-Eng'g. Steel Bldg. Aluminum Skin Rural",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407204",
+    "name": "Pre-E Stl Enml Stl R",
+    "description": "Pre-Eng'g. Steel Bldg. Enameled Steel Rural",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407205",
+    "name": "Pre-E Stl Slnt Wall R",
+    "description": "Pre-Eng'g. Steel Bldg. Slant-Wall Building Rural",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407206",
+    "name": "Pre-E Stl Wd Pole R",
+    "description": "Pre-Eng'g. Steel Bldg. Wood-Pole Framed Rural",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407207",
+    "name": "Pre-E Stl Comp Plstc R",
+    "description": "Pre-Eng'g. Steel Bldg. Composite Plastic Rural",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407211",
+    "name": "Pre-E Stl Gal Slt C",
+    "description": "Pre-Eng'g. Steel Bldg. Galvanized Commercial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407212",
+    "name": "Pre-E Stl Sndwch Pnl C",
+    "description": "Pre-Eng'g Steel Bldg Sandwich Panel Commercial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407213",
+    "name": "Pre-E Stl Alum C",
+    "description": "Pre-Eng'g Steel Bldg Aluminum Skin Commercial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407214",
+    "name": "Pre-E Stl Enml Stl C",
+    "description": "Pre-Eng'g Steel Bldg Enameled Steel Commercial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407215",
+    "name": "Pre-E Stl Slnt Wall C",
+    "description": "Pre-Eng'g Steel Bldg Slant-Wall Commercial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407216",
+    "name": "Pre-E Stl Wd Pole C",
+    "description": "Pre-Eng'g Steel Bldg Wood-Pole Frame Commercial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407217",
+    "name": "Pre-E Stl Comp Plstc C",
+    "description": "Pre-Eng'g Steel Bldg Composite Plastic Commercial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407221",
+    "name": "Pre-E Stl Gal Slt GS",
+    "description": "Pre-Eng'g Steel Bldg Galvanized Mod. Grain Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407222",
+    "name": "Pre-E Stl Sndwch Pnl GS",
+    "description": "Pre-Engg Stl Bldg Sandwich Panel Mod Grain Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407223",
+    "name": "Pre-E Stl Alum GS",
+    "description": "Pre-Engg Steel Bldg Alumn Skin Mod Grain Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407224",
+    "name": "Pre-E Stl Enml Stl GS",
+    "description": "Pre-Engg Stl Bldg Enameled Mod. Grain Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407225",
+    "name": "Pre-E Stl Slnt Wall GS",
+    "description": "Pre-Engg Steel Bldg Slant-Wall Mod. Grain Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407226",
+    "name": "Pre-E Stl Wd Pole GS",
+    "description": "Pre-Engg Steel Bldg Wd-Pole Fr Mod. Grain Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407227",
+    "name": "Pre-E Stl Comp Plstc GS",
+    "description": "Pre-Engg Steel Bldg Comp Plastic Mod Grain Storage",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407231",
+    "name": "Pre-E Stl Gal Slt Am",
+    "description": "Pre-Eng'g. Steel Bldg. Galvanized Amateur Labor",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407232",
+    "name": "Pre-E Stl Sndwch Pnl Am",
+    "description": "Pre-Eng'g. Steel Bldg Sandwich Panel Amateur Labor",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407233",
+    "name": "Pre-E Stl Alum Am",
+    "description": "Pre-Eng'g. Steel Bldg Alumm Skin Amateur Labor",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407234",
+    "name": "Pre-E Stl Enml Stl Am",
+    "description": "Pre-Eng'g. Stl Bldg. Enameled Amateur Labor",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407235",
+    "name": "Pre-E Stl Slnt Wall Am",
+    "description": "Pre-Eng'g. Steel Bldg. Slant-Wall Amateur Labor",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407236",
+    "name": "Pre-E Stl Wd Pole Am",
+    "description": "Pre-Eng'g. Steel Bldg. Wd-Pole Frame Amateur Labor",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407237",
+    "name": "Pre-E Stl Comp Plstc Am",
+    "description": "Pre-Eng'g Stl Bldg Composite Plastic Amateur Labor",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407301",
+    "name": "Qunset Gal Slt R",
+    "description": "Quonset Building Galvanized Steel Rural",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407309",
+    "name": "Qunset Sndwch Pnl R",
+    "description": "Quonset Building Sandwich Panels Rural",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407310",
+    "name": "Qunset Alum R",
+    "description": "Quonset Building Aluminum Skin Rural",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407311",
+    "name": "Qunset Enml Stl R",
+    "description": "Quonset Building Enameled Steel Rural",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407313",
+    "name": "Qunset Wd Pole R",
+    "description": "Quonset Building Wood-Pole Framed Buildings Rural",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407314",
+    "name": "Qunset Comp Plstc R ",
+    "description": "Quonset Bldg Composite Plastics Construction Rural",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407401",
+    "name": "Qunset Gal Slt C",
+    "description": "Quonset Building Galvanized Steel Commercial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407409",
+    "name": "Qunset Sndwch Pnl C",
+    "description": "Quonset Building Sandwich Panels Commercial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407410",
+    "name": "Qunset Alum C",
+    "description": "Quonset Building Aluminum Skin Commercial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407411",
+    "name": "Qunset Enml Stl C",
+    "description": "Quonset Building Enameled Steel Commercial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407413",
+    "name": "Qunset Wd Pole C",
+    "description": "Quonset Building Wood-Pole Framed Commercial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6407414",
+    "name": "Qunset Comp Plstc C",
+    "description": "Quonset Bldg Composite Plastic Construction Comm.",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6408007",
+    "name": "Office Low Cst",
+    "description": "Office Structure Low Cost",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6408008",
+    "name": "Office Avg Cst",
+    "description": "Office Structure Average Cost",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6408009",
+    "name": "Office Hgh Cst",
+    "description": "Office Structure High Cost",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6408014",
+    "name": "Prefab Mezz",
+    "description": "Prefabricated Mezzanine",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6409001",
+    "name": "Encld ATM With Lobby",
+    "description": "Enclosed ATM With Lobby",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6409003",
+    "name": "Drv-Up/Wlk-Up ATM Strtr",
+    "description": "Drive-Up/Walk-Up ATM Structure",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6409008",
+    "name": "Guard House",
+    "description": "Guard House",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6409009",
+    "name": "Toll Booth",
+    "description": "Toll Booth",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6409011",
+    "name": "Small Bulk Oil Plant",
+    "description": "Small Bulk Oil Plant",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6409020",
+    "name": "Spill Containment System",
+    "description": "Spill Containment System",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6409024",
+    "name": "Precast Concrete Building",
+    "description": "Precast Concrete Building",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6409025",
+    "name": "All-Metal Storage Structure",
+    "description": "All-Metal Storage Structure",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6409102",
+    "name": "Guard House- All Steel",
+    "description": "Guard House All Steel",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6409103",
+    "name": "Toll Booth- All Steel",
+    "description": "Toll Booth All Steel",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "11001",
+    "name": "Sprt Crt Roof",
+    "description": "Load Bearing Sports Court Roof",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707001",
+    "name": "Tens Crt-Conc",
+    "description": "Tennis Court Concrete w/Posts Net Striping",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707006",
+    "name": "Tens Crt-Aspt",
+    "description": "Tennis Court Asphalt w/Posts Net Striping",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707007",
+    "name": "Tens Crt-Clay",
+    "description": "Tennis Court Clay w/Posts Net Striping",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707024",
+    "name": "Play Court- Conc",
+    "description": "Backyard Play Court Concrete",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707027",
+    "name": "Shflbrd Crt",
+    "description": "Shuffleboard Court Concrete Commercial",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707041",
+    "name": "Rec Encl Glf Tri Dome",
+    "description": "Rec. Enclosure Minimum Golf Triangular Dome",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707042",
+    "name": "Rec Encl Tens Min",
+    "description": "Recreational Enclosure Minimum Tennis",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707043",
+    "name": "Rec Encl Tens Strsd Memb",
+    "description": "Rec. Enclosure Min. Tennis Stressed Membrane",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707046",
+    "name": "Rec Encl Tens Low",
+    "description": "Recreational Enclosure Low Tennis",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707047",
+    "name": "Rec Encl HndBl Low",
+    "description": "Recreational Enclosure Low Handball/Racquetball",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707048",
+    "name": "Rec Encl HndBl Msry",
+    "description": "Rec. Encl Low Hand/Racquetball Ext Masonry Court",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707050",
+    "name": "Rec Encl Tens Avg",
+    "description": "Recreational Enclosure Average Complete Tennis",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707051",
+    "name": "Rec Encl HndBl Avg",
+    "description": "Rec. Enclosure Avg. Handball Racquetball",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707053",
+    "name": "Rec Encl Tens Gd",
+    "description": "Recreational Enclosure Good Complete Tennis",
+    "multiplier": "1",
+    "positive": "true"
+  },
+  {
+    "code": "6707054",
+    "name": "Rec Encl HndBl Gd",
+    "description": "Rec. Enclosure Good Handball/Racquetball",
+    "multiplier": "1",
+    "positive": "true"
+  }
+]

@@ -361,3 +361,15 @@ def test_unverified_code_does_not_become_category_default(store):
     doc['components'][0].update(area_code='350',area_description='Main',verified=False)
     store.save_sketch('R1',doc,0,'actor')
     assert sketch.area_defaults(store,record)=={}
+
+
+def test_office_area_table_and_safe_model_defaults():
+    from app.commercial.orion_codes import catalog,defaults
+    entries=catalog();assert len(entries)==536 and len({e['code'] for e in entries})==536
+    assert next(e for e in entries if e['code']=='10013')['description']=='Canopy Steel Frame'
+    assert defaults({'model':'apartments','values':{}})['main']['area_code']=='300'
+    assert defaults({'model':'retail','values':{'category':'Fast Food Restaurant'}})['main']['area_code']=='349'
+    assert defaults({'model':'cost','values':{'classification':'350'}})['main']['area_description']=='Restaurant'
+    assert defaults({'model':'hotels','values':{}})=={}
+    assert defaults({'model':'retail','values':{'category':'Unknown'}})=={}
+    assert 'canopy' not in defaults({'model':'office','values':{}})
