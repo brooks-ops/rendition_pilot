@@ -1,6 +1,7 @@
 """Expose planned coverage separately from verified source collection."""
 from . import service
 from .schedule import schedule
+from .connector import public_enabled
 
 
 def for_source(source, *, now=None):
@@ -20,18 +21,25 @@ def for_source(source, *, now=None):
                     and run.get('records_retrieved') is not None)
     current_run=next((r for r in runs if r['scheduled_for']==plan['pending_window']['scheduled_for']),None)
     current_complete=fulfilled(current_run,plan['pending_window'])
+    enabled=public_enabled(source)
     if current_complete:
         method=(current_run['source_import'].get('metadata') or {}).get('collection_method')
-        method_label='Browser-assisted backfill' if method=='bounded_browser_assisted' else 'Source import'
+        method_label='Browser-assisted backfill' if method=='bounded_browser_assisted' else ('Automatic quarterly pull' if method=='public_guest_html' else 'Source import')
         message=(f"{method_label} complete: {plan['pending_window']['start']} through {plan['pending_window']['end']} · "
                  f"{current_run['records_retrieved']:,} filings matched against BPP accounts. "
-                 'Quarterly unattended collection remains disabled.')
+                 + ('Quarterly automatic pulls are enabled. Next run: '+plan['next_run']['scheduled_for']+'.' if enabled else 'Quarterly unattended collection remains disabled.'))
+    elif enabled:
+        message=('Quarterly automatic DBA pulls are enabled: January 1, April 1, July 1 and October 1. '
+                 'October 1 covers January–September for November/December work. '
+                 'Current collection: '+str((current_run or {}).get('status','PENDING'))+'.')
+    elif (current_run or {}).get('status')=='FAILED':
+        message='Quarterly DBA collection stopped: '+str(current_run.get('message') or 'See collection history.')+' Existing filings and reviews are preserved.'
     else:
         message=('Quarterly DBA plan: January 1, April 1, July 1 and October 1. '
                  'October 1 covers January 1–September 30 for November/December work. '
                  'Automatic collection is blocked pending an approved source connection; '
                  'the full year-to-date filings have not been collected.')
-    return {'configured': True, **plan, 'status': 'BACKFILLED' if current_complete else 'BLOCKED', 'automation_enabled': False,
+    return {'configured': True, **plan, 'status': ('CURRENT' if current_complete else (current_run or {}).get('status','PENDING')) if enabled else ('BACKFILLED' if current_complete else ('FAILED' if (current_run or {}).get('status')=='FAILED' else 'BLOCKED')), 'automation_enabled': enabled,
             'last_successful_sync': source.get('last_successful_retrieval_at'),
             'last_run': runs[0] if runs else None, 'runs': runs,
             'october_collection_complete': fulfilled(october_run,october), 'message': message}

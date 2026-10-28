@@ -54,25 +54,60 @@ retrieval. Unattempted retrieval counts and completion timestamps remain NULL.
 The BPP collection-status endpoint separates the schedule, pending window,
 October coverage readiness, last successful source retrieval and plan history.
 
-**Actual unattended quarterly collection remains blocked.** Published EagleWeb
-notices reviewed on October 28 do not settle permission for automation. No
-approved retrieval method or complete unattended collection has been verified.
-A complete browser-assisted backfill can fulfill October coverage without
-activating unattended collection. Its linked import must show complete
-January–September coverage and reconciled counts. The original 28 prototype
-filings cover October 19–28 and cannot fulfill the October run by themselves.
-See `eagleweb-terms-review-2026-10-28.md` for the exact findings and limitations.
+## Automatic public guest collection
 
-A future collector must implement approved access, complete pagination, full
-filing details, durable run claims/retries, original-source archival and
-reconciliation before any run can become COMPLETED. It must feed the existing
-atomic import and matching path and preserve human decisions. Do not enable
-collection merely by changing a flag or call planning a successful pull.
-No Clerk/provider message is sent by this feature.
+The owner explicitly requested automatic quarterly pulls on October 28, 2026.
+The implemented route uses the public guest disclaimer and HTML search forms;
+it is not an official API, county-approved integration or data-sharing agreement.
+The published notice was reviewed and no automated-access prohibition was found.
+No county or provider contact was made. The earlier application-wide hard block
+is replaced by an explicit operator opt-in for the validated Lubbock route only.
+Other counties remain disabled until their own route is validated.
 
-Apply `20261028_county_clerk_quarterly_plans.sql` before deploying the planner.
-Use `python -m app.county_clerk.quarterly` to plan the latest due run. This command
-performs application database operations only; it does not contact EagleWeb.
+Apply `20261028_county_clerk_public_collection.sql` before deployment. It keeps
+RLS/service-only access and permits enabling only the exact configured Lubbock
+source with an operator authorization timestamp and basis. `automation_authorized`
+records that operator decision, not a representation of county endorsement.
+
+The existing daily Render `run-intelligence` command now executes due quarterly
+collections, rather than only creating plans. It catches a missed scheduled day,
+claims one source/quarter with a renewable exclusive lease, and does nothing once
+that quarter is complete. A dead worker can be reclaimed after two hours. Transient
+failures retry at least 24 hours apart, at most three attempts. Access restrictions,
+CAPTCHAs, robots disallow rules, changed notices or source-format failures stop the
+run and disable the collector for review. No controls are bypassed. The daily cron
+must remain enabled; no appraiser computer or open browser is needed.
+
+Requests identify Rendition Pilot, use normal verified HTTPS and guest sessions,
+follow only same-origin observed links, and wait at least two seconds between
+requests (or the published robots crawl delay, if greater). All result pages must
+reconcile to the same count, contiguous ranges and unique document identities.
+Every result page is checked again before import. No partial result set is
+published. The verified format supports up to 3,000 filings per YTD window; exceeding
+that bound produces a visible failure and requires a collector update.
+
+Each quarterly run rechecks the entire YTD index. Full certificate details already
+archived with an identical current document identity, URL and normalized summary
+are reused with their original capture timestamp. New or changed summaries fetch
+and validate full details. This is certificate-detail caching, not reuse of saved
+account matches. Existing imported filings preserve all appraiser decisions;
+new filings use the current district BPP account export and existing matcher.
+Changed details are retained as new source observations; the original filing and
+appraiser decisions are not overwritten. An address-only change that does not
+change the public summary is not detected by the detail cache.
+
+A completed run requires a linked complete unattended import for the exact date
+window, reconciled imported/duplicate counts and matching district/source IDs.
+Only that finalization records a successful source-retrieval timestamp. Manual
+backfills remain distinct in history. The BPP status banner shows actual coverage,
+last success, next run and collection failures. The PDF importer remains a fallback.
+
+Validation: Python tests cover source restrictions, notice changes, pagination,
+cached-detail eligibility, quarterly boundaries, the collection pipeline and CAD
+queue sorting. `tests/sql/county_clerk_public_collection.sql` uses disposable,
+rolled-back fixtures for exclusive claims, stale leases, evidence validation,
+retry cooldowns and service-only permissions. Live verification results are saved
+outside Git in the task's outputs directory; do not infer live success from tests.
 
 To load the captured prototype, create private storage bucket
 `county-clerk-records` (JSON only, 25 MB), then run:

@@ -1,4 +1,4 @@
-"""Provider contract. Manual PDF import is enabled; unattended retrieval is not."""
+"""County-specific source contract and operator opt-in."""
 from datetime import date,timedelta
 from urllib.parse import urlparse
 
@@ -16,6 +16,18 @@ class EagleWebConnector:
     def record_reference(self,url):
         source=urlparse(self.source['source_url']);target=urlparse(url or '')
         return url if target.scheme=='https' and target.hostname==source.hostname and target.path.endswith('/viewDoc.jsp') else None
-    def retrieve_window(self,start,end):
-        # Public manual viewing is not authorization for unattended collection.
-        raise RetrievalNotAuthorized('Unattended EagleWeb retrieval is disabled. An approved access method, authorization and integration tests are required first. The quarterly year-to-date pull is blocked; existing imported filings remain available in BPP Intelligence.')
+    def retrieve_window(self,start,end,directory=None,*,heartbeat=None):
+        from .public_client import PublicClient
+        if not public_enabled(self.source):
+            raise RetrievalNotAuthorized('Public collection is not enabled for this county.')
+        if directory is None:raise ValueError('A private capture directory is required')
+        from .detail_cache import load
+        return PublicClient(heartbeat=heartbeat).collect(start,end,directory,cached=load(self.source,start,end))
+
+
+def public_enabled(source):
+    return bool(source.get('automation_enabled') and source.get('automation_authorized')
+                and source.get('operator_authorized_at') and source.get('operator_authorization_basis')
+                and source.get('retrieval_method')=='public_guest_html'
+                and source.get('county')=='LUBBOCK' and source.get('state')=='TX'
+                and source.get('source_url')=='https://erecord.lubbockcounty.gov/recorder/web/splash.jsp')

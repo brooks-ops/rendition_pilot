@@ -48,3 +48,15 @@ not resolve that condition. Keep the connector's hard gate and current quarterly
 BLOCKED status. Existing captured filings, BPP queue and CAD matching are unchanged.
 Do not describe the missing policy as an explicit ban or claim a working weekly
 collector exists. The quarterly task currently creates blocked collection plans only.
+
+
+## Later operator decision and implemented public route
+
+After the complete January–September backfill, the owner explicitly requested
+working automatic quarterly pulls. Development now implements the normal public
+guest HTML route with low request rates, robots checks, a pinned nonbinding
+notice, strict same-origin navigation and immediate stops on restrictions.
+This supersedes the earlier application-only blanket block for the explicitly
+configured Lubbock source. It does not establish county endorsement or convert
+the absence of a published prohibition into an explicit county permission.
+See `county-clerk-quarterly.md` for the implemented controls and test evidence.

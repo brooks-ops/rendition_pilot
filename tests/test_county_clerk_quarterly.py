@@ -103,3 +103,33 @@ def test_verified_manual_backfill_fulfills_october_without_claiming_automation(m
     assert '1,160' in r['message'] and 'Browser-assisted' in r['message']
     run['source_import']['coverage']='INCOMPLETE'
     assert not collection_status.for_source(SOURCE,now=date(2026,10,28))['october_collection_complete']
+
+def test_enabled_collector_runs_once_and_finishes_with_import_evidence(monkeypatch):
+    active={**SOURCE,'state':'TX','automation_authorized':True,'automation_enabled':True,'operator_authorized_at':'2026-10-28','operator_authorization_basis':'Owner requested quarterly public collection','retrieval_method':'public_guest_html','source_url':'https://erecord.lubbockcounty.gov/recorder/web/splash.jsp'}
+    run={'id':'r','district_id':'d','jurisdiction_id':'j','status':'BLOCKED','window_start':'2026-01-01','window_end':'2026-09-30'}
+    calls=[];collected=[]
+    def request(method,table,**kw):
+        calls.append((table,kw))
+        if table=='county_clerk_sources':return [active]
+        if table=='rpc/dba_plan_quarterly_run':return run
+        if table=='rpc/dba_claim_collection':return {'claimed':True,'run':{**run,'lease_token':'lease'}}
+        if table=='rpc/dba_collection_heartbeat':return True
+        if table=='rpc/dba_finish_collection':
+            assert kw['payload']['p_import_id']=='import' and kw['payload']['p_token']=='lease'
+            return {**run,'status':'COMPLETED','records_retrieved':12}
+        pytest.fail(table)
+    monkeypatch.setattr(quarterly,'request',request)
+    monkeypatch.setattr(quarterly.EagleWebConnector,'retrieve_window',lambda self,start,end,directory,heartbeat:collected.append((start,end)))
+    monkeypatch.setattr(quarterly,'ingest',lambda path,district,start,end,**kw:{'import_id':'import'} if kw=={'commit':True,'collection_method':'public_guest_html'} else pytest.fail('Wrong import path'))
+    assert quarterly.check_quarterly(J,now=date(2026,10,28))['status']=='COMPLETED'
+    assert collected==[('2026-01-01','2026-09-30')]
+
+
+def test_enabled_status_keeps_manual_coverage_honest(monkeypatch):
+    from app.county_clerk.connector import public_enabled
+    source={**SOURCE,'state':'TX','automation_enabled':True,'automation_authorized':True,'operator_authorized_at':'now','operator_authorization_basis':'Owner request','retrieval_method':'public_guest_html','source_url':'https://erecord.lubbockcounty.gov/recorder/web/splash.jsp'}
+    monkeypatch.setattr(service,'request',lambda *a,**kw:[])
+    out=collection_status.for_source(source,now=date(2026,10,28))
+    assert out['automation_enabled'] and not out['october_collection_complete']
+    assert out['last_successful_sync'] is None and out['status']=='PENDING'
+    assert not public_enabled({**source,'county':'DALLAM'})

@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from . import service
 from .schedule import schedule
 from .collection_status import for_source
+from .connector import public_enabled
 
 ACTIVATION_REQUIREMENTS=[
     'County or licensed provider approves unattended retrieval and Rendition Pilot use.',
@@ -27,6 +28,7 @@ def dashboard(district_id):
     try:history=service.history(district_id)
     except service.ImportError as exc:return {'configured':False,'message':str(exc),'automation_enabled':False,'manual_sync_available':False}
     source=history['source']
+    enabled=public_enabled(source)
     plan=schedule()
     collection=for_source(source)
     specs={
@@ -41,16 +43,16 @@ def dashboard(district_id):
     with ThreadPoolExecutor(max_workers=3) as pool:metrics=dict(zip(specs,pool.map(count,specs.values())))
     return {
         'configured':True,'county':source['county'],'state':source['state'],
-        'connection_status':'AWAITING_APPROVED_CONNECTION',**plan,
-        'automation_enabled':False,'manual_sync_available':False,
+        'connection_status':'PUBLIC_GUEST_HTML' if enabled else 'AWAITING_APPROVED_CONNECTION',**plan,
+        'automation_enabled':enabled,'manual_sync_available':False,
         'last_successful_sync':source.get('last_successful_retrieval_at'),
         'last_successful_fallback_import':source.get('last_successful_import_at'),
         'metrics_scope':'All imported county filings, including PDF fallback imports. These are not quarterly automated-sync counts.',
         'metrics':metrics,
         'sync_message':collection['message'],'coverage_status':collection['status'],'october_collection_complete':collection['october_collection_complete'],
-        'activation_requirements':ACTIVATION_REQUIREMENTS,
-        'sync_errors':[],
-        'sync_error_note':'No direct collection runs have occurred; no successful unattended run has been demonstrated.',
+        'activation_requirements':[] if enabled else ACTIVATION_REQUIREMENTS,
+        'sync_errors':[{k:r.get(k) for k in ('id','scheduled_for','status','message','completed_at')} for r in collection.get('runs',[]) if r['status'] in ('FAILED','PARTIAL')],
+        'sync_error_note':'Quarterly collection failures are reported above; existing imported reviews are preserved.' if enabled else 'No direct collection runs have occurred; no successful unattended run has been demonstrated.',
         'fallback_import_issues':[{k:r.get(k) for k in ('id','filename','status','created_at','error_message')} for r in history['imports'] if r['status'] in ('FAILED','PROCESSING','PARTIAL')],
         'next_window':plan['pending_window'],
     }

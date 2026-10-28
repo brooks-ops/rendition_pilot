@@ -1,9 +1,10 @@
-"""Plan quarterly YTD collections using the existing daily server job.
-
-No source-network client is enabled. A durable BLOCKED plan keeps missing
-coverage visible and catches a missed scheduled day on the next daily run.
-"""
-import json
+"""Run due quarterly YTD collections from the existing daily server job."""
+import json,time
+from tempfile import TemporaryDirectory
+from pathlib import Path
+from .connector import EagleWebConnector,public_enabled
+from .import_captured import ingest
+from .public_client import SourceUnavailable
 from .schedule import schedule
 from .service import request
 
@@ -29,7 +30,28 @@ def check_quarterly(jurisdiction, *, dry_run=False, now=None):
         raise ValueError('Collection plan belongs to another district')
     result.update(status=run['status'], run_id=run['id'],
                   records_retrieved=run.get('records_retrieved'), message=run.get('message'))
-    # No supported, authorized collector has been confirmed. Planning cannot enable it.
+    if public_enabled(source):
+        claim=request('POST','rpc/dba_claim_collection',payload={'p_run_id':run['id']})
+        if claim.get('claimed'):
+            lease=claim['run'];last_heartbeat=0.
+            def heartbeat():
+                nonlocal last_heartbeat
+                if time.monotonic()-last_heartbeat<60:return
+                ok=request('POST','rpc/dba_collection_heartbeat',payload={'p_run_id':run['id'],'p_token':lease['lease_token']})
+                if not ok:raise RuntimeError('Collection lease lost')
+                last_heartbeat=time.monotonic()
+            try:
+                with TemporaryDirectory(prefix='rendition-dba-') as directory:
+                    EagleWebConnector(source).retrieve_window(run['window_start'],run['window_end'],Path(directory),heartbeat=heartbeat)
+                    heartbeat()
+                    imported=ingest(Path(directory),source['district_id'],run['window_start'],run['window_end'],commit=True,collection_method='public_guest_html')
+                run=request('POST','rpc/dba_finish_collection',payload={'p_run_id':run['id'],'p_token':lease['lease_token'],'p_import_id':imported.get('import_id') or imported['id']})
+            except Exception as exc:
+                # Never store credentials or source response bodies in run errors.
+                error=('STOP: '+str(exc)) if isinstance(exc,SourceUnavailable) else ('Collection failed: '+type(exc).__name__+'. Retried at most three times, at least 24 hours apart.')
+                run=request('POST','rpc/dba_finish_collection',payload={'p_run_id':run['id'],'p_token':lease['lease_token'],'p_error':error})
+                print('[county-clerk-quarterly] collection error: '+type(exc).__name__,flush=True)
+            result.update(status=run['status'],records_retrieved=run.get('records_retrieved'),message=run.get('message'))
     print('[county-clerk-quarterly] ' + json.dumps(result), flush=True)
     return result
 
@@ -44,7 +66,8 @@ def main():
             jurisdiction = get_jurisdiction_by_district_id(source['district_id'])
             if not jurisdiction or jurisdiction.id != source['jurisdiction_id']:
                 raise ValueError('District/source mismatch')
-            check_quarterly(jurisdiction)
+            outcome=check_quarterly(jurisdiction)
+            if outcome["status"]=="FAILED":errors+=1
         except Exception as exc:
             errors += 1
             print('[county-clerk-quarterly] ' + json.dumps({
