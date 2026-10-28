@@ -96,7 +96,7 @@ def _row_to_jurisdiction(row: dict[str, Any]) -> Jurisdiction:
         property_field_mapping=row.get("property_field_mapping") or {},
         appraiser_assignment_rules=row.get("appraiser_assignment_rules") or {},
         current_tax_year=row.get("current_tax_year"),
-        account_type_prefixes=row.get("account_type_prefixes") or {"personal": "P", "real": "R"},
+        account_type_prefixes=row["account_type_prefixes"] if isinstance(row.get("account_type_prefixes"), dict) else {"personal": "P", "real": "R"},
     )
 
 
