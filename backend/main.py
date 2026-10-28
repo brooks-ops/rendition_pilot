@@ -1418,8 +1418,8 @@ def info() -> dict[str, str]:
 
 from app.super_admin import router as super_admin_router
 app.include_router(super_admin_router(get_supabase_user))
-from app.county_clerk.api import router as county_clerk_router
-app.include_router(county_clerk_router(require_bpp_access))
+# County Clerk DBA feature withdrawn for now. Preserve source modules and data;
+# its routes are deliberately not mounted.
 
 
 @app.get('/super-admin')
@@ -2207,7 +2207,7 @@ def intelligence_queue(request: IntelligenceQueueRequest) -> dict[str, Any]:
 
 def _require_own_district_item(district, source_table: str, item_id: str) -> comptroller_intelligence.UnifiedIntelligenceItem:
     item = comptroller_intelligence.get_intelligence_item(source_table, item_id)
-    if not item:
+    if not item or item.signal_type == "county_clerk_dba":
         raise HTTPException(status_code=404, detail="Intelligence item was not found.")
     if item.district_id != district.district_id:
         raise HTTPException(status_code=403, detail="Cannot manage intelligence items for another district.")

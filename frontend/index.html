@@ -700,7 +700,7 @@
               <select id="intel-filter-signal">
                 <option value="">All</option>
                 <option value="new_business">New Business</option>
-                <option value="sales_tax_inactive">Sales Tax Inactive</option><option value="county_clerk_dba">County Clerk DBA</option>
+                <option value="sales_tax_inactive">Sales Tax Inactive</option>
                 <option value="mailing_address_change">Mailing Address Change</option>
               </select>
             </div>
@@ -733,12 +733,7 @@
               <button id="intel-refresh" class="secondary" type="button">Refresh Queue</button>
             </div>
           </div>
-          <section id="dba-sync-panel" class="card" style="margin-bottom:16px"><div class="button-row"><h3 style="margin:0">County Clerk DBA</h3><button id="dba-sync-status-refresh" class="secondary" type="button">Refresh status</button></div><div id="dba-sync-status" role="status">Automatic daily collection: awaiting an approved source connection.</div><div id="dba-sync-metrics"></div><details><summary>Connection setup and missing data</summary><div id="dba-sync-setup">An authorized feed and a verified unattended run are required before daily collection can start.</div></details></section>
-<details id="dba-import-panel" class="card" style="margin-bottom:16px"><summary><strong>PDF fallback — import County Clerk DBA</strong></summary>
-<p class="subtle">Choose an EagleWeb printable search-results PDF. Preview the filings, then import them into this queue. A filing does not prove a business opened; abandonment does not prove it closed.</p>
-<input id="dba-file" type="file" accept=".pdf,application/pdf" aria-label="EagleWeb results PDF"><div class="button-row"><button id="dba-preview" type="button">Preview DBA PDF</button><button id="dba-history-load" type="button" class="secondary">Import history</button></div><div id="dba-message" role="status"></div><div id="dba-preview-results"></div><label id="dba-ack-label" class="hidden"><input id="dba-ack" type="checkbox" style="width:18px;height:18px"> I understand this is a partial or unverified result set and will import only these filings.</label><button id="dba-save" class="hidden" type="button" disabled>Import filings into queue</button><div id="dba-history"></div></details>
-<div class="bpp-filters" style="margin-bottom:16px"><div class="field"><label for="dba-date-from">Filing date from</label><input id="dba-date-from" type="date"></div><div class="field"><label for="dba-date-to">Filing date through</label><input id="dba-date-to" type="date"></div><div class="field"><label for="dba-type">Filing type</label><select id="dba-type"><option value="">All</option><option>ASSUMED NAME</option><option>ASSUMED NAME ABANDONMENT</option></select></div><div class="field"><label for="dba-assignee">Assigned appraiser</label><select id="dba-assignee"><option value="">All</option><option value="UNASSIGNED">Unassigned</option></select></div></div>
-<details id="cad-data-tools" class="card bpp-data-tools" style="margin-bottom:16px;">
+          <details id="cad-data-tools" class="card bpp-data-tools" style="margin-bottom:16px;">
             <summary><strong>CAD data and match coverage</strong></summary>
             <div class="button-row"><button id="cad-refresh-matches" class="secondary" type="button">Refresh matches from CAD</button><span id="cad-refresh-status" class="subtle" role="status"></span></div>
             <div id="cad-health" class="subtle" style="margin-top:10px;">Loading CAD data quality…</div>
@@ -2342,65 +2337,6 @@
       }
     }
 
-        let dbaStatusLoading=false;
-    async function refreshDbaSyncStatus(){
-      if(dbaStatusLoading)return;dbaStatusLoading=true;$('dba-sync-status-refresh').disabled=true;
-      try{const s=await dbaApi('sync-status');
-        if(!s.configured){$('dba-sync-status').textContent=s.message;$('dba-sync-metrics').replaceChildren();$('dba-sync-setup').textContent='No county source is configured. Automatic collection is disabled.';return;}
-        $('dba-sync-status').textContent=s.sync_message;
-        $('dba-sync-status').className='status warn';
-        const m=s.metrics;
-        $('dba-sync-metrics').innerHTML=`<p><strong>Last successful synchronization:</strong> ${cadHtml(s.last_successful_sync||'Never — not activated')}<br>Last successful PDF fallback import: ${cadHtml(s.last_successful_fallback_import||'None')}</p><p class="subtle">${cadHtml(s.metrics_scope)}</p><div class="layout-3">${[['New-name filings',m.new_filings],['Abandonments',m.abandonments],['Matched to CRS',m.matched_to_crs],['Requiring investigation',m.requiring_investigation]].map(([label,value])=>`<div class="field"><label>${cadHtml(label)}</label><strong class="bpp-stat-value">${cadHtml(value)}</strong></div>`).join('')}</div>`;
-        $('dba-sync-setup').innerHTML=`<p>${cadHtml(s.sync_error_note)}</p><p>Missing full owner: ${m.missing_full_owner} · Missing business address: ${m.missing_business_address}</p><p>To activate automatic collection:</p><ol>${s.activation_requirements.map(x=>`<li>${cadHtml(x)}</li>`).join('')}</ol><button type="button" disabled>Sync now — connection not activated</button><p>PDF fallback issues:</p>${s.fallback_import_issues.map(i=>`<p>${cadHtml(i.filename)} · ${cadHtml(i.status)} · ${cadHtml(i.error_message||'Incomplete coverage or processing not yet complete; check import history.')}</p>`).join('')||'<p>No fallback import issues recorded.</p>'}`;
-      }catch(error){$('dba-sync-status').textContent='County Clerk status unavailable: '+error.message;$('dba-sync-metrics').replaceChildren();}
-      finally{dbaStatusLoading=false;$('dba-sync-status-refresh').disabled=false;}
-    }
-    $('dba-sync-status-refresh').addEventListener('click',refreshDbaSyncStatus);
-    const dbaUi={upload:null,preview:null,busy:false};
-    const dbaApi=(path,payload={})=>fetchJson('/api/county-clerk/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,...payload})});
-    function dbaFilingHtml(item){
-      if(item.signal_type!=='county_clerk_dba')return '';
-      const evidence=item.raw?.evidence||{}; const f=evidence.filing||{};
-      return `<section class="card"><h3>County Clerk filing</h3><p><strong>${cadHtml((item.classification||"DBA_NEEDS_REVIEW").replace(/^DBA_/," ").replaceAll("_"," "))}</strong></p><p>${cadHtml(f.document_number)} · ${cadHtml(f.filing_type)}<br>Recorded ${cadHtml(f.recording_date)} · Expires ${cadHtml(f.expiration_date||'Not provided')}<br>Owner: ${cadHtml(f.owner_name||'Full name unavailable')}<br>Source owner excerpt: ${cadHtml(f.owner_text||'Not provided')}</p><p>${cadHtml(item.match_reason)}</p><p class="status warn">A DBA filing does not prove a business opened. An abandonment does not prove it closed.</p>${f.document_reference && /^https:\/\//.test(f.document_reference)?`<a href="${cadHtml(f.document_reference)}" target="_blank" rel="noopener noreferrer">Open individual record ↗</a>`:''}<button type="button" id="dba-filing-audit">Original PDF and review history</button><div id="dba-filing-audit-result"></div><details><summary>Related sales-tax and earlier filing evidence</summary><p>These are separate source records; their addresses are not addresses supplied by this filing.</p>${(evidence.sales_tax_candidates||[]).map(r=>`<p>Sales tax ${cadHtml(r.taxpayer_id)} / ${cadHtml(r.location_number)} · ${cadHtml(r.location_name||r.legal_name)}<br>${cadHtml([r.address,r.city,r.state,r.zip].filter(Boolean).join(', '))} · ${cadHtml(r.current_status)}</p>`).join('')}${(evidence.prior_filings||[]).map(r=>`<p>Earlier filing ${cadHtml(r.document_number)} · ${cadHtml(r.filing_type)} · ${cadHtml(r.recording_date)}<br>${cadHtml(r.assumed_name)} · ${cadHtml(r.owner_name||'Owner unavailable')}</p>`).join('')}${!(evidence.sales_tax_candidates?.length||evidence.prior_filings?.length)?'<p>No related records found.</p>':''}</details></section>`;
-    }
-    document.addEventListener('click',async event=>{
-      if(!['dba-record-open','dba-filing-audit'].includes(event.target.id))return;
-      const item=appState.intelligence.selected;if(!item?.raw?.source_dba_filing_id)return;
-      try{
-        const data=await dbaApi('filing',{filing_id:item.raw.source_dba_filing_id});
-        if(event.target.id==='dba-record-open'){
-          const url=new URL(data.filing.document_reference);const source=await dbaApi('history');
-          if(url.protocol!=='https:'||url.hostname!==new URL(source.source.source_url).hostname||!url.pathname.endsWith('/viewDoc.jsp'))throw Error('The source record URL is unavailable.');
-          window.open(url.href,'_blank','noopener,noreferrer');return;
-        }
-        $('dba-filing-audit-result').innerHTML=`<button type="button" data-dba-original="${cadHtml(data.filing.first_import_id)}">Download original results PDF</button><p>${cadHtml(data.notice)}</p>${data.audit.map(a=>`<p>${cadHtml(a.created_at)} · ${cadHtml(a.after_status)} · ${cadHtml(a.resolution||'Review updated')}<br>${cadHtml(a.notes||'')}<br>Reviewer: ${cadHtml(a.actor_id||'System')}</p>`).join('')||'<p>No review changes yet.</p>'}`;
-      }catch(error){event.target.textContent=error.message;}
-    });
-    document.addEventListener('click',async event=>{
-      const id=event.target.dataset?.dbaOriginal;if(!id)return;event.target.disabled=true;
-      try{const response=await fetch('/api/county-clerk/original',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,import_id:id})});if(!response.ok)throw Error('Original PDF could not be downloaded.');const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download='county-clerk-original.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}catch(error){$('dba-message').textContent=error.message;}finally{event.target.disabled=false;}
-    });
-    async function dbaHistory(){
-      try{const h=await dbaApi('history');if(!h.configured){$('dba-history').textContent=h.message;return;}
-        $('dba-history').innerHTML=`<h4>${cadHtml(h.source.county)} import history</h4><p>Collection: manual PDF. Unattended collection disabled.<br>Last successful import: ${cadHtml(h.source.last_successful_import_at||'None')}<br>Last complete recording coverage: ${cadHtml(h.source.last_complete_recording_date||'None')}</p>${h.imports.map(i=>`<p><strong>${cadHtml(i.filename)}</strong> · ${cadHtml(i.status)} · ${cadHtml(i.coverage)}<br>${cadHtml(i.created_at)} · ${i.imported_count} new, ${i.duplicate_count} duplicates · ${i.extracted_count} extracted<br>${cadHtml(i.search_start||'Unknown start')} – ${cadHtml(i.search_end||'Unknown end')}<br>${cadHtml(i.error_message||'')} <button type="button" data-dba-original="${cadHtml(i.id)}">Original PDF</button></p>`).join('')||'<p>No imports yet.</p>'}`;
-      }catch(error){$('dba-history').textContent=error.message;}
-    }
-    $('dba-history-load').addEventListener('click',dbaHistory);
-    $('dba-file').addEventListener('change',()=>{dbaUi.upload=null;dbaUi.preview=null;$('dba-save').disabled=true;$('dba-save').classList.add('hidden');$('dba-preview-results').replaceChildren();$('dba-ack-label').classList.add('hidden');$('dba-ack').checked=false;});
-    $('dba-ack').addEventListener('change',()=>{$('dba-save').disabled=dbaUi.busy||!dbaUi.preview||(!['COMPLETE'].includes(dbaUi.preview.coverage)&&!$('dba-ack').checked);});
-    $('dba-preview').addEventListener('click',async()=>{
-      if(dbaUi.busy)return;const file=$('dba-file').files[0];if(!file){$('dba-message').textContent='Choose an EagleWeb results PDF.';return;}if(file.size>25*1024*1024){$('dba-message').textContent='Choose a PDF smaller than 25 MB.';return;}
-      dbaUi.busy=true;$('dba-preview').disabled=true;$('dba-file').disabled=true;$('dba-save').disabled=true;dbaUi.preview=null;
-      try{const dataUrl=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);});dbaUi.upload={filename:file.name,file_base64:dataUrl.split(',')[1]};const p=await dbaApi('preview',dbaUi.upload);dbaUi.preview=p;
-        $('dba-preview-results').innerHTML=`<h4>${cadHtml(p.county)} · ${p.record_count} filings · ${p.page_count} PDF pages</h4><p class="status ${p.coverage==='COMPLETE'?'success':'warn'}">${cadHtml(p.coverage)} · EagleWeb reported ${p.reported_total??'unknown'} results</p>${p.warnings.map(w=>`<p class="status warn">${cadHtml(w)}</p>`).join('')}<div style="max-height:350px;overflow:auto"><table><thead><tr><th>Document</th><th>Business</th><th>Type / date</th><th>Owner / expiry</th></tr></thead><tbody>${p.records.map(r=>`<tr><td>${cadHtml(r.document_number)}</td><td>${cadHtml(r.assumed_name)}</td><td>${cadHtml(r.filing_type)}<br>${cadHtml(r.recording_date)}</td><td>${cadHtml(r.owner_name||r.owner_text||'Not provided')}${!r.owner_name_complete?' (incomplete; excluded from matching)':''}<br>${cadHtml(r.expiration_date||'No expiry provided')}</td></tr>`).join('')}</tbody></table></div>`;
-        $('dba-ack').checked=false;$('dba-ack-label').classList.toggle('hidden',p.coverage==='COMPLETE');$('dba-save').classList.remove('hidden');$('dba-save').disabled=p.coverage!=='COMPLETE'||!p.record_count;$('dba-message').textContent='Preview only. Nothing has been imported.';
-      }catch(error){$('dba-message').textContent=error.message;}finally{dbaUi.busy=false;$('dba-preview').disabled=false;$('dba-file').disabled=false;}
-    });
-    $('dba-save').addEventListener('click',async()=>{
-      if(dbaUi.busy||!dbaUi.preview)return;dbaUi.busy=true;$('dba-save').disabled=true;$('dba-file').disabled=true;$('dba-preview').disabled=true;$('dba-message').textContent='Importing and matching filings…';
-      try{const r=await dbaApi('import',{...dbaUi.upload,expected_sha256:dbaUi.preview.sha256,acknowledge_incomplete:$('dba-ack').checked});$('dba-message').textContent=`${r.status}: ${r.imported_count} new filings, ${r.duplicate_count} duplicates. Existing review work was preserved.`;dbaUi.preview=null;await Promise.all([dbaHistory(),refreshIntelligenceQueue()]);}catch(error){$('dba-message').textContent=error.message+' Check import history before retrying.';await dbaHistory();}finally{dbaUi.busy=false;$('dba-file').disabled=false;$('dba-preview').disabled=false;$('dba-save').disabled=!dbaUi.preview;}
-    });
-
     // -- BPP Intelligence Queue -----------------------------------------------
 
     function cadHtml(value) { return formatText(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;"); }
@@ -2529,7 +2465,6 @@
     $("cad-import-file").addEventListener("change", () => { cadUi.upload=null; cadUi.validMapping=null; $("cad-import-save").disabled=true; $("cad-import-mapping").innerHTML="";$("cad-import-sample").innerHTML=""; });
 
     const INTEL_RESOLUTION_OPTIONS = {
-      county_clerk_dba: ["ACCOUNT_EXISTS", "NEW_ACCOUNT_NEEDED", "BUSINESS_CLOSED", "OWNERSHIP_CHANGE", "RELOCATION", "DUPLICATE", "NO_TAXABLE_BPP", "FALSE_MATCH", "OTHER"],
       new_business: ["ACCOUNT_EXISTS", "NEW_ACCOUNT_NEEDED", "OWNERSHIP_CHANGE", "RELOCATION", "DUPLICATE", "NO_TAXABLE_BPP", "FALSE_MATCH", "OTHER"],
       sales_tax_inactive: ["ACCOUNT_EXISTS", "BUSINESS_CLOSED", "OWNERSHIP_CHANGE", "RELOCATION", "DUPLICATE", "FALSE_MATCH", "OTHER"],
       mailing_address_change: ["ADDRESS_UPDATED", "CURRENT_ADDRESS_CORRECT", "SOURCE_OUTDATED", "DUPLICATE_SIGNAL", "ACCOUNT_MISMATCH", "INSUFFICIENT_EVIDENCE", "OTHER"]
@@ -2552,7 +2487,6 @@
       if (status) payload.status = status;
       if (confidence) payload.confidence = confidence;
       if (city) payload.city = city;
-      for (const [id,key] of [["dba-date-from","filing_from"],["dba-date-to","filing_to"],["dba-type","filing_type"],["dba-assignee","assigned_to"]]) { if ($(id).value) payload[key]=$(id).value; }
 
       const [summary, queue] = await Promise.all([
         fetchJson("/api/admin/intelligence/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ access_token: appState.auth.access_token }) }),
@@ -2566,8 +2500,6 @@
       appState.intelligence.items = queue.items || [];
       renderIntelligenceQueue(appState.intelligence.items);
       refreshCadHealth();
-      refreshDbaSyncStatus();
-      if ($('dba-assignee').options.length===2) { dbaApi('reviewers').then(r=>{for(const u of r.reviewers){const option=document.createElement('option');option.value=u.id;option.textContent=u.label;$('dba-assignee').append(option);}}).catch(()=>{}); }
     }
 
     async function refreshMailingQueue() {
@@ -2609,7 +2541,7 @@
         const mailing = item.signal_type === "mailing_address_change";
         const address = mailing ? item.mailing_address_observed : [item.source_address,item.source_city,item.source_state,item.source_zip].filter(Boolean).join(", ");
         return `<tr data-intel-id="${cadHtml(item.id)}" data-intel-table="${cadHtml(item.source_table)}" tabindex="0">
-          <td><button type="button" class="bpp-account-link">${cadHtml(item.business_name || item.legal_name || "Unnamed business")}</button><div class="subtle">${cadHtml(mailing ? "Mailing change" : item.signal_type === "new_business" ? "New business" : item.signal_type === "county_clerk_dba" ? "County Clerk DBA" : "Sales tax inactive")} · ${cadHtml(item.source_label)} · ${cadHtml(item.first_detected_at || "")}</div></td>
+          <td><button type="button" class="bpp-account-link">${cadHtml(item.business_name || item.legal_name || "Unnamed business")}</button><div class="subtle">${cadHtml(mailing ? "Mailing change" : item.signal_type === "new_business" ? "New business" : "Sales tax inactive")} · ${cadHtml(item.source_label)} · ${cadHtml(item.first_detected_at || "")}</div></td>
           <td><span class="bpp-tax-id">${cadHtml(item.sales_tax_id || "Not provided")}</span>${item.sales_tax_location_number ? `<div class="subtle">Location ${cadHtml(item.sales_tax_location_number)}</div>` : ""}</td>
           <td>${cadHtml(address || "Address unavailable")}${mailing ? `<div class="subtle">On file: ${cadHtml(item.mailing_address_current || "Unknown")}</div>` : ""}</td>
           <td><strong>${cadHtml(item.matched_account_number || (item.is_ambiguous ? "Multiple possible accounts" : "No account identified"))}</strong><div class="subtle">${cadHtml(item.matched_owner_name || "")} ${item.confidence ? `· ${cadHtml(item.confidence)}` : ""}</div></td>
@@ -2701,8 +2633,8 @@
       const mailing = item.signal_type === "mailing_address_change";
       $("intel-detail-title").textContent = item.business_name || item.legal_name || "Account review";
       $("intel-detail-kind").textContent = mailing ? "Mailing address change" : item.signal_type === "sales_tax_inactive" ? "Sales tax inactive" : "Business intelligence";
-      $("intel-detail-body").innerHTML = intelligenceMainDetailsHtml(item) + dbaFilingHtml(item);
-      $("intel-next-step").textContent = item.signal_type === "county_clerk_dba" ? "Review the original filing and possible account matches. Start review, link the correct account, and mark complete with an outcome. Explain independent evidence for any opening or closure conclusion." : mailing ? "Verify the new mailing address, make any needed change in your CAD system, then record the outcome." : item.signal_type === "sales_tax_inactive" ? "Verify whether this business is still operating and record the account review outcome." : "Check the account match and determine whether an existing or new account is needed.";
+      $("intel-detail-body").innerHTML = intelligenceMainDetailsHtml(item);
+      $("intel-next-step").textContent = mailing ? "Verify the new mailing address, make any needed change in your CAD system, then record the outcome." : item.signal_type === "sales_tax_inactive" ? "Verify whether this business is still operating and record the account review outcome." : "Check the account match and determine whether an existing or new account is needed.";
       const copy = $("intel-copy-account");
       if (copy) copy.addEventListener("click", async () => { try { await navigator.clipboard.writeText(item.matched_account_number); copy.textContent="Copied"; } catch { copy.textContent="Select the account number above to copy"; } });
       const resolutionSelect = $("intel-resolution");

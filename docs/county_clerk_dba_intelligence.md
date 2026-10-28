@@ -1,5 +1,7 @@
 # County Clerk DBA Intelligence
 
+**Withdrawn October 28, 2026 at the user’s request.** County Clerk UI, import and sync routes are removed from the application; filings are excluded from the Intelligence Queue and owner dashboard. Implementation and saved data remain archived in place for possible restoration. The workflow descriptions below document the withdrawn implementation, not currently available product behavior.
+
 ## Manual PDF workflow
 
 Open **BPP Intelligence Queue → County Clerk DBA — import PDF**. Choose an EagleWeb printable search-results PDF (searchable text, up to 25 MB / 250 printed pages). Preview before importing. The server reparses the original file and checks its SHA-256; preview fields cannot be submitted as trusted filings. Partial or unverified search coverage requires explicit acknowledgment. Import any additional search-result windows to finish the range. Repeat a date range or the same PDF safely: county/state, document number and filing type identify a filing, and existing review work is preserved.
