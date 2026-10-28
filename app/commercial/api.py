@@ -210,13 +210,17 @@ def commercial_router(resolve_context):
         from . import sketch
         store,c,account=sketch_context(payload)
         document=sketch.get(store,account);available=sketch.photos(store,account)
-        if payload.get('format')=='json':
+        if payload.get('format')=='xml':
+            try:data=sketch.export_apex_xml(document,available)
+            except sketch.SketchError as exc:raise HTTPException(400,str(exc))
+            media='application/xml';extension='xml'
+        elif payload.get('format')=='json':
             import json
             data=json.dumps({'format':'rendition-pilot-sketch-v1','document':document,'photos':[{k:v for k,v in p.items() if k!='data_url'} for p in available],'summary':sketch.summary(document,available)},indent=2).encode()
             media='application/json';extension='json'
         elif payload.get('format')=='pdf':data=sketch.export_pdf(document,available);media='application/pdf';extension='pdf'
         else:data=sketch.export_svg(document,available);media='image/svg+xml';extension='svg'
-        filename=re.sub(r'[^a-zA-Z0-9_-]','_',account)+'-sketch.'+extension
+        filename=re.sub(r'[^a-zA-Z0-9_-]','_',account)+('.' if extension=='xml' else '-sketch.')+extension
         return Response(data,media_type=media,headers={'Content-Disposition':f'attachment; filename="{filename}"','Cache-Control':'no-store'})
 
     return router
