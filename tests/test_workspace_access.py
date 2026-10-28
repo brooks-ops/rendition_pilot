@@ -142,3 +142,16 @@ def isolated_work_claims(monkeypatch):
     monkeypatch.setattr(main.bpp_work_claims,'claim',lambda *a:None)
     monkeypatch.setattr(main.bpp_work_claims,'claims',lambda *a:{})
     monkeypatch.setattr(main.bpp_work_claims,'release',lambda *a,**kw:None)
+
+
+def test_district_policy_restricts_admin_members_and_new_grants(grants):
+    grants[('d1','workspace-policy.json')]=json.dumps({'bpp':True,'commercial':False}).encode()
+    for role in ('admin','appraiser','member'):
+        d=district(role=role)
+        assert access.access_for(d)=={'bpp':True,'commercial':False}
+        with pytest.raises(HTTPException) as denied:access.require_access(d,'commercial')
+        assert denied.value.status_code==403
+        access.require_access(d,'bpp')
+    access.save_access('d1','new@cad.org',True,True,'admin')
+    assert access.read_access('d1','new@cad.org')=={'bpp':True,'commercial':False}
+    assert access.access_for(district(id='other'))=={'bpp':True,'commercial':True}

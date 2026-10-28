@@ -10,9 +10,9 @@ def permission_name(email):
     return 'workspace-access-'+hashlib.sha256(email.strip().lower().encode()).hexdigest()+'.json'
 
 
-def read_access(district_id,email):
+def _read_grants(district_id,name):
     try:
-        response=object_request('GET',district_id,permission_name(email))
+        response=object_request('GET',district_id,name)
         if response.status_code==404 or (response.status_code==400 and response.json().get('statusCode')=='404'):
             return {'bpp':True,'commercial':True}
         response.raise_for_status();data=response.json()
@@ -21,8 +21,17 @@ def read_access(district_id,email):
     except (requests.RequestException,ValueError) as exc:raise HTTPException(503,'Workspace permissions could not be verified. Please try again.') from exc
 
 
+def district_access(district_id):
+    return _read_grants(district_id,'workspace-policy.json')
+
+
+def read_access(district_id,email):
+    grants=_read_grants(district_id,permission_name(email));limits=district_access(district_id)
+    return {key:grants[key] and limits[key] for key in ('bpp','commercial')}
+
+
 def access_for(district):
-    if district.role=='admin':return {'bpp':True,'commercial':True}
+    if district.role=='admin':return district_access(district.district_id)
     return read_access(district.district_id,district.email)
 
 

@@ -1768,7 +1768,8 @@ def cad_schedule_delete(schedule_id: str) -> dict[str, Any]:
 def users_with_access(users,district_id):
     from concurrent.futures import ThreadPoolExecutor
     def decorate(user):
-        return {**user,'workspace_access':{'bpp':True,'commercial':True} if user.get('role')=='admin' else read_access(district_id,user['email'])}
+        from app.workspace_access import district_access
+        return {**user,'workspace_access':district_access(district_id) if user.get('role')=='admin' else read_access(district_id,user['email'])}
     with ThreadPoolExecutor(max_workers=8) as pool:return list(pool.map(decorate,to_jsonable(users)))
 
 
@@ -1779,7 +1780,7 @@ def district_user_access(request: WorkspaceAccessRequest):
     users=list_district_users(supabase_url=url,service_role_key=get_supabase_service_role_key(),district_id=district.district_id)
     target=next((u for u in to_jsonable(users) if normalize_email(u['email'])==normalize_email(request.email)),None)
     if not target:raise HTTPException(404,'User is not a member of your district.')
-    if target.get('role')=='admin':raise HTTPException(400,'District admins retain access to both workspaces.')
+    if target.get('role')=='admin':raise HTTPException(400,'District admin workspace access is controlled by the district subscription.')
     save_access(district.district_id,target['email'],request.bpp_access,request.commercial_access,district.email)
     return {'users':users_with_access(users,district.district_id)}
 
