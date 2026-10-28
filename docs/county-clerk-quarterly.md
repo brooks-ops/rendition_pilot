@@ -119,3 +119,16 @@ python -m app.county_clerk.import_captured --captures /absolute/captures \
 
 The default is a dry run. Add `--commit` to archive originals and create leads.
 Do not commit captured source records, account exports or credentials to Git.
+
+## Live server verification — October 28, 2026
+
+The deployed Render cron was triggered after activation and completed the exact
+January 1–September 30 window on its first claim at 22:14:45 UTC. Its import
+`4e76ea06-0f28-4e60-8067-2a6028aefb39` reconciled 12 live results pages and
+1,160 filings: zero new, 1,160 duplicates. One changed summary fetched full
+current details; 1,159 unchanged summaries reused validated archived details
+with their original capture timestamps. All 1,188 existing DBA queue reviews
+were compared before/after and remained unchanged. Repeating the scheduler
+skipped source retrieval and did not increment the attempt count. The next due
+window is all of 2026 on January 1, 2027. This confirms the public HTML route on
+the actual server; it is still subject to future site availability and changes.

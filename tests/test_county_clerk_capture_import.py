@@ -66,3 +66,28 @@ def test_chunked_archive_roundtrip_and_integrity():
     stored[parts[0][0]]=b'changed'
     with pytest.raises(ValueError,match='integrity'):read(manifest,'district/import.json',stored.__getitem__)
     with pytest.raises(ValueError,match='path mismatch'):read(manifest,'another/import.json',dict(parts).__getitem__)
+
+def test_automatic_import_matches_new_filings_and_preserves_known_reviews(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    from app.county_clerk import import_captured,service
+    from app.comptroller import cad_review
+    write_set(tmp_path)
+    source={'id':'s','district_id':'d','jurisdiction_id':'j','county':'LUBBOCK','state':'TX'}
+    monkeypatch.setattr(service,'source_for',lambda district:source)
+    monkeypatch.setattr(import_captured,'get_jurisdiction_by_district_id',lambda district:SimpleNamespace(id='j'))
+    monkeypatch.setattr(cad_review,'latest_completed_import',lambda district:{'id':'export'})
+    def request(method,table,**kw):
+        assert table=='county_clerk_dba_filings' and kw['params']['district_id']=='eq.d'
+        return [{'document_number':'2026700001','filing_type':'ASSUMED NAME'}] if kw['params']['offset']==0 else []
+    monkeypatch.setattr(service,'request',request)
+    monkeypatch.setattr(service,'match_context',lambda *a:{})
+    matched=[]
+    def classify(record,*a):matched.append(record['document_number']);return {'priority':'LOW'}
+    monkeypatch.setattr(import_captured,'classify_detail',classify)
+    def commit(source,j,records,*a,**kw):
+        assert 'intelligence' not in records[0] and records[1]['intelligence']['priority']=='LOW'
+        assert kw['cad_import_id']=='export' and kw['collection_method']=='public_guest_html'
+        return {'status':'COMPLETED'}
+    monkeypatch.setattr(import_captured,'commit_prepared',commit)
+    assert import_captured.ingest(tmp_path,'d','2026-01-01','2026-10-31',commit=True,collection_method='public_guest_html')['status']=='COMPLETED'
+    assert matched==['2026700002']
