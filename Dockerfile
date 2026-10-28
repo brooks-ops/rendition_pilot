@@ -7,6 +7,10 @@ RUN apt-get update \
         poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# Bound OpenMP workers to avoid CPU oversubscription on the free instance.
+ENV OMP_THREAD_LIMIT=1
+RUN tesseract --version && tesseract --list-langs | grep -x eng
+
 WORKDIR /app
 
 COPY requirements.txt .

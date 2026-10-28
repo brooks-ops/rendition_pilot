@@ -1098,21 +1098,13 @@ def run_pipeline_from_upload(
     from app.pipeline import run_rendition_pipeline
 
     hydrate_analysis_env()
-    previous_fast_review = os.environ.get("RENDITION_FAST_REVIEW")
-    if fast_review:
-        os.environ["RENDITION_FAST_REVIEW"] = "1"
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(file_bytes)
         temp_pdf_path = Path(tmp.name)
     try:
-        result = run_rendition_pipeline(pdf_path=str(temp_pdf_path), manual_override=manual_override)
+        result = run_rendition_pipeline(pdf_path=str(temp_pdf_path), manual_override=manual_override, fast_review=fast_review)
         return to_jsonable(result)
     finally:
-        if fast_review:
-            if previous_fast_review is None:
-                os.environ.pop("RENDITION_FAST_REVIEW", None)
-            else:
-                os.environ["RENDITION_FAST_REVIEW"] = previous_fast_review
         try:
             temp_pdf_path.unlink(missing_ok=True)
         except Exception:
@@ -1352,8 +1344,9 @@ def _calculate_breakdown(request: CalculateRequest) -> list[dict[str, Any]]:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "service": "appraisal-pilot-api"}
+def health() -> dict[str, Any]:
+    from app.pipeline import tesseract_status
+    return {"status": "ok", "service": "appraisal-pilot-api", "ocr": tesseract_status()}
 
 
 @app.get("/")

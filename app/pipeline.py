@@ -8,6 +8,7 @@ import re
 import shutil
 import time
 from dataclasses import dataclass, field
+from functools import lru_cache
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -194,6 +195,24 @@ def _configure_tesseract() -> bool:
             return True
     return False
 
+
+
+def tesseract_status() -> Dict[str, Any]:
+    """Expose whether the actual engine and English data can run, not just pip imports."""
+    return _tesseract_status_cached()
+
+
+@lru_cache(maxsize=1)
+def _tesseract_status_cached() -> Dict[str, Any]:
+    if not _configure_tesseract():
+        return {"available": False, "engine": "tesseract", "reason": "Engine not installed"}
+    try:
+        import pytesseract
+        version = str(pytesseract.get_tesseract_version()).splitlines()[0]
+        languages = pytesseract.get_languages(config="")
+        return {"available": "eng" in languages, "engine": "tesseract", "version": version, "english": "eng" in languages}
+    except Exception:
+        return {"available": False, "engine": "tesseract", "reason": "Engine check failed"}
 
 def _get_config_value(*names: str) -> Optional[str]:
     for name in names:
@@ -1397,7 +1416,7 @@ def _build_merged_google_ocr_pages(
     return merged_pages
 
 
-def _extract_pdf_bundle(pdf_path: str) -> Dict[str, Any]:
+def _extract_pdf_bundle(pdf_path: str, *, fast_review: Optional[bool] = None) -> Dict[str, Any]:
     started_at = time.perf_counter()
     extractor = PDFExtractor()
     embedded_pages: List[Dict[str, Any]] = []
@@ -1429,45 +1448,20 @@ def _extract_pdf_bundle(pdf_path: str) -> Dict[str, Any]:
         page["ocr_blocks"] = normalized_words
         page.setdefault("text_source", "embedded_pdf_text")
 
-    fast_review = os.getenv("RENDITION_FAST_REVIEW", "").strip().lower() in {"1", "true", "yes"}
-    if embedded_pages and (fast_review or not _needs_ocr_fallback(embedded_pages)):
+    if fast_review is None:
+        fast_review = os.getenv("RENDITION_FAST_REVIEW", "").strip().lower() in {"1", "true", "yes"}
+    needs_ocr = not embedded_pages or any(_needs_ocr_fallback([page]) for page in embedded_pages)
+    if not needs_ocr:
         reconciliation = _reconcile_ocr_providers(embedded_pages, {}, "embedded_pdf_text")
         for page in embedded_pages:
             page["extraction_provider"] = "embedded_pdf_text"
             page["extraction_seconds"] = round(time.perf_counter() - started_at, 2)
-            if fast_review and _needs_ocr_fallback(embedded_pages):
-                page["ocr_unavailable"] = True
-                page["ocr_error"] = "Fast web review used embedded PDF text and skipped slow OCR fallback."
-        return {
-            "pages": embedded_pages,
-            "ocr_reconciliation": reconciliation,
-        }
+        return {"pages": embedded_pages, "ocr_reconciliation": reconciliation}
 
-    if fast_review:
-        fallback_pages = embedded_pages or [
-            {
-                "page_number": 1,
-                "text": "",
-                "ocr_blocks": [],
-                "text_source": "embedded_pdf_text",
-                "ocr_unavailable": True,
-                "ocr_error": "Fast web review skipped slow OCR fallback and no embedded PDF text was available.",
-            }
-        ]
-        reconciliation = _reconcile_ocr_providers(fallback_pages, {}, "embedded_pdf_text")
-        for page in fallback_pages:
-            page["extraction_provider"] = "embedded_pdf_text"
-            page["extraction_seconds"] = round(time.perf_counter() - started_at, 2)
-            page["ocr_unavailable"] = True
-            page.setdefault("ocr_error", "Fast web review skipped slow OCR fallback.")
-        return {
-            "pages": fallback_pages,
-            "ocr_reconciliation": reconciliation,
-        }
-
+    # Fast web review still performs local OCR. It only omits network providers.
     provider_pages = {
-        "google_document_ai": _ocr_pdf_pages_with_google_document_ai(pdf_path),
-        "azure_document_intelligence": _ocr_pdf_pages_with_azure_document_intelligence(pdf_path),
+        "google_document_ai": [] if fast_review else _ocr_pdf_pages_with_google_document_ai(pdf_path),
+        "azure_document_intelligence": [] if fast_review else _ocr_pdf_pages_with_azure_document_intelligence(pdf_path),
         "pymupdf_tesseract_ocr": _ocr_pdf_pages_with_pymupdf(pdf_path),
     }
     provider_pages["google_ocr_merged"] = _build_merged_google_ocr_pages(
@@ -1579,7 +1573,8 @@ def _ocr_pdf_pages_with_pymupdf(pdf_path: str) -> List[Dict[str, Any]]:
         return []
 
     if not _configure_tesseract():
-        return []
+        return [{"page_number": 1, "text": "", "ocr_blocks": [],
+                 "ocr_error": "Tesseract OCR engine is not installed or cannot be found."}]
 
     try:
         doc = fitz.open(pdf_path)
@@ -1589,7 +1584,7 @@ def _ocr_pdf_pages_with_pymupdf(pdf_path: str) -> List[Dict[str, Any]]:
     ocr_pages: List[Dict[str, Any]] = []
     try:
         for page_number, page in enumerate(doc, start=1):
-            pix = page.get_pixmap(matrix=fitz.Matrix(4, 4), alpha=False)
+            pix = page.get_pixmap(dpi=300, alpha=False)
             image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             image = _prepare_ocr_image(image)
 
@@ -1597,20 +1592,27 @@ def _ocr_pdf_pages_with_pymupdf(pdf_path: str) -> List[Dict[str, Any]]:
             best_words: List[Dict[str, Any]] = []
             best_score = -1
 
-            for rotation in [0, 90, 270]:
+            failures = []
+            for rotation, psm in [(0, 3), (0, 6), (90, 3), (270, 3)]:
+                # Upright, confidently read forms do not need sideways retries.
+                if rotation and best_score >= 80:
+                    break
                 rotated = image.rotate(rotation, expand=True) if rotation else image
                 try:
-                    config = "--oem 3 --psm 6 -c preserve_interword_spaces=1"
-                    text = pytesseract.image_to_string(rotated, config=config) or ""
-                    data = pytesseract.image_to_data(rotated, output_type=Output.DICT, config=config)
-                except Exception:
+                    config = f"--oem 1 --psm {psm} --dpi 300 -c preserve_interword_spaces=1 -c load_system_dawg=0 -c load_freq_dawg=0"
+                    data = pytesseract.image_to_data(rotated, lang="eng", output_type=Output.DICT,
+                                                    config=config, timeout=30)
+                except Exception as exc:
+                    failures.append(type(exc).__name__)
                     continue
-
-                norm = _normalize_ocrish_text(text)
-                score = len(text)
-                for term in ["schedule", "good faith", "historical cost", "rendition", "property owner"]:
-                    if term in norm:
-                        score += 500
+                # Text and boxes come from the same pass, retaining decimal points
+                # and row grouping rather than running a separate recognition pass.
+                lines = {}
+                for idx, token in enumerate(data.get("text", [])):
+                    if str(token).strip():
+                        line = tuple(data.get(k, [0]*len(data["text"]))[idx] for k in ("block_num", "par_num", "line_num"))
+                        lines.setdefault(line, []).append(str(token).strip())
+                text = "\n".join(" ".join(tokens) for tokens in lines.values())
 
                 words: List[Dict[str, Any]] = []
                 for idx, word_text in enumerate(data.get("text", [])):
@@ -1640,6 +1642,10 @@ def _ocr_pdf_pages_with_pymupdf(pdf_path: str) -> List[Dict[str, Any]]:
                         }
                     )
 
+                confidences = [w["confidence"] for w in words]
+                score = sum(confidences) / len(confidences) if confidences else -1
+                if len(words) < 5:
+                    score -= 20
                 if score > best_score:
                     best_score = score
                     best_text = text
@@ -1651,6 +1657,7 @@ def _ocr_pdf_pages_with_pymupdf(pdf_path: str) -> List[Dict[str, Any]]:
                     "text": best_text,
                     "ocr_blocks": best_words,
                     "text_source": "pymupdf_tesseract_ocr",
+                    **({"ocr_error": "Tesseract could not read this page: " + ", ".join(failures)} if not best_text and failures else {}),
                 }
             )
     finally:
@@ -1661,14 +1668,12 @@ def _ocr_pdf_pages_with_pymupdf(pdf_path: str) -> List[Dict[str, Any]]:
 
 def _prepare_ocr_image(image: Any) -> Any:
     try:
-        from PIL import ImageEnhance, ImageFilter
+        from PIL import ImageOps
     except Exception:
         return image
 
-    gray = image.convert("L")
-    gray = ImageEnhance.Contrast(gray).enhance(1.8)
-    gray = gray.filter(ImageFilter.SHARPEN)
-    return gray.point(lambda px: 255 if px > 185 else 0)
+    # Preserve faint strokes and decimal points; let Tesseract binarize locally.
+    return ImageOps.autocontrast(image.convert("L"), cutoff=0)
 
 
 def _summarize_ocr_error(error: str) -> str:
@@ -3151,8 +3156,10 @@ def _depreciate_manual_override(manual_override: Optional[Dict[str, Any]]) -> Di
 def run_rendition_pipeline(
     pdf_path: str,
     manual_override: Optional[Dict[str, Any]] = None,
+    *,
+    fast_review: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    extraction_bundle = _extract_pdf_bundle(pdf_path)
+    extraction_bundle = _extract_pdf_bundle(pdf_path, fast_review=fast_review)
     structured_result = process_uploaded_rendition(pdf_path)
     pages = extraction_bundle.get("pages", [])
     ocr_reconciliation = extraction_bundle.get("ocr_reconciliation", {}) or {}
