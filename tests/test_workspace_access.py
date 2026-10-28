@@ -155,3 +155,16 @@ def test_district_policy_restricts_admin_members_and_new_grants(grants):
     access.save_access('d1','new@cad.org',True,True,'admin')
     assert access.read_access('d1','new@cad.org')=={'bpp':True,'commercial':False}
     assert access.access_for(district(id='other'))=={'bpp':True,'commercial':True}
+
+
+def test_bpp_only_district_admin_retains_admin_but_cannot_enter_commercial(api,grants):
+    client,_=api
+    grants[('d1','workspace-policy.json')]=json.dumps({'bpp':True,'commercial':False}).encode()
+    assert main.require_district_admin('admin').role=='admin'
+    main.require_bpp_access('admin')
+    with pytest.raises(HTTPException) as denied:main.get_commercial_context('admin')
+    assert denied.value.status_code==403
+    users=client.post('/api/district/users',json={'access_token':'admin'})
+    assert users.status_code==200
+    admin=next(u for u in users.json()['users'] if u['role']=='admin')
+    assert admin['workspace_access']=={'bpp':True,'commercial':False}
