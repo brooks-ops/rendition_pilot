@@ -2333,12 +2333,13 @@
         const q = h.queue, total = q.total || 0;
         const rate = n => total ? `${Math.round(n * 100 / total)}%` : "0%";
         const latest = h.latest_import;
+        if(!latest){$("cad-health").textContent="No completed account export yet. Upload your BPP account export below to start matching sales-tax permits against your accounts."+(h.recent_imports?.length?" The last attempt is "+h.recent_imports[0].import_status+"; check it before relying on matches.":"");return;}
         const stale = h.freshness === "STALE" || h.freshness === "UNKNOWN" || h.freshness === "FUTURE_DATE";
         $("cad-health").innerHTML = `
           <div class="status ${stale ? "warn" : "success"}">CAD export: ${cadHtml(latest?.source_as_of_date || "as-of date unknown")} · Imported ${cadHtml(cadDate(latest?.imported_at))} · ${cadHtml(h.freshness.replaceAll("_", " "))}${h.source_age_days != null ? ` (${h.source_age_days} days old)` : ""}. Exports older than ${h.stale_after_days} days are flagged.</div>
           ${h.recent_imports[0] && ["FAILED","IN_PROGRESS"].includes(h.recent_imports[0].import_status) ? `<p class="status warn">The most recent import is ${cadHtml(h.recent_imports[0].import_status.replaceAll("_"," "))}. Records may be partially updated; review the import history before relying on the matches.</p>` : ""}
           <div class="layout-3" style="margin-top:10px;">
-            <div><strong>${cadHtml(h.bpp_record_count?.toLocaleString() || "Unknown")}</strong> P-account records<br>Owner/business/DBA coverage: <strong>${h.name_coverage_percent == null ? "Unknown" : h.name_coverage_percent + "%"}</strong></div>
+            <div><strong>${cadHtml(h.bpp_record_count?.toLocaleString() || "Unknown")}</strong> BPP account records<br>Owner/business/DBA coverage: <strong>${h.name_coverage_percent == null ? "Unknown" : h.name_coverage_percent + "%"}</strong></div>
             <div>High confidence: <strong>${q.high_confidence} (${rate(q.high_confidence)})</strong><br>Possible: ${q.possible} (${rate(q.possible)})<br>Ambiguous: ${q.ambiguous} (${rate(q.ambiguous)})<br>Unmatched: ${q.unmatched} (${rate(q.unmatched)})</div>
             <div>Appraiser-confirmed permits: <strong>${h.human_confirmed_permits}</strong><br>Saved decisions: ${h.decision_count}<br><span class="subtle">Match rates cover all business/closure queue items, independent of the filters below.</span></div>
           </div>
@@ -2398,7 +2399,9 @@
         }
         $("cad-import-result").textContent = "Checking export…";$("cad-import-sample").innerHTML="";
         const data = await cadApi("cad-import-preview", { filename:file.name, file_base64:cadUi.upload.encoded, mapping:useMapping ? cadMapping() : null, bpp_only:$("cad-import-bpp-only").checked });
-        $("cad-import-mapping").innerHTML = data.fields.map(field => `<div class="field"><label for="cad-map-${field}">${cadHtml(({source_property_id:"Property ID (account number is OK)",real_account_number:"Account number",situs_address:"Physical / situs address",owner_name:"Owner name",business_name:"Business name",dba_name:"DBA / trading name",situs_zip:"Physical ZIP",tax_year:"Tax year"}[field]||field.replaceAll("_"," ")))}${["source_property_id","real_account_number","situs_address"].includes(field) ? " *" : ""}</label><select id="cad-map-${field}" data-cad-field="${field}"><option value="">Not supplied</option>${data.columns.map(column => `<option value="${cadHtml(column)}" ${data.mapping[field] === column ? "selected" : ""}>${cadHtml(column)}</option>`).join("")}</select></div>`).join("");
+        const primaryFields=['source_property_id','real_account_number','situs_address','owner_name','business_name','dba_name','situs_zip','tax_year'];
+        const mappingField=field => `<div class="field"><label for="cad-map-${field}">${cadHtml(({source_property_id:"Property ID (account number is OK)",real_account_number:"Account number",situs_address:"Physical / situs address",owner_name:"Owner name",business_name:"Business name",dba_name:"DBA / trading name",situs_zip:"Physical ZIP",tax_year:"Tax year"}[field]||field.replaceAll("_"," ")))}${["source_property_id","real_account_number","situs_address"].includes(field) ? " *" : ""}</label><select id="cad-map-${field}" data-cad-field="${field}"><option value="">Not supplied</option>${data.columns.map(column => `<option value="${cadHtml(column)}" ${data.mapping[field] === column ? "selected" : ""}>${cadHtml(column)}</option>`).join("")}</select></div>`;
+        $("cad-import-mapping").innerHTML=data.fields.filter(f=>primaryFields.includes(f)).map(mappingField).join("")+`<details style="grid-column:1/-1"><summary>Optional address and property fields</summary><div class="layout-3">${data.fields.filter(f=>!primaryFields.includes(f)).map(mappingField).join("")}</div></details>`;
         $("cad-import-validate").classList.remove("hidden"); $("cad-import-save").classList.remove("hidden");
         if (data.validation_error) { $("cad-import-result").textContent = data.validation_error + " Update the mapping and choose Check mapping."; return; }
         const r = data.result, q = r.quality_summary;
