@@ -125,6 +125,7 @@ def validate(document, available, *, approve=False):
     if overhead and (overhead not in ids or not any(p['id']==overhead and p['role']=='overhead' for p in available)):raise SketchError('The overhead photo is not attached to this account.')
     calibration=document.get('calibration')
     if calibration:
+        if not isinstance(calibration,dict):raise SketchError('Invalid measurement scale.')
         a,b=point(calibration.get('a')),point(calibration.get('b'))
         distance=calibration.get('feet')
         if a==b or isinstance(distance,bool) or not isinstance(distance,(int,float)) or not math.isfinite(distance) or not 0<distance<=100000:
@@ -132,6 +133,7 @@ def validate(document, available, *, approve=False):
         calibration=dict(a=a,b=b,feet=float(distance),verified=calibration.get('verified') is True)
     check=document.get('measurement_check')
     if check:
+        if not isinstance(check,dict):raise SketchError('Invalid independent wall measurement.')
         a,b=point(check.get('a')),point(check.get('b'));feet=check.get('feet')
         if a==b or isinstance(feet,bool) or not isinstance(feet,(int,float)) or not math.isfinite(feet) or not 0<feet<=100000:
             raise SketchError('Enter a positive independent wall measurement.')

@@ -91,7 +91,7 @@ def test_ai_output_is_unverified_unscaled_and_validated(monkeypatch):
     assert generated['components'][0]['source']=='ai'
     assert not generated['components'][0]['verified'] and generated['calibration'] is None
     assert generated['components'][0]['points'][0]==[68,136]  # Crop origin mapped back to full-image coordinates.
-    assert len(calls)==3 and all(call['store'] is False for call in calls)
+    assert len(calls)==4 and all(call['store'] is False for call in calls)
     images=[part['image_url'] for part in calls[0]['input'][0]['content'] if part['type']=='input_image']
     assert images[1:3]==['data:front-new','data:side-new']
     assert len(images)==4
@@ -256,3 +256,22 @@ def test_preview_generation_never_saves_over_current_sketch(store,monkeypatch):
     response=client.post('/api/commercial/sketch/generate',json={'id':rid,'revision':0,'preview':True})
     assert response.status_code==200 and response.json()['preview'] is True
     assert sketch.get(store,account)['revision']==0 and sketch.history(store,account)==[]
+
+
+def test_two_visually_accepted_real_attempts_still_fail_repeatability():
+    from app.commercial.sketch_ai import outline_agreement
+    # Pixel-normalized traces of the reported case differ at the front edge.
+    a=[{'kind':'main','points':[[319.8198,340.1015],[382.8829,341.7936],[384.3844,309.6447],[767.2673,319.797],[761.2613,597.2927],[322.8228,587.1404],[322.8228,531.3029],[280.7808,529.6108],[283.7838,421.3198],[319.8198,421.3198]]}]
+    b=[{'kind':'main','points':[[384.3844,307.9526],[768.7688,319.797],[759.7598,632.8257],[312.3123,619.2893],[315.3153,531.3029],[280.7808,529.6108],[283.7838,419.6277],[318.3183,419.6277],[321.3213,338.4095],[382.8829,340.1015]]}]
+    check=outline_agreement(a,b,(666,591))
+    assert not check['passed'] and check['minimum_iou']<.90
+    assert check['maximum_boundary_difference_pixels']>15
+
+
+def test_agreement_checks_component_types_and_not_only_union_area():
+    from app.commercial.sketch_ai import outline_agreement
+    from copy import deepcopy
+    a=rectangle()['components'];b=deepcopy(a)
+    assert outline_agreement(a,b,(1000,700))['passed']
+    b[0]['kind']='canopy'
+    assert not outline_agreement(a,b,(1000,700))['passed']
