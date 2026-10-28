@@ -172,6 +172,8 @@ def commercial_router(resolve_context):
         try:
             draft=sketch.generate(document,sketch.photos(store,account))
             if not draft['components']:return {'no_outline':True,'warnings':draft['warnings'] or ['No reliable building outline was found. Try a clearer overhead or trace manually.']}
+            if payload.get('preview') is True:
+                return {**sketch_result(store,account), 'document':{**document,**draft},'preview':True,'summary':sketch.summary(draft,sketch.photos(store,account))}
             saved=store.save_sketch(account,draft,document['revision'],c.email,False)
         except sketch.SketchConflict as exc:raise HTTPException(409,str(exc))
         except sketch.SketchError as exc:raise HTTPException(400,str(exc))

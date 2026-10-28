@@ -74,24 +74,29 @@ def test_ai_missing_configuration_never_fabricates_geometry(monkeypatch):
 
 
 def test_ai_output_is_unverified_unscaled_and_validated(monkeypatch):
+    from app.commercial import sketch_ai as ai
     available=[dict(id='overhead',role='overhead',width=1000,height=500,data_url=image())]
     available += [dict(id=f'old-{i}',role='detail',data_url=f'data:old-{i}') for i in range(6)]
     available += [dict(id='front-new',role='front',data_url='data:front-new'),dict(id='side-new',role='side',data_url='data:side-new')]
-    result=sketch.AIOutline(components=[sketch.AIComponent(label='Main',kind='main',points=[sketch.AIPoint(x=x,y=y) for x,y in [[10,10],[100,10],[100,100],[10,100]]])],warnings=['Roof edge uncertain'])
-    calls=[]
+    focus=ai.Focus(suitable_overhead=True,projection='near_vertical',target_unambiguous=True,left=100,top=100,right=800,bottom=400,visible_account_ids=[],warnings=[])
+    trace=ai.Trace(components=[ai.Component(label='Main',kind='main',points=[ai.PixelPoint(x=x,y=y) for x,y in [[10,10],[200,10],[200,200],[10,200]]],edge_basis='roof_edge',evidence='Visible roof perimeter')],warnings=['Roof edge uncertain'])
+    review=ai.Review(acceptable_visual_alignment=True,covers_target=True,unsupported_components=False,issues=[])
+    responses={ai.Focus:focus,ai.Trace:trace,ai.Review:review};calls=[]
     class FakeClient:
         def __init__(self,**kwargs):self.responses=self
-        def parse(self,**kwargs):calls.append(kwargs);return SimpleNamespace(output_parsed=result)
+        def parse(self,**kwargs):calls.append(kwargs);return SimpleNamespace(output_parsed=responses[kwargs['text_format']])
     monkeypatch.setenv('COMMERCIAL_SKETCH_API_KEY','test-only');monkeypatch.setattr('openai.OpenAI',FakeClient)
     doc=sketch.blank('R1');doc['overhead_id']='overhead'
     generated=sketch.generate(doc,available)
     assert generated['components'][0]['source']=='ai'
     assert not generated['components'][0]['verified'] and generated['calibration'] is None
-    assert calls[0]['store'] is False
+    assert generated['components'][0]['points'][0]==[68,136]  # Crop origin mapped back to full-image coordinates.
+    assert len(calls)==3 and all(call['store'] is False for call in calls)
     images=[part['image_url'] for part in calls[0]['input'][0]['content'] if part['type']=='input_image']
     assert images[1:3]==['data:front-new','data:side-new']
-    assert len(images)==6
-    result.components[0].points[0].x=1001
+    assert len(images)==4
+    assert generated['generation_quality']['survey_verified'] is False
+    trace.components[0].points[0].x=1001
     with pytest.raises(sketch.SketchError):sketch.generate(doc,available)
 
 
@@ -187,3 +192,67 @@ def test_remote_photo_objects_keep_workspace_snapshot_small(store,monkeypatch):
     assert reference.startswith('remote:sketch-photo-')
     assert objects['workspace.sqlite3']
     assert sketch.photos(remote,'R1')[0]['data_url'].startswith('data:image/jpeg;base64,')
+
+
+def test_ai_approval_requires_a_different_direction_and_agreeing_measurement(store):
+    doc=rectangle();doc['components'][0]['source']='ai'
+    with pytest.raises(sketch.SketchError,match='second'):store.save_sketch('R1',doc,0,'actor',True)
+    doc['measurement_check']=dict(a=[0,0],b=[100,0],feet=10,verified=True)
+    with pytest.raises(sketch.SketchError,match='different direction'):store.save_sketch('R1',doc,0,'actor',True)
+    doc['measurement_check']=dict(a=[100,0],b=[100,100],feet=10,verified=True)
+    with pytest.raises(sketch.SketchError,match='Proportions'):store.save_sketch('R1',doc,0,'actor',True)
+    doc['measurement_check']['feet']=7  # Blank canvas is 1000x700; normalized squares are not pixel squares.
+    saved=store.save_sketch('R1',doc,0,'actor',True)
+    assert saved['status']=='APPROVED'
+    assert sketch.summary(saved,[])['measurement_check']['passed']
+    doc['components'][0]['points'][2]=[100,110]
+    with pytest.raises(sketch.SketchError,match='wall changed'):store.save_sketch('R1',doc,1,'actor',True)
+
+
+def test_overlapping_components_cannot_be_approved_but_shared_walls_can(store):
+    from copy import deepcopy
+    doc=rectangle();second=deepcopy(doc['components'][0]);second['id']='addition';doc['components'].append(second)
+    with pytest.raises(sketch.SketchError,match='overlap'):store.save_sketch('R1',doc,0,'actor',True)
+    second['points']=[[100,0],[200,0],[200,100],[100,100]]
+    assert store.save_sketch('R1',doc,0,'actor',True)['status']=='APPROVED'
+
+
+def test_failed_visual_check_returns_no_replacement(monkeypatch):
+    from app.commercial import sketch_ai as ai
+    from copy import deepcopy
+    focus=ai.Focus(suitable_overhead=True,projection='near_vertical',target_unambiguous=True,left=100,top=100,right=800,bottom=400,visible_account_ids=[],warnings=[])
+    trace=ai.Trace(components=[ai.Component(label='Main',kind='main',points=[ai.PixelPoint(x=x,y=y) for x,y in [[10,10],[200,10],[200,200],[10,200]]],edge_basis='roof_edge',evidence='Roof')],warnings=[])
+    review=ai.Review(acceptable_visual_alignment=False,covers_target=False,unsupported_components=True,issues=['Outline runs through the parking lot.'])
+    monkeypatch.setenv('COMMERCIAL_SKETCH_API_KEY','test')
+    monkeypatch.setattr(ai,'_ask',lambda client,model,schema,*a:{ai.Focus:focus,ai.Trace:trace,ai.Review:review}[schema])
+    doc={**sketch.blank('R1'),**rectangle(),'overhead_id':'overhead'};before=deepcopy(doc)
+    result=sketch.generate(doc,[dict(id='overhead',role='overhead',width=1000,height=500,data_url=image())])
+    assert result['components']==[] and any('parking lot' in w for w in result['warnings'])
+    assert doc==before
+
+
+def test_oblique_overhead_is_rejected_before_tracing(monkeypatch):
+    from app.commercial import sketch_ai as ai
+    calls=[]
+    def ask(client,model,schema,*a):
+        calls.append(schema)
+        return ai.Focus(suitable_overhead=False,projection='oblique',target_unambiguous=True,left=0,top=0,right=100,bottom=100,visible_account_ids=[],warnings=[])
+    monkeypatch.setenv('COMMERCIAL_SKETCH_API_KEY','test');monkeypatch.setattr(ai,'_ask',ask)
+    doc=sketch.blank('R1');doc['overhead_id']='overhead'
+    assert not sketch.generate(doc,[dict(id='overhead',role='overhead',data_url=image())])['components']
+    assert calls==[ai.Focus]
+
+
+def test_preview_generation_never_saves_over_current_sketch(store,monkeypatch):
+    import importlib
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    api=importlib.import_module('app.commercial.api')
+    monkeypatch.setattr(api,'load_store',lambda *a:store)
+    monkeypatch.setattr(api,'record_activity',lambda *a,**kw:None)
+    monkeypatch.setattr(sketch,'generate',lambda *a:rectangle())
+    app=FastAPI();app.include_router(api.commercial_router(lambda token:SimpleNamespace(district_id='d1',email='actor',user_id='u1')))
+    client=TestClient(app);rid=store.manifest['records'][0]['id'];account=store.detail(rid)['account']
+    response=client.post('/api/commercial/sketch/generate',json={'id':rid,'revision':0,'preview':True})
+    assert response.status_code==200 and response.json()['preview'] is True
+    assert sketch.get(store,account)['revision']==0 and sketch.history(store,account)==[]

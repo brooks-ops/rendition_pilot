@@ -40,3 +40,16 @@ Sketch draft saves, approvals, generated drafts, and photo additions are recorde
 ## Photo-first capture workflow
 
 The default screen requests an overhead image, front angle, and side angle. Create building sketch uploads pending photos and generates a saved AI draft without a separate upload/save step. Reviewers can confirm all visible component outlines together, select a numbered wall and enter one independently verified length to scale the whole sketch, then approve. Manual tracing, corner editing, splitting, and technical exports are behind correction/manual tools. Latest front and side images take precedence over retained older photos during inference. Aerial imagery acquisition, uncalibrated automatic measurements, and editable Orion delivery remain unimplemented; approval saves only within Rendition Pilot.
+
+
+## Accuracy changes after the first field trial
+
+Generation now isolates the target building in original-image pixels, traces a focused crop with a coordinate grid, maps those points back to the full image, and independently compares a clean full overhead/crop with candidate overlays. Material disagreement, unsupported canopies, oblique/ambiguous overheads, invalid crop coordinates, and overlapping components fail closed without replacing the saved sketch. The default model is `gpt-6-astra`, following current official API migration guidance; an explicit `COMMERCIAL_SKETCH_MODEL` remains authoritative. Supported newer models use original image detail; older configured models use high. Three bounded calls have a combined 180-second budget. Visual acceptance is a model judgment, not ground truth or a survey certificate. It must be evaluated on real examples.
+
+A generation `preview: true` request runs the same pipeline without saving any geometry, revision, or activity record. This is useful for evaluating a failed example without overwriting the appraiser's work. No caller-supplied account, actor, or arbitrary model is accepted. Normal generation continues to create a draft revision, not an approval.
+
+All AI-derived approvals now require a verified reference scale and an independent, nonparallel wall measurement on the current outline. Predicted versus measured length must agree within the larger of 0.5 ft and 2%. This is a proportion check, not proof that every edge is correct. An edited checked wall invalidates the check. Component overlaps above 0.5% of the smaller polygon are blocked at approval for manual and AI sketches. Areas remain per-component and are not silently netted.
+
+New photos retain up to 2400 pixels and higher JPEG quality. Existing low-resolution uploads are not artificially enlarged. Ground photos identify structure but cannot provide survey-accurate hidden geometry. A roof-edge draft stays explicitly unverified until the appraiser confirms wall offsets. OCR-detected property labels differing from the account produce a warning. Neither the photo label nor model confidence overrides the server-owned account association. Calibration and the independent check are cleared whenever AI regenerates geometry. No direct Orion import has been added by these accuracy changes.
+
+Official references: https://developers.openai.com/api/docs/guides/images-vision and https://developers.openai.com/api/docs/guides/latest-model/gpt-6-astra.md#migration-quickstart .
