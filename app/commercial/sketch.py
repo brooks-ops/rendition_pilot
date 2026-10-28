@@ -151,7 +151,7 @@ def validate(document, available, *, approve=False):
     warnings=document.get('warnings',[])
     if not isinstance(warnings,list):warnings=[]
     source=next((p.get('provenance') for p in available if p['id']==overhead),None)
-    return dict(components=clean,overhead_id=overhead,calibration=calibration,measurement_check=check,public_source=source,generation_quality=document.get('generation_quality') if isinstance(document.get('generation_quality'),dict) else None,notes=str(document.get('notes') or '')[:4000],warnings=[str(w)[:500] for w in warnings[:20]])
+    return dict(area_context=document.get('area_context'),components=clean,overhead_id=overhead,calibration=calibration,measurement_check=check,public_source=source,generation_quality=document.get('generation_quality') if isinstance(document.get('generation_quality'),dict) else None,notes=str(document.get('notes') or '')[:4000],warnings=[str(w)[:500] for w in warnings[:20]])
 
 
 def summary(document, available):
@@ -228,6 +228,26 @@ def history(store,account):
 def generate(document, available):
     from .sketch_ai import generate as focused_generate
     return focused_generate(document,available)
+
+
+def area_context(record):
+    return {'model':str(record.get('model') or ''),'category':str(record.get('values',{}).get('category') or '').strip().casefold()}
+
+
+def area_defaults(store, record):
+    """District-local defaults from explicit codes saved for the same model/category."""
+    context=area_context(record);choices={}
+    if not context['model'] or not context['category']:return {}
+    with store.connect() as db:
+        rows=db.execute('SELECT document FROM building_sketches').fetchall()
+    for row in rows:
+        doc=json.loads(row[0])
+        if doc.get('area_context')!=context:continue
+        for comp in doc.get('components',[]):
+            if comp.get('area_code') and comp.get('area_description') and comp.get('verified'):
+                choices.setdefault(comp['kind'],set()).add((comp['area_code'],comp['area_description']))
+    # Ambiguous category mappings require a choice rather than guessing.
+    return {kind:{'area_code':next(iter(values))[0],'area_description':next(iter(values))[1]} for kind,values in choices.items() if len(values)==1}
 
 
 def export_apex_xml(document, available):
