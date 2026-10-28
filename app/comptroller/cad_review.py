@@ -30,11 +30,11 @@ def _request(method, table, *, params=None, payload=None):
     return _request_json(method, f'{url}/rest/v1/{table}', postgrest_headers(key, prefer='return=representation'), params=params, json_payload=payload)
 
 
-def decision_history(jurisdiction_id: str, permit_location_id: str) -> list[dict]:
+def decision_history(jurisdiction_id: str, permit_location_id: str | None, *, filing_id: str | None = None) -> list[dict]:
     url, key = get_supabase_config()
     return _paginated_get(url, postgrest_headers(key), 'cad_match_decisions', {
         'select': '*', 'jurisdiction_id': f'eq.{jurisdiction_id}',
-        'permit_location_id': f'eq.{permit_location_id}', 'order': 'reviewed_at.desc,id.desc',
+        ('dba_filing_id' if filing_id else 'permit_location_id'): f'eq.{filing_id or permit_location_id}', 'order': 'reviewed_at.desc,id.desc',
     }, page_size=500)
 
 
@@ -64,8 +64,11 @@ def candidate_review(jurisdiction, item, *, account_number: str | None = None, o
         records = adapter.find_properties_by_real_account(jurisdiction, account_number.strip().upper())
     else:
         records = adapter.find_properties_by_address(jurisdiction, normalized.base_address, limit=500) if normalized.base_address else []
-    permit_id = item_permit_id(item)
-    history = decision_history(jurisdiction.id, permit_id) if permit_id else []
+    permit_id = item_permit_id(item);filing_id=item.raw.get("source_dba_filing_id")
+    if filing_id and not account_number and not normalized.base_address:
+        ids=[r["id"] for r in (item.raw.get("evidence") or {}).get("account_candidates",[])][:20]
+        with ThreadPoolExecutor(max_workers=4) as pool:records=[p for p in pool.map(lambda pid:adapter.get_property_by_id(jurisdiction,pid),ids) if p]
+    history = decision_history(jurisdiction.id, permit_id,filing_id=filing_id) if permit_id or filing_id else []
     confirmed, decisions = current_decisions(history)
     candidates = []
     for prop in records:
@@ -87,7 +90,7 @@ def candidate_review(jurisdiction, item, *, account_number: str | None = None, o
     candidates.sort(key=lambda r: (not r['is_confirmed'], r['address_conflict'], -r['name_score'], r['real_account_number']))
     return {'candidates': candidates[offset:offset+20], 'offset': offset, 'has_more': len(candidates) > offset+20,
             'candidate_count': len(candidates), 'truncated': not account_number and len(records) >= 500,
-            'confirmed': confirmed, 'history': history[:30], 'can_review': bool(permit_id),
+            'confirmed': confirmed, 'history': history[:30], 'can_review': bool(permit_id or filing_id),
             'source': {'business_name': item.business_name, 'legal_name': item.legal_name, 'address': item.source_address, 'zip': item.source_zip}}
 
 
@@ -97,8 +100,9 @@ def save_decision(jurisdiction, item, *, property_record_id: str, decision: str,
     if not reviewed_by:
         raise CadReviewError('A signed-in reviewer is required.')
     permit_id = item_permit_id(item)
-    if not permit_id:
-        raise CadReviewError('This item has no source permit to attach a match decision to.')
+    filing_id=item.raw.get('source_dba_filing_id')
+    if not permit_id and not filing_id:
+        raise CadReviewError('This item has no source filing or permit to attach a match decision to.')
     prop = get_property_adapter(jurisdiction).get_property_by_id(jurisdiction, property_record_id)
     if not prop or classify_account_type(prop.real_account_number, prefixes=jurisdiction.account_type_prefixes) != 'PERSONAL':
         raise CadReviewError('Choose a personal-property account from this district.')
@@ -110,7 +114,7 @@ def save_decision(jurisdiction, item, *, property_record_id: str, decision: str,
         raise CadReviewError('Explain why this account is correct despite the address or suite difference.')
     rows = _request('POST', 'cad_match_decisions', payload={
         'district_id': item.district_id, 'jurisdiction_id': jurisdiction.id,
-        'permit_location_id': permit_id, 'property_record_id': prop.property_id,
+        'permit_location_id': permit_id, 'dba_filing_id':filing_id, 'property_record_id': prop.property_id,
         'account_number': prop.real_account_number, 'decision': decision,
         'notes': (notes or '').strip() or None, 'reviewed_by': reviewed_by,
         'source_table': item.source_table, 'source_item_id': item.id,
@@ -157,7 +161,8 @@ def match_health(jurisdiction, items, *, today: date | None = None):
     url, key = get_supabase_config()
     decisions = _paginated_get(url, postgrest_headers(key), 'cad_match_decisions', {'select':'*', 'jurisdiction_id': f'eq.{jurisdiction.id}', 'order':'reviewed_at.desc,id.desc'},page_size=500)
     permit_groups = {}
-    for d in decisions:permit_groups.setdefault(d['permit_location_id'], []).append(d)
+    for d in decisions:
+        if d.get('permit_location_id'):permit_groups.setdefault(d['permit_location_id'], []).append(d)
     confirmed = sum(bool(current_decisions(rows)[0]) for rows in permit_groups.values())
     return {'latest_import': latest, 'recent_imports': imports, 'freshness': freshness, 'source_age_days': age,
             'stale_after_days': 90, 'bpp_record_count': total if known_personal else None,
@@ -169,6 +174,9 @@ def match_health(jurisdiction, items, *, today: date | None = None):
 
 def refresh_item_match(item, *, candidates=None):
     """Refresh advisory evidence after a decision, without resolving the alert."""
+    if item.signal_type=="county_clerk_dba":
+        from app.county_clerk.service import refresh_item
+        return refresh_item(item)
     from app.comptroller.matching import match_closure_to_account
     from app.comptroller.new_business import classify_match
     result = match_closure_to_account(district_id=item.district_id, permit_location_id=item_permit_id(item),
@@ -200,14 +208,14 @@ def refresh_after_import(jurisdiction, import_id, quality):
     from app.comptroller.matching import fetch_candidate_records
     try:
         items = list_intelligence_queue(jurisdiction.district_id)
-        pending = [i for i in items if i.signal_type in ('new_business','sales_tax_inactive') and i.status in ('NEW','IN_REVIEW')]
+        pending = [i for i in items if i.signal_type in ('new_business','sales_tax_inactive','county_clerk_dba') and i.status in ('NEW','IN_REVIEW')]
         candidates = fetch_candidate_records(jurisdiction.district_id)
         with ThreadPoolExecutor(max_workers=4) as pool:
             list(pool.map(lambda item: refresh_item_match(item, candidates=candidates), pending))
         from app.comptroller.mailing_account_links import refresh_mailing_account_links
         mailing_links = refresh_mailing_account_links(jurisdiction)
         items = list_intelligence_queue(jurisdiction.district_id)
-        relevant = [i for i in items if i.signal_type in ('new_business','sales_tax_inactive')]
+        relevant = [i for i in items if i.signal_type in ('new_business','sales_tax_inactive','county_clerk_dba')]
         counts = Counter('ambiguous' if i.is_ambiguous else 'unmatched' if i.confidence in (None,'UNMATCHED') else 'high_confidence' if i.confidence == 'HIGH' else 'possible' for i in relevant)
         quality = {**quality, 'matching_refresh_status':'COMPLETED', 'matching_refreshed_at':datetime.now(timezone.utc).isoformat(),
                    'mailing_account_links':mailing_links,'queue_match_snapshot':{'total':len(relevant),**dict(counts)},'queue_items_refreshed':len(pending)}

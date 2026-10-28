@@ -339,6 +339,10 @@ class IntelligenceQueueRequest(BaseModel):
     status: str | None = None
     confidence: str | None = None
     city: str | None = None
+    filing_from: date | None = None
+    filing_to: date | None = None
+    filing_type: Literal["ASSUMED NAME","ASSUMED NAME ABANDONMENT"] | None = None
+    assigned_to: str | None = None
 
 
 class IntelligenceItemRequest(BaseModel):
@@ -1414,6 +1418,9 @@ def info() -> dict[str, str]:
 
 from app.super_admin import router as super_admin_router
 app.include_router(super_admin_router(get_supabase_user))
+from app.county_clerk.api import router as county_clerk_router
+app.include_router(county_clerk_router(require_bpp_access))
+
 
 @app.get('/super-admin')
 def super_admin_page():
@@ -2191,6 +2198,7 @@ def intelligence_queue(request: IntelligenceQueueRequest) -> dict[str, Any]:
             status=request.status,
             confidence=request.confidence,
             city=request.city,
+            **{key:value for key,value in {"filing_from":request.filing_from.isoformat() if request.filing_from else None,"filing_to":request.filing_to.isoformat() if request.filing_to else None,"filing_type":request.filing_type,"assigned_to":request.assigned_to}.items() if value},
         )
     except ComptrollerServiceError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -2420,6 +2428,8 @@ def intelligence_investigate(request: IntelligenceInvestigateRequest) -> dict[st
 def intelligence_resolve(request: IntelligenceResolveRequest) -> dict[str, Any]:
     district = require_bpp_access(request.access_token)
     original = _require_own_district_item(district, request.source_table, request.item_id)
+    if original.signal_type=="county_clerk_dba" and request.resolution in ("BUSINESS_CLOSED","NEW_ACCOUNT_NEEDED") and len((request.resolution_notes or '').strip())<20:
+        raise HTTPException(400,'Record independently verified evidence in the notes. A DBA filing or abandonment alone does not prove opening or closure.')
     _claim_bpp_work(district,original)
     user = get_supabase_user(request.access_token)
     try:

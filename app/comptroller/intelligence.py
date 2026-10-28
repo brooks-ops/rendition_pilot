@@ -35,6 +35,7 @@ SOURCE_TABLE_CLOSURE_REVIEW = "comptroller_closure_reviews"
 # addition here, not a UI change.
 SOURCE_LABELS: dict[str, str] = {
     "tx_comptroller_open_data": "Texas Comptroller (Sales Tax)",
+    "county_clerk_eagleweb":"County Clerk (EagleWeb DBA filing)",
 }
 
 
@@ -68,6 +69,7 @@ _RESOLUTION_TO_CLOSURE_WORKFLOW = {
 }
 
 RESOLUTION_OPTIONS_BY_SIGNAL_TYPE = {
+    "county_clerk_dba":["ACCOUNT_EXISTS","NEW_ACCOUNT_NEEDED","BUSINESS_CLOSED","OWNERSHIP_CHANGE","RELOCATION","DUPLICATE","NO_TAXABLE_BPP","FALSE_MATCH","OTHER"],
     "new_business": [
         "ACCOUNT_EXISTS",
         "NEW_ACCOUNT_NEEDED",
@@ -294,10 +296,11 @@ def list_intelligence_queue(
     status: str | None = None,
     confidence: str | None = None,
     city: str | None = None,
+    filing_from: str | None = None, filing_to: str | None = None, filing_type: str | None = None, assigned_to: str | None = None,
 ) -> list[UnifiedIntelligenceItem]:
     items: list[UnifiedIntelligenceItem] = []
 
-    if signal_type in (None, "new_business", "mailing_address_change"):
+    if signal_type in (None, "new_business", "mailing_address_change", "county_clerk_dba"):
         items.extend(_from_intelligence_row(row) for row in _fetch_intelligence_items(district_id, signal_type=signal_type))
     if signal_type in (None, "sales_tax_inactive"):
         items.extend(_from_closure_review_row(row) for row in _fetch_closure_reviews(district_id))
@@ -337,6 +340,10 @@ def list_intelligence_queue(
     if city:
         items = [i for i in items if (i.source_city or "").strip().upper() == city.strip().upper()]
 
+    if filing_from:items=[i for i in items if i.raw.get("filing_date") and i.raw["filing_date"]>=filing_from]
+    if filing_to:items=[i for i in items if i.raw.get("filing_date") and i.raw["filing_date"]<=filing_to]
+    if filing_type:items=[i for i in items if i.raw.get("filing_type")==filing_type]
+    if assigned_to:items=[i for i in items if (not i.raw.get("assigned_to") if assigned_to=="UNASSIGNED" else i.raw.get("assigned_to")==assigned_to)]
     items.sort(key=lambda i: i.created_at or "", reverse=True)
     # Reorder inactive records within their existing queue positions; other
     # signal types keep their established order and priority.
