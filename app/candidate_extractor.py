@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from app.value_evidence import non_value_at
+from app.value_evidence import non_value_at, explicit_zero
 from typing import Any
 
 
@@ -15,6 +15,7 @@ class CandidateExtractor:
                 \d{1,3}(?:,\d{3})+(?:\.\d{2})?
                 |
                 \d{2,}(?:\.\d{2})?
+                | 0(?:\.0{1,2})?(?![\w.,])
             )
             (?!\d)
             """,
@@ -70,7 +71,7 @@ class CandidateExtractor:
 
                 if value is None:
                     continue
-                if value < 100:
+                if value < 100 and not explicit_zero(raw_value):
                     continue
                 if self._looks_like_year(value):
                     continue
@@ -240,7 +241,7 @@ class CandidateExtractor:
                 score -= 6
 
         # Penalize suspicious small values
-        if value < 100:
+        if 0 < value < 100:
             score -= 12
         elif value < 500:
             score -= 4
