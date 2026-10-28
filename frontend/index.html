@@ -2204,7 +2204,7 @@
       for(const user of appState.admin.users){const row=document.createElement('tr');
         for(const text of [user.email,user.role||'member',user.user_id?'Account created':'Invited']){const cell=document.createElement('td');cell.textContent=text;row.appendChild(cell);}
         const cell=document.createElement('td'),action=document.createElement('td');
-        if(user.role==='admin'){cell.textContent='BPP and Commercial (admin)';}
+        if(user.role==='admin'){const grants=user.workspace_access||{bpp:true,commercial:true};cell.textContent=(grants.bpp&&grants.commercial?'BPP and Commercial':grants.bpp?'BPP only':grants.commercial?'Commercial only':'No workspace access')+' (admin)';}
         else{const select=document.createElement('select');select.setAttribute('aria-label','Workspace access for '+user.email);const grants=user.workspace_access||{bpp:true,commercial:true};
           for(const [value,label] of [['bpp','BPP only'],['commercial','Commercial only'],['both','BPP and Commercial']]){const option=document.createElement('option');option.value=value;option.textContent=label;select.appendChild(option);}
           select.value=grants.bpp&&grants.commercial?'both':grants.commercial?'commercial':'bpp';cell.appendChild(select);
