@@ -1412,6 +1412,14 @@ def info() -> dict[str, str]:
     }
 
 
+from app.super_admin import router as super_admin_router
+app.include_router(super_admin_router(get_supabase_user))
+
+@app.get('/super-admin')
+def super_admin_page():
+    return FileResponse(FRONTEND_DIR/'super-admin.html')
+
+
 @app.post("/api/auth/login")
 def auth_login(request: LoginRequest) -> dict[str, Any]:
     auth_result = sign_in_with_supabase(resolve_login_identifier(request.email), request.password)

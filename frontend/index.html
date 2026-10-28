@@ -243,7 +243,7 @@
         <button id="mailing-tab" class="tab-btn hidden" data-view="mailing" type="button">Mailing Address</button>
         <button id="property-tab" class="tab-btn hidden" data-view="property" type="button">Property Lookup</button>
         <button id="readiness-tab" class="tab-btn hidden" data-view="readiness" type="button">Readiness</button>
-        <button id="admin-tab" class="tab-btn hidden" data-view="admin" type="button">Admin</button>
+        <button id="admin-tab" class="tab-btn hidden" data-view="admin" type="button">Admin</button><a id="super-admin-link" class="tab-btn hidden" href="/super-admin">Super Admin</a>
       </nav>
       <div class="bpp-sidefoot">One account. All the supporting work.<br>Business personal property</div>
     </aside>
@@ -1164,6 +1164,7 @@
       $("bpp-sidebar").classList.toggle("hidden", !authed);
       $("bpp-shell").classList.toggle("is-authed", authed);
       if (!authed) {
+        $("super-admin-link").classList.add("hidden");
         document.querySelectorAll(".tab-btn[data-view]").forEach(button => { button.classList.toggle("active", button.dataset.view === "single"); button.setAttribute("aria-current", button.dataset.view === "single" ? "page" : "false"); });
         document.querySelectorAll(".view").forEach(view => view.classList.toggle("active", view.id === "view-single"));
         $("bpp-page-title").textContent = "Rendition review";
@@ -1184,6 +1185,7 @@
         $("signed-in-district").textContent = `District: ${appState.auth.district.district_name} | Role: ${appState.auth.district.role || "member"}`;
         $("app-subtitle").textContent = `${appState.auth.district.district_name} | Intelligent BPP rendition review with side-by-side document verification.`;
         $("admin-tab").classList.toggle("hidden", !isAdmin);
+        $("super-admin-link").classList.toggle("hidden",appState.auth.user?.app_metadata?.rendition_super_admin!==true);
         $("intelligence-tab").classList.toggle("hidden", !canUseBpp());
         $("mailing-tab").classList.toggle("hidden", !canUseBpp());
         $("property-tab").classList.toggle("hidden", !canUseBpp());
