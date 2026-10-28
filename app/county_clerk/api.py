@@ -35,6 +35,11 @@ def router(require_bpp):
     def commit(request:Commit):
         district=require_bpp(request.access_token)
         return run(service.commit,district,data(request),request.filename,request.expected_sha256,request.acknowledge_incomplete)
+    @api.post('/sync-status')
+    def sync_status(request:Session):
+        district=require_bpp(request.access_token)
+        from .sync_status import dashboard
+        return run(dashboard,district.district_id)
     @api.post('/history')
     def history(request:Session):
         district=require_bpp(request.access_token)

@@ -733,7 +733,8 @@
               <button id="intel-refresh" class="secondary" type="button">Refresh Queue</button>
             </div>
           </div>
-          <details id="dba-import-panel" class="card" style="margin-bottom:16px"><summary><strong>County Clerk DBA — import PDF</strong></summary>
+          <section id="dba-sync-panel" class="card" style="margin-bottom:16px"><div class="button-row"><h3 style="margin:0">County Clerk DBA</h3><button id="dba-sync-status-refresh" class="secondary" type="button">Refresh status</button></div><div id="dba-sync-status" role="status">Automatic daily collection: awaiting an approved source connection.</div><div id="dba-sync-metrics"></div><details><summary>Connection setup and missing data</summary><div id="dba-sync-setup">An authorized feed and a verified unattended run are required before daily collection can start.</div></details></section>
+<details id="dba-import-panel" class="card" style="margin-bottom:16px"><summary><strong>PDF fallback — import County Clerk DBA</strong></summary>
 <p class="subtle">Choose an EagleWeb printable search-results PDF. Preview the filings, then import them into this queue. A filing does not prove a business opened; abandonment does not prove it closed.</p>
 <input id="dba-file" type="file" accept=".pdf,application/pdf" aria-label="EagleWeb results PDF"><div class="button-row"><button id="dba-preview" type="button">Preview DBA PDF</button><button id="dba-history-load" type="button" class="secondary">Import history</button></div><div id="dba-message" role="status"></div><div id="dba-preview-results"></div><label id="dba-ack-label" class="hidden"><input id="dba-ack" type="checkbox" style="width:18px;height:18px"> I understand this is a partial or unverified result set and will import only these filings.</label><button id="dba-save" class="hidden" type="button" disabled>Import filings into queue</button><div id="dba-history"></div></details>
 <div class="bpp-filters" style="margin-bottom:16px"><div class="field"><label for="dba-date-from">Filing date from</label><input id="dba-date-from" type="date"></div><div class="field"><label for="dba-date-to">Filing date through</label><input id="dba-date-to" type="date"></div><div class="field"><label for="dba-type">Filing type</label><select id="dba-type"><option value="">All</option><option>ASSUMED NAME</option><option>ASSUMED NAME ABANDONMENT</option></select></div><div class="field"><label for="dba-assignee">Assigned appraiser</label><select id="dba-assignee"><option value="">All</option><option value="UNASSIGNED">Unassigned</option></select></div></div>
@@ -2341,7 +2342,21 @@
       }
     }
 
-        const dbaUi={upload:null,preview:null,busy:false};
+        let dbaStatusLoading=false;
+    async function refreshDbaSyncStatus(){
+      if(dbaStatusLoading)return;dbaStatusLoading=true;$('dba-sync-status-refresh').disabled=true;
+      try{const s=await dbaApi('sync-status');
+        if(!s.configured){$('dba-sync-status').textContent=s.message;$('dba-sync-metrics').replaceChildren();$('dba-sync-setup').textContent='No county source is configured. Automatic collection is disabled.';return;}
+        $('dba-sync-status').textContent=s.sync_message;
+        $('dba-sync-status').className='status warn';
+        const m=s.metrics;
+        $('dba-sync-metrics').innerHTML=`<p><strong>Last successful synchronization:</strong> ${cadHtml(s.last_successful_sync||'Never — not activated')}<br>Last successful PDF fallback import: ${cadHtml(s.last_successful_fallback_import||'None')}</p><p class="subtle">${cadHtml(s.metrics_scope)}</p><div class="layout-3">${[['New-name filings',m.new_filings],['Abandonments',m.abandonments],['Matched to CRS',m.matched_to_crs],['Requiring investigation',m.requiring_investigation]].map(([label,value])=>`<div class="field"><label>${cadHtml(label)}</label><strong class="bpp-stat-value">${cadHtml(value)}</strong></div>`).join('')}</div>`;
+        $('dba-sync-setup').innerHTML=`<p>${cadHtml(s.sync_error_note)}</p><p>Missing full owner: ${m.missing_full_owner} · Missing business address: ${m.missing_business_address}</p><p>To activate automatic collection:</p><ol>${s.activation_requirements.map(x=>`<li>${cadHtml(x)}</li>`).join('')}</ol><button type="button" disabled>Sync now — connection not activated</button><p>PDF fallback issues:</p>${s.fallback_import_issues.map(i=>`<p>${cadHtml(i.filename)} · ${cadHtml(i.status)} · ${cadHtml(i.error_message||'Incomplete coverage or processing not yet complete; check import history.')}</p>`).join('')||'<p>No fallback import issues recorded.</p>'}`;
+      }catch(error){$('dba-sync-status').textContent='County Clerk status unavailable: '+error.message;$('dba-sync-metrics').replaceChildren();}
+      finally{dbaStatusLoading=false;$('dba-sync-status-refresh').disabled=false;}
+    }
+    $('dba-sync-status-refresh').addEventListener('click',refreshDbaSyncStatus);
+    const dbaUi={upload:null,preview:null,busy:false};
     const dbaApi=(path,payload={})=>fetchJson('/api/county-clerk/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,...payload})});
     function dbaFilingHtml(item){
       if(item.signal_type!=='county_clerk_dba')return '';
@@ -2551,6 +2566,7 @@
       appState.intelligence.items = queue.items || [];
       renderIntelligenceQueue(appState.intelligence.items);
       refreshCadHealth();
+      refreshDbaSyncStatus();
       if ($('dba-assignee').options.length===2) { dbaApi('reviewers').then(r=>{for(const u of r.reviewers){const option=document.createElement('option');option.value=u.id;option.textContent=u.label;$('dba-assignee').append(option);}}).catch(()=>{}); }
     }
 
