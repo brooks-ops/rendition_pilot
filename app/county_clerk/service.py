@@ -60,7 +60,9 @@ def classify(record,context,jurisdiction,*,decision=None):
         classification='DBA_POTENTIAL_CLOSURE_LEAD';reason='Assumed-name abandonment is a closure lead only. It does not prove that this business or taxable account closed.'
     if decision:
         best=next((c for c in candidates if c['id']==decision['property_record_id']),None)
-        if best:confidence='HIGH';score=1.0;ambiguous=False;reason='Appraiser confirmed the linked BPP account. '+(decision.get('notes') or '')
+        if best:
+            if classification=='DBA_NEEDS_REVIEW':classification='DBA_EXISTING_BUSINESS'
+            confidence='HIGH';score=1.0;ambiguous=False;reason='Appraiser confirmed the linked BPP account. '+(decision.get('notes') or '')
     evidence={'filing':{k:v for k,v in record.items() if k!='intelligence'},'account_candidates':candidates[:20],'sales_tax_candidates':sales[:20],'prior_filings':prior[:20],'truncated':truncated,'owner_text_used_for_matching':bool(record.get('owner_name_complete')),'human_decision':decision,'notice':'Filing evidence only. No automatic taxable-account creation, closure or change.'}
     return {'classification':classification,'priority':'MEDIUM' if best or record['filing_type']=='ASSUMED NAME ABANDONMENT' else 'LOW','confidence':confidence,'confidence_score':score,'is_ambiguous':ambiguous,'matched_record_id':best['id'] if best else None,'matched_account_number':best['real_account_number'] if best else None,'matched_owner_name':best.get('owner_name') if best else None,'matched_address':best.get('situs_address_raw') if best else None,'match_reason':reason,'match_signals':{'name_evidence':'EXACT NORMALIZED NAME' if candidates else 'NO RELIABLE MATCH','filing_address':'NOT PROVIDED','owner':'COMPLETE SOURCE NAME' if record.get('owner_name_complete') else 'MISSING / CLIPPED — NOT USED','sales_tax_candidates':str(len(sales)),'prior_filings':str(len(prior))},'recommended_action':'Open the individual filing, verify the account and location, then record the review outcome.','evidence':evidence}
 
