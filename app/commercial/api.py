@@ -134,7 +134,10 @@ def commercial_router(resolve_context):
     @router.post('/sketch')
     def sketch_detail(payload:dict):
         store,c,account=sketch_context(payload)
-        return sketch_result(store,account)
+        result=sketch_result(store,account)
+        from . import sketch
+        result['area_defaults']=sketch.area_defaults(store,store.detail(payload['id']))
+        return result
 
     @router.post('/sketch/save')
     def sketch_save(payload:dict):
@@ -143,7 +146,11 @@ def commercial_router(resolve_context):
         try:
             revision=payload.get('revision')
             if isinstance(revision,bool) or not isinstance(revision,int) or revision<0:raise SketchError('Invalid sketch revision.')
-            document=store.save_sketch(account,payload.get('document'),revision,c.email,payload.get('approve') is True)
+            from . import sketch
+            incoming=payload.get('document')
+            if not isinstance(incoming,dict):raise SketchError('Invalid sketch document.')
+            incoming={**incoming,'area_context':sketch.area_context(store.detail(payload['id']))}
+            document=store.save_sketch(account,incoming,revision,c.email,payload.get('approve') is True)
         except SketchConflict as exc:raise HTTPException(409,str(exc))
         except SketchError as exc:raise HTTPException(400,str(exc))
         record_activity(c,'commercial_sketch_approved' if document['status']=='APPROVED' else 'commercial_sketch_saved','commercial','commercial_sketch',account,dedup_key=f"{account}:{document['revision']}")

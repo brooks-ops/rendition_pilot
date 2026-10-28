@@ -339,3 +339,25 @@ def test_xml_download_endpoint_uses_saved_account_and_returns_actionable_errors(
     assert response.headers['content-type'].startswith('application/xml')
     assert response.headers['content-disposition']==f'attachment; filename="{account}.xml"'
     assert sketch.get(store,account)['revision']==1
+
+
+def test_area_defaults_reuse_verified_codes_only_within_exact_category(store):
+    record={'model':'retail','values':{'category':'Restaurant'}}
+    doc=rectangle();doc['area_context']=sketch.area_context(record)
+    doc['components'][0].update(area_code='350',area_description='MA - Main Area')
+    store.save_sketch('R1',doc,0,'actor')
+    assert sketch.area_defaults(store,record)=={'main':{'area_code':'350','area_description':'MA - Main Area'}}
+    assert sketch.area_defaults(store,{'model':'retail','values':{'category':'Office'}})=={}
+    assert sketch.area_defaults(store,{'model':'cost','values':{'category':'Restaurant'}})=={}
+    assert sketch.area_defaults(store,{'model':'retail','values':{}})=={}
+    doc['components'][0]['area_code']='999'
+    store.save_sketch('R2',doc,0,'actor')
+    assert sketch.area_defaults(store,record)=={}
+
+
+def test_unverified_code_does_not_become_category_default(store):
+    record={'model':'retail','values':{'category':'Restaurant'}}
+    doc=rectangle();doc['area_context']=sketch.area_context(record)
+    doc['components'][0].update(area_code='350',area_description='Main',verified=False)
+    store.save_sketch('R1',doc,0,'actor')
+    assert sketch.area_defaults(store,record)=={}
