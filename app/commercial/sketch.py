@@ -119,7 +119,7 @@ def validate(document, available, *, approve=False):
         if len(identity)>80 or identity in seen:raise SketchError('Component identities must be unique.')
         seen.add(identity)
         clean.append(dict(id=identity,label=str(comp.get('label') or 'Building component')[:100],kind=comp['kind'],
-                          points=polygon(comp.get('points')),source='ai' if comp.get('source')=='ai' else 'manual',verified=comp.get('verified') is True))
+                          points=polygon(comp.get('points')),source=comp.get('source') if comp.get('source') in ('ai','public_gis') else 'manual',verified=comp.get('verified') is True))
     overhead=document.get('overhead_id')
     ids={p['id'] for p in available}
     if overhead and (overhead not in ids or not any(p['id']==overhead and p['role']=='overhead' for p in available)):raise SketchError('The overhead photo is not attached to this account.')
@@ -139,6 +139,7 @@ def validate(document, available, *, approve=False):
             raise SketchError('Enter a positive independent wall measurement.')
         check=dict(a=a,b=b,feet=float(feet),verified=check.get('verified') is True)
     else:check=None
+    if approve and any(c['source']=='public_gis' and c['kind']=='other' for c in clean):raise SketchError('Classify every public GIS building component before approval.')
     if approve and component_overlap(clean):raise SketchError('Building components overlap and would double-count area. Correct the outlines before approval.')
     if approve and any(c['source']=='ai' for c in clean):
         checked=measurement_check_result({**document,'components':clean,'calibration':calibration,'measurement_check':check},available)
@@ -147,7 +148,8 @@ def validate(document, available, *, approve=False):
         raise SketchError('Approve only after setting a verified measured scale and verifying every component.')
     warnings=document.get('warnings',[])
     if not isinstance(warnings,list):warnings=[]
-    return dict(components=clean,overhead_id=overhead,calibration=calibration,measurement_check=check,generation_quality=document.get('generation_quality') if isinstance(document.get('generation_quality'),dict) else None,notes=str(document.get('notes') or '')[:4000],warnings=[str(w)[:500] for w in warnings[:20]])
+    source=next((p.get('provenance') for p in available if p['id']==overhead),None)
+    return dict(components=clean,overhead_id=overhead,calibration=calibration,measurement_check=check,public_source=source,generation_quality=document.get('generation_quality') if isinstance(document.get('generation_quality'),dict) else None,notes=str(document.get('notes') or '')[:4000],warnings=[str(w)[:500] for w in warnings[:20]])
 
 
 def summary(document, available):
@@ -163,8 +165,10 @@ def summary(document, available):
         points=[[x*width/1000,y*height/1000] for x,y in c['points']]
         result.append(dict(id=c['id'],square_feet=round(area(points)*factor**2,2) if factor else None,
                            wall_feet=[round(math.dist(a,b)*factor,2) for a,b in zip(points,points[1:]+points[:1])] if factor else []))
+    source=document.get('public_source')
+    public_note=(' Public GIS-derived dimensions, not field measured. '+str(source['provider'])+'; imagery service '+str(source['imagery_year'])+'; footprint dates '+', '.join(sorted({f['footprint_date'] for f in source['footprints']}))+'.') if source else ''
     return dict(components=result,scaled=factor is not None,width=width,height=height,
-                measurement_check=measurement_check_result(document,available),area_note='Component areas are separate; overlapping components cannot be approved. Roof edges and wall footprints may differ.')
+                measurement_check=measurement_check_result(document,available),area_note='Component areas are separate; overlapping components cannot be approved. Roof edges and wall footprints may differ.'+public_note)
 
 
 def _write(db,account,document,revision,actor,approve):
@@ -228,6 +232,7 @@ def export_svg(document, available):
     from xml.etree.ElementTree import Element, SubElement, tostring
     sizes=summary(document,available);ratio=sizes['height']/sizes['width'];height=1000*ratio
     root=Element('svg',xmlns='http://www.w3.org/2000/svg',viewBox=f'0 0 1000 {height+125}')
+    if document.get('public_source'):SubElement(root,'metadata').text=json.dumps(document['public_source'])
     SubElement(root,'rect',width='1000',height=str(height+125),fill='#fff')
     for i,comp in enumerate(document['components']):
         points=comp['points'];color=['#256650','#b17b29','#447b95','#a05268'][i%4]
@@ -237,8 +242,10 @@ def export_svg(document, available):
         label=SubElement(root,'text',x=str(x),y=str(y),fill='#172d31',**{'text-anchor':'middle','font-size':'16'})
         label.text=f"{comp['label']} · {area_sq:,.1f} SF" if area_sq is not None else comp['label']+' · UNSCALED'
     title=SubElement(root,'text',x='15',y=str(height+32),**{'font-size':'20'});title.text=f"{document['account']} — {document['status']} — Revision {document['revision']}"
-    note=SubElement(root,'text',x='15',y=str(height+59),**{'font-size':'13'});note.text='Appraisal sketch · '+('Approved measured sketch' if document['status']=='APPROVED' else 'Draft reference scale; geometry unverified') if sizes['scaled'] else 'No measurement scale; dimensions unavailable'
-    note=SubElement(root,'text',x='15',y=str(height+83),**{'font-size':'12'});note.text=sizes['area_note']
+    note=SubElement(root,'text',x='15',y=str(height+59),**{'font-size':'13'});note.text='Appraisal sketch · '+('GIS-derived dimensions; not field measured' if document.get('public_source') else 'Approved measured sketch' if document['status']=='APPROVED' else 'Draft reference scale; geometry unverified') if sizes['scaled'] else 'No measurement scale; dimensions unavailable'
+    from textwrap import wrap
+    note=SubElement(root,'text',x='15',y=str(height+83),**{'font-size':'12'})
+    for index,line in enumerate(wrap(sizes['area_note'],width=145)[:3]):SubElement(note,'tspan',x='15',dy='0' if index==0 else '14').text=line
     return tostring(root,encoding='utf-8',xml_declaration=True)
 
 
@@ -282,3 +289,19 @@ def export_pdf(document,available):
         if y<40:canvas.showPage();header();y=page_height-80
         canvas.setFont('Helvetica',8);canvas.drawString(36,y,line);y-=11
     canvas.save();return output.getvalue()
+
+
+def import_public(store,account,bundle,revision,actor,replace=False):
+    """Persist trusted server-fetched geometry and its image in one revision."""
+    photo=deepcopy(bundle['photo']);encoded=photo.pop('data_url');photo['bytes']=len(encoded)
+    with store.lock,store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute('SELECT revision,document FROM building_sketches WHERE account=?',(account,)).fetchone()
+        if (row[0] if row else 0)!=revision:raise SketchConflict('The sketch changed. Reload before importing public measurements.')
+        current=json.loads(row[1]) if row else blank(account)
+        if current['components'] and not replace:raise SketchConflict('Confirm replacement of the existing sketch before importing a new draft.')
+        existing=[json.loads(r[0]) for r in db.execute('SELECT metadata FROM building_sketch_photos WHERE account=?',(account,))]
+        if len(existing)>=12 or sum(p.get('bytes',0) for p in existing)+len(encoded)>10_000_000:raise SketchError('This account has reached its photo storage limit.')
+        clean=validate(bundle['document'],existing+[photo])
+        db.execute('INSERT INTO building_sketch_photos VALUES(?,?,?,?)',(photo['id'],account,json.dumps(photo),encoded))
+        return _write(db,account,clean,revision,actor,False)

@@ -83,6 +83,8 @@ class RemoteStore(Store):
     def save_sketch(self,*args):return self.durable_change(super().save_sketch,*args)
     def upload_sketch_photo(self,*args):return self.durable_change(super().upload_sketch_photo,*args)
 
+    def import_public_sketch(self,*args):return self.durable_change(super().import_public_sketch,*args)
+
     def sync_sketch_photos(self):
         # Immutable private photo objects keep the shared workspace snapshot small.
         with self.connect() as db:

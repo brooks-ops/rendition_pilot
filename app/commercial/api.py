@@ -180,6 +180,31 @@ def commercial_router(resolve_context):
         record_activity(c,'commercial_sketch_generated','commercial','commercial_sketch',account,dedup_key=f"{account}:{saved['revision']}")
         return sketch_result(store,account,saved)
 
+    @router.post('/sketch/auto-measure')
+    def public_auto_measure(payload:dict):
+        from . import sketch,public_measure
+        store,c,account=sketch_context(payload)
+        district_slug=str(getattr(c,'district_slug','')).lower()
+        if 'lubbock' not in district_slug:raise HTTPException(400,'Public auto-measure currently covers Lubbock accounts only.')
+        document=sketch.get(store,account)
+        revision=payload.get('revision')
+        if type(revision) is not int or revision!=document['revision']:raise HTTPException(409,'Reload the latest sketch before measuring.')
+        if document['components'] and payload.get('replace_existing') is not True:raise HTTPException(409,'Confirm replacement of existing components first.')
+        try:
+            bundle=public_measure.build(account)
+            model_area=store.detail(payload['id'])['values'].get('area_sq_ft')
+            if isinstance(model_area,(int,float)) and model_area>0:
+                bundle['model_area_sq_ft']=model_area
+                public_area=sum(f['square_feet'] for f in bundle['provenance']['footprints'])
+                if abs(public_area/model_area-1)>.10:bundle['document']['warnings'].append('The GIS footprint differs from this model row area by more than 10%. They may represent different components; verify the building extent before approval.')
+            if payload.get('preview') is True:
+                return {**bundle,'summary':sketch.summary(bundle['document'],[bundle['photo']]),'preview':True}
+            saved=store.import_public_sketch(account,bundle,revision,c.email,payload.get('replace_existing') is True)
+        except sketch.SketchConflict as exc:raise HTTPException(409,str(exc))
+        except sketch.SketchError as exc:raise HTTPException(400,str(exc))
+        record_activity(c,'commercial_sketch_generated','commercial','commercial_sketch',account,dedup_key=f"{account}:{saved['revision']}")
+        return sketch_result(store,account,saved)
+
     @router.post('/sketch/export')
     def sketch_export(payload:dict):
         from . import sketch
