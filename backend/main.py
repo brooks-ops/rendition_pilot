@@ -708,11 +708,24 @@ def create_supabase_account_for_app(email: str, password: str, app_name: str) ->
 
 def get_supabase_user(access_token: str) -> dict[str, Any]:
     supabase_url, anon_key = get_supabase_config()
-    response = requests.get(
-        f"{supabase_url}/auth/v1/user",
-        headers={"apikey": anon_key, "Authorization": f"Bearer {access_token}"},
-        timeout=20,
-    )
+    # Retry this read-only verification once after a dropped TLS connection or
+    # temporary upstream outage. Never bypass verification or retry invalid tokens.
+    for attempt in range(2):
+        try:
+            response = requests.get(
+                f"{supabase_url}/auth/v1/user",
+                headers={"apikey": anon_key, "Authorization": f"Bearer {access_token}"},
+                timeout=(5, 10),
+            )
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == 0:
+                continue
+            raise HTTPException(503, "Sign-in verification is temporarily unavailable. Please try Run Review again.") from None
+        if response.status_code in (502, 503, 504):
+            if attempt == 0:
+                continue
+            raise HTTPException(503, "Sign-in verification is temporarily unavailable. Please try Run Review again.")
+        break
     try:
         data = response.json()
     except ValueError:
