@@ -147,6 +147,7 @@ def match_health(jurisdiction, items, *, today: date | None = None):
     age = (today - as_of).days if as_of else None
     freshness = 'UNKNOWN' if age is None else 'FUTURE_DATE' if age < 0 else 'STALE' if age > 90 else 'CURRENT'
     prefix = (jurisdiction.account_type_prefixes.get('personal') or '').strip()
+    known_personal=bool(prefix) or jurisdiction.account_type_prefixes.get('export_scope')=='personal'
     filters = {'real_account_number': f'like.{prefix}*'} if prefix else {}
     filters['and'] = '(or(account_status.is.null,account_status.neq.NOT_IN_ACTIVE_DBA_EXPORT))'
     total = _count_properties(jurisdiction, **filters)
@@ -159,9 +160,9 @@ def match_health(jurisdiction, items, *, today: date | None = None):
     for d in decisions:permit_groups.setdefault(d['permit_location_id'], []).append(d)
     confirmed = sum(bool(current_decisions(rows)[0]) for rows in permit_groups.values())
     return {'latest_import': latest, 'recent_imports': imports, 'freshness': freshness, 'source_age_days': age,
-            'stale_after_days': 90, 'bpp_record_count': total if prefix else None,
-            'named_bpp_record_count': named if prefix else None,
-            'name_coverage_percent': round(100*named/total,1) if prefix and total and named is not None else None,
+            'stale_after_days': 90, 'bpp_record_count': total if known_personal else None,
+            'named_bpp_record_count': named if known_personal else None,
+            'name_coverage_percent': round(100*named/total,1) if known_personal and total and named is not None else None,
             'queue': {'total':len(relevant), **{k:counts[k] for k in ('high_confidence','possible','ambiguous','unmatched')}},
             'human_confirmed_permits': confirmed, 'decision_count':len(decisions)}
 

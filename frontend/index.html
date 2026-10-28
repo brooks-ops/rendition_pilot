@@ -686,7 +686,7 @@
 
       <div id="view-intelligence" class="view">
         <section class="card">
-          <h3>BPP Intelligence Queue</h3>
+          <h3>BPP Intelligence Queue</h3><div class="button-row" style="margin-bottom:12px"><button id="cad-open-import" type="button">Import accounts</button><span class="subtle">Upload or refresh your county’s BPP account export.</span></div>
           <div class="subtle" style="margin-bottom:12px;">Evidence-backed work for review -- possible new businesses, sales-tax closures, and (later) relocations/ownership changes. Every item is a signal for a human to review, never an automatic change to official CAD/appraisal data.</div>
           <div class="bpp-stats" style="margin-bottom:25px;">
             <div class="field"><label>New</label><div id="intel-summary-new" class="bpp-stat-value">-</div></div>
@@ -733,19 +733,19 @@
               <button id="intel-refresh" class="secondary" type="button">Refresh Queue</button>
             </div>
           </div>
-          <details class="card bpp-data-tools" style="margin-bottom:16px;">
+          <details id="cad-data-tools" class="card bpp-data-tools" style="margin-bottom:16px;">
             <summary><strong>CAD data and match coverage</strong></summary>
             <div class="button-row"><button id="cad-refresh-matches" class="secondary" type="button">Refresh matches from CAD</button><span id="cad-refresh-status" class="subtle" role="status"></span></div>
             <div id="cad-health" class="subtle" style="margin-top:10px;">Loading CAD data quality…</div>
-            <details style="margin-top:12px;">
-              <summary>Import a CAD export</summary>
-              <p class="subtle">Upload CSV or Excel with account number, property ID and situs address. Include owner, business/DBA, suite, account status and tax year when available. Blank identity fields preserve existing names.</p>
+            <details id="cad-import-panel" style="margin-top:12px;">
+              <summary>Import account export</summary>
+              <p class="subtle">1. Choose the CSV or Excel export from your appraisal software and its as-of date. For Excel, put the account table on the first worksheet. 2. Check the suggested columns and sample rows. 3. Import. Required: account number and physical address. Include owner/business name, DBA, ZIP and tax year when available. The account number can also serve as the property ID. Keep account numbers as text in Excel to preserve leading zeroes. Existing names and reviewed matches are preserved.</p>
               <div class="layout-3">
                 <div class="field"><label for="cad-import-file">CAD export (up to 32 MB)</label><input id="cad-import-file" type="file" accept=".csv,.xlsx,.xls"></div>
                 <div class="field"><label for="cad-import-date">Export as-of date</label><input id="cad-import-date" type="date"></div>
                 <div class="field"><label>&nbsp;</label><button id="cad-import-preview" class="secondary" type="button">Preview and map columns</button></div>
               </div>
-              <div id="cad-import-mapping" class="layout-3"></div>
+              <label><input id="cad-import-bpp-only" type="checkbox"> This export contains BPP accounts only (no land or building accounts).</label><p class="subtle">Select this for a BPP-only export, including counties with numeric account numbers. Leave it unchecked for an already-configured mixed-property export.</p><div id="cad-import-mapping" class="layout-3"></div><div id="cad-import-sample" style="overflow:auto;margin:12px 0"></div>
               <div id="cad-import-result" class="subtle" role="status"></div>
               <div class="button-row"><button id="cad-import-validate" class="secondary hidden" type="button">Check mapping</button><button id="cad-import-save" class="hidden" type="button" disabled>Import mapped records</button></div>
             </details>
@@ -2362,7 +2362,7 @@
         const selected = appState.intelligence.selected;
         if (!selected || selected.source_table + selected.id !== key || sequence !== cadUi.sequence) return;
         $("cad-review-status").textContent = `${data.candidate_count}${data.truncated ? "+" : ""} P-account candidates${data.truncated ? " (large address; search a specific P account to narrow the list)" : ""}.${data.confirmed ? ` Appraiser-confirmed account: ${data.confirmed.account_number}.` : ""}${!data.can_review ? " This item has no source permit; decisions cannot be saved." : ""}`;
-        $("cad-review-candidates").innerHTML = data.candidates.length ? `<table style="width:100%;font-size:13px;text-align:left;border-collapse:collapse;"><thead><tr><th>CAD account / identity</th><th>Situs / suite / ZIP</th><th>Evidence</th><th>Review</th></tr></thead><tbody>${data.candidates.map(c => `<tr style="border-top:1px solid var(--line,#ddd);"><td style="padding:10px;vertical-align:top;"><strong>${cadHtml(c.real_account_number)}</strong><br>Owner: ${cadHtml(c.owner_name || "Missing")}<br>Business: ${cadHtml(c.business_name || "Missing")}<br>DBA: ${cadHtml(c.dba_name || "Missing")}<br>Tax year: ${cadHtml(c.tax_year)} · Status: ${cadHtml(c.account_status || "Not supplied")}</td><td style="padding:10px;vertical-align:top;">${cadHtml(c.situs_address_raw)}<br>Suite: ${cadHtml(c.situs_unit || "See address")}<br>ZIP: ${cadHtml(c.situs_zip)}<br>${c.address_conflict ? '<strong style="color:#a23d28;">Address conflict — verify</strong>' : ""}</td><td style="padding:10px;vertical-align:top;">Street: ${cadHtml(c.address_signal)}<br>ZIP: ${cadHtml(c.zip_signal)}<br>Suite: ${cadHtml(c.suite_signal)}<br>Name: ${cadHtml(c.name_signal)}<br>${c.is_confirmed ? "<strong>APPRAISER CONFIRMED</strong>" : c.decision?.decision === "REJECTED" ? "<strong>REJECTED</strong>" : "Awaiting review"}</td><td style="padding:10px;"><button type="button" class="secondary" data-cad-property="${cadHtml(c.property_id)}" data-cad-decision="CONFIRMED" ${!data.can_review || c.is_confirmed ? "disabled" : ""}>Confirm match</button><button type="button" class="secondary" data-cad-property="${cadHtml(c.property_id)}" data-cad-decision="REJECTED" ${!data.can_review || c.decision?.decision === "REJECTED" ? "disabled" : ""}>Reject match</button></td></tr>`).join("")}</tbody></table>` : '<p class="subtle">No P accounts found in this search. Search a known account number, or import a newer CAD export.</p>';
+        $("cad-review-candidates").innerHTML = data.candidates.length ? `<table style="width:100%;font-size:13px;text-align:left;border-collapse:collapse;"><thead><tr><th>CAD account / identity</th><th>Situs / suite / ZIP</th><th>Evidence</th><th>Review</th></tr></thead><tbody>${data.candidates.map(c => `<tr style="border-top:1px solid var(--line,#ddd);"><td style="padding:10px;vertical-align:top;"><strong>${cadHtml(c.real_account_number)}</strong><br>Owner: ${cadHtml(c.owner_name || "Missing")}<br>Business: ${cadHtml(c.business_name || "Missing")}<br>DBA: ${cadHtml(c.dba_name || "Missing")}<br>Tax year: ${cadHtml(c.tax_year)} · Status: ${cadHtml(c.account_status || "Not supplied")}</td><td style="padding:10px;vertical-align:top;">${cadHtml(c.situs_address_raw)}<br>Suite: ${cadHtml(c.situs_unit || "See address")}<br>ZIP: ${cadHtml(c.situs_zip)}<br>${c.address_conflict ? '<strong style="color:#a23d28;">Address conflict — verify</strong>' : ""}</td><td style="padding:10px;vertical-align:top;">Street: ${cadHtml(c.address_signal)}<br>ZIP: ${cadHtml(c.zip_signal)}<br>Suite: ${cadHtml(c.suite_signal)}<br>Name: ${cadHtml(c.name_signal)}<br>${c.is_confirmed ? "<strong>APPRAISER CONFIRMED</strong>" : c.decision?.decision === "REJECTED" ? "<strong>REJECTED</strong>" : "Awaiting review"}</td><td style="padding:10px;"><button type="button" class="secondary" data-cad-property="${cadHtml(c.property_id)}" data-cad-decision="CONFIRMED" ${!data.can_review || c.is_confirmed ? "disabled" : ""}>Confirm match</button><button type="button" class="secondary" data-cad-property="${cadHtml(c.property_id)}" data-cad-decision="REJECTED" ${!data.can_review || c.decision?.decision === "REJECTED" ? "disabled" : ""}>Reject match</button></td></tr>`).join("")}</tbody></table>` : '<p class="subtle">No BPP accounts found in this search. Search a known account number, or import a newer CAD export.</p>';
         $("cad-review-history").innerHTML = data.history.map(d => `<div style="padding:6px 0;">${cadHtml(d.account_number)} · <strong>${cadHtml(d.decision)}</strong> · ${cadHtml(new Date(d.reviewed_at).toLocaleString())}<br>Reviewer: ${cadHtml(d.reviewed_by)}${d.notes ? `<br>${cadHtml(d.notes)}` : ""}</div>`).join("") || "No appraiser match decisions saved yet.";
         $("cad-review-prev").classList.toggle("hidden", offset === 0);
         $("cad-review-next").classList.toggle("hidden", !data.has_more);
@@ -2396,13 +2396,14 @@
           const encoded = await new Promise((resolve,reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1]); reader.onerror = reject; reader.readAsDataURL(file); });
           cadUi.upload = { file, encoded };
         }
-        $("cad-import-result").textContent = "Checking export…";
-        const data = await cadApi("cad-import-preview", { filename:file.name, file_base64:cadUi.upload.encoded, mapping:useMapping ? cadMapping() : null });
-        $("cad-import-mapping").innerHTML = data.fields.map(field => `<div class="field"><label for="cad-map-${field}">${cadHtml(field.replaceAll("_"," "))}${["source_property_id","real_account_number","situs_address"].includes(field) ? " *" : ""}</label><select id="cad-map-${field}" data-cad-field="${field}"><option value="">Not supplied</option>${data.columns.map(column => `<option value="${cadHtml(column)}" ${data.mapping[field] === column ? "selected" : ""}>${cadHtml(column)}</option>`).join("")}</select></div>`).join("");
+        $("cad-import-result").textContent = "Checking export…";$("cad-import-sample").innerHTML="";
+        const data = await cadApi("cad-import-preview", { filename:file.name, file_base64:cadUi.upload.encoded, mapping:useMapping ? cadMapping() : null, bpp_only:$("cad-import-bpp-only").checked });
+        $("cad-import-mapping").innerHTML = data.fields.map(field => `<div class="field"><label for="cad-map-${field}">${cadHtml(({source_property_id:"Property ID (account number is OK)",real_account_number:"Account number",situs_address:"Physical / situs address",owner_name:"Owner name",business_name:"Business name",dba_name:"DBA / trading name",situs_zip:"Physical ZIP",tax_year:"Tax year"}[field]||field.replaceAll("_"," ")))}${["source_property_id","real_account_number","situs_address"].includes(field) ? " *" : ""}</label><select id="cad-map-${field}" data-cad-field="${field}"><option value="">Not supplied</option>${data.columns.map(column => `<option value="${cadHtml(column)}" ${data.mapping[field] === column ? "selected" : ""}>${cadHtml(column)}</option>`).join("")}</select></div>`).join("");
         $("cad-import-validate").classList.remove("hidden"); $("cad-import-save").classList.remove("hidden");
         if (data.validation_error) { $("cad-import-result").textContent = data.validation_error + " Update the mapping and choose Check mapping."; return; }
         const r = data.result, q = r.quality_summary;
-        $("cad-import-result").textContent = `${r.rows_read.toLocaleString()} rows read; ${r.rows_imported.toLocaleString()} records; ${r.rows_skipped} skipped; ${r.rows_deduplicated} duplicates collapsed. ${q.named_bpp_record_count}/${q.bpp_record_count} P records have names. ${r.warnings.join(" ")}`;
+        const sample=data.sample_rows||[];$("cad-import-sample").innerHTML=sample.length?`<strong>First ${sample.length} rows — verify these columns</strong><table style="font-size:12px"><thead><tr>${data.columns.map(c=>`<th>${cadHtml(c)}</th>`).join("")}</tr></thead><tbody>${sample.map(row=>`<tr>${data.columns.map(c=>`<td>${cadHtml(row[c]||"")}</td>`).join("")}</tr>`).join("")}</tbody></table>`:"";
+        $("cad-import-result").textContent = `${r.rows_read.toLocaleString()} rows read; ${r.rows_imported.toLocaleString()} records; ${r.rows_skipped} skipped; ${r.rows_deduplicated} duplicates collapsed. ${q.named_bpp_record_count}/${q.bpp_record_count} BPP accounts have names. ${r.warnings.join(" ")}`;
         cadUi.validMapping = JSON.stringify(cadMapping());
         $("cad-import-save").disabled = !r.rows_imported;
       } catch (error) { $("cad-import-result").textContent = error.message; }
@@ -2416,7 +2417,7 @@
         const asOf = $("cad-import-date").value;
         if (!asOf) throw new Error("Enter the export's actual as-of date.");
         $("cad-import-result").textContent = "Importing CAD records… Keep this page open until the import completes.";
-        const data = await cadApi("cad-import", { filename:file.name, file_base64:cadUi.upload.encoded, mapping, source_as_of_date:asOf });
+        const data = await cadApi("cad-import", { filename:file.name, file_base64:cadUi.upload.encoded, mapping, bpp_only:$("cad-import-bpp-only").checked, source_as_of_date:asOf });
         $("cad-import-result").textContent = `Imported ${data.result.rows_imported.toLocaleString()} records. Existing match decisions were preserved. Matching is refreshing in the background; refresh the queue to see progress. ${data.result.warnings.join(" ")}`;
         await refreshCadHealth();
       } catch (error) { $("cad-import-result").textContent = error.message; }
@@ -2433,11 +2434,13 @@
     $("cad-account-address").addEventListener("click", () => loadCadCandidates(0));
     $("cad-review-prev").addEventListener("click", () => loadCadCandidates(Math.max(0,cadUi.offset-20),cadUi.search));
     $("cad-review-next").addEventListener("click", () => loadCadCandidates(cadUi.offset+20,cadUi.search));
+    $("cad-open-import").addEventListener("click",()=>{$("cad-data-tools").open=true;$("cad-import-panel").open=true;$("cad-import-file").scrollIntoView({behavior:"smooth",block:"center"});$("cad-import-file").focus();});
+    $("cad-import-bpp-only").addEventListener("change",()=>{cadUi.validMapping=null;$("cad-import-save").disabled=true;$("cad-import-result").textContent="Preview the export again after changing its account scope.";});
     $("cad-import-preview").addEventListener("click", () => previewCadImport(false));
     $("cad-import-validate").addEventListener("click", () => previewCadImport(true));
     $("cad-import-save").addEventListener("click", importCadExport);
     $("cad-import-mapping").addEventListener("change", () => { cadUi.validMapping=null; $("cad-import-save").disabled=true; });
-    $("cad-import-file").addEventListener("change", () => { cadUi.upload=null; cadUi.validMapping=null; $("cad-import-save").disabled=true; $("cad-import-mapping").innerHTML=""; });
+    $("cad-import-file").addEventListener("change", () => { cadUi.upload=null; cadUi.validMapping=null; $("cad-import-save").disabled=true; $("cad-import-mapping").innerHTML="";$("cad-import-sample").innerHTML=""; });
 
     const INTEL_RESOLUTION_OPTIONS = {
       new_business: ["ACCOUNT_EXISTS", "NEW_ACCOUNT_NEEDED", "OWNERSHIP_CHANGE", "RELOCATION", "DUPLICATE", "NO_TAXABLE_BPP", "FALSE_MATCH", "OTHER"],

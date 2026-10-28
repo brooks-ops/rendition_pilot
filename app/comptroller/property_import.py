@@ -265,9 +265,9 @@ def import_property_file(
 
 IMPORT_FIELDS = {
     'source_property_id': ['PropertyID','PropertyId','PropertyKey','ParcelID'],
-    'real_account_number': ['QuickRefID','AccountNumber','AccountNo'],
+    'real_account_number': ['QuickRefID','AccountNumber','AccountNo','Account','AccountID','Account #','Property Number'],
     'tax_year': ['AdHocTaxYear','TaxYear'],
-    'situs_address': ['SitusAddress','PropertyAddress'],
+    'situs_address': ['SitusAddress','PropertyAddress','PhysicalAddress','LocationAddress','Situs','Address'],
     'situs_city': ['SitusCity'], 'situs_state': ['SitusState'], 'situs_zip': ['SitusZip','Zip','SitusZipCode'],
     'owner_name': ['OwnerName','Owner','LegalName'], 'business_name': ['BusinessName'],
     'dba_name': ['DBA','DBAName','DoingBusinessAs'], 'situs_unit': ['SitusUnit','Suite','Unit'],
@@ -287,6 +287,8 @@ def suggest_mapping(columns: list[str], configured: dict[str,str]) -> dict[str,s
         else:
             matches = [lookup[key(a)] for a in [field_name, *aliases] if key(a) in lookup]
             if matches: result[field_name] = matches[0]
+    if not result.get("source_property_id") and result.get("real_account_number"):
+        result["source_property_id"]=result["real_account_number"]
     return result
 
 
@@ -306,7 +308,7 @@ def import_quality(rows, jurisdiction):
     personal = [r for r in rows if classify_account_type(r.get('real_account_number'), prefixes=jurisdiction.account_type_prefixes) == 'PERSONAL']
     named = sum(bool(r.get('owner_name') or r.get('business_name') or r.get('dba_name')) for r in personal)
     warnings = []
-    if personal and named < len(personal):warnings.append(f'{len(personal)-named:,} of {len(personal):,} P-account records have no owner, business, or DBA name; those matches need manual verification.')
+    if personal and named < len(personal):warnings.append(f'{len(personal)-named:,} of {len(personal):,} BPP account records have no owner, business, or DBA name; those matches need manual verification.')
     if any(not r.get('tax_year') for r in rows):warnings.append('Some records have no tax year; the importer cannot distinguish annual versions for those records.')
     return {'record_count': len(rows), 'bpp_record_count': len(personal), 'named_bpp_record_count': named,
             'missing_address_count': sum(not r.get('situs_address_normalized') for r in rows),
@@ -339,5 +341,7 @@ def preview_property_file(jurisdiction, file_bytes, filename, *, mapping=None):
     except PropertyImportError as exc:
         result = None
         validation_error = str(exc)
-    return {'columns': columns, 'mapping': selected, 'fields': list(IMPORT_FIELDS),
+    from itertools import islice
+    sample_rows=list(islice(csv.DictReader(StringIO(csv_text)),3))
+    return {'columns': columns, 'mapping': selected, 'sample_rows':sample_rows, 'fields': list(IMPORT_FIELDS),
             'result': result, 'csv_text': csv_text, 'validation_error': validation_error}

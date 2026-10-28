@@ -362,6 +362,7 @@ class CadImportRequest(BaseModel):
     access_token: str
     filename: str = Field(max_length=255)
     file_base64: str = Field(max_length=46000000)
+    bpp_only: bool = False
     mapping: dict[str, str] | None = None
     source_as_of_date: str | None = None
 
@@ -2332,6 +2333,19 @@ def _cad_import_context(request):
         raise HTTPException(status_code=400, detail="The uploaded file could not be read.") from exc
     if len(file_bytes) > 32 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Upload a file smaller than 32 MB.")
+    # First-time counties can preview/import before linkage is enabled. Only
+    # a successful import persists this capability.
+    prefixes=jurisdiction.account_type_prefixes
+    if request.bpp_only:
+        existing=comptroller_cad_review._request('GET','real_property_records',params={'select':'id','jurisdiction_id':f'eq.{jurisdiction.id}','limit':1}) if prefixes.get('export_scope')!='personal' else []
+        if existing:
+            raise HTTPException(400,'This district already contains a mixed-property import. Keep its existing account-type rules; contact support before changing the export scope.')
+        prefixes={'export_scope':'personal'}
+    elif prefixes.get("export_scope")=="personal":
+        raise HTTPException(400,"This district uses BPP-only exports. Confirm that this file contains only BPP accounts; mixed land/building exports need separate account-type rules.")
+    elif not prefixes:
+        raise HTTPException(400,'For an export containing only business personal property, select BPP accounts only. Mixed real-property exports need account-type rules configured first.')
+    jurisdiction=replace(jurisdiction,account_type_prefixes=prefixes,capabilities={**jurisdiction.capabilities,'real_property_linkage':True})
     return jurisdiction, file_bytes
 
 
@@ -2340,7 +2354,7 @@ def intelligence_cad_import_preview(request: CadImportRequest):
     jurisdiction, file_bytes = _cad_import_context(request)
     try:
         preview = comptroller_property_import.preview_property_file(jurisdiction, file_bytes, request.filename, mapping=request.mapping)
-        return {"columns": preview["columns"], "fields": preview["fields"], "mapping": preview["mapping"], "result": to_jsonable(asdict(preview["result"])) if preview["result"] else None, "validation_error": preview["validation_error"]}
+        return {"columns": preview["columns"], "sample_rows":preview["sample_rows"], "fields": preview["fields"], "mapping": preview["mapping"], "result": to_jsonable(asdict(preview["result"])) if preview["result"] else None, "validation_error": preview["validation_error"]}
     except (comptroller_property_import.PropertyImportError, ValueError, UnicodeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2365,7 +2379,7 @@ def intelligence_cad_import(request: CadImportRequest, background_tasks: Backgro
         # Keep this district's mappings for the next export; never another district's.
         url, key = comptroller_property_import.get_supabase_config()
         comptroller_property_import._request_json("PATCH", f"{url}/rest/v1/jurisdictions", comptroller_property_import.postgrest_headers(key),
-                     params={"id": f"eq.{jurisdiction.id}"}, json_payload={"property_field_mapping": request.mapping})
+                     params={"id": f"eq.{jurisdiction.id}"}, json_payload={"property_field_mapping": request.mapping,"account_type_prefixes":configured.account_type_prefixes,"capabilities":configured.capabilities})
         quality = {**result.quality_summary, "matching_refresh_status": "PENDING", "matching_started_at":datetime.now(timezone.utc).isoformat()}
         comptroller_cad_review._request("PATCH", "property_source_imports", params={"id": f"eq.{result.import_id}", "jurisdiction_id": f"eq.{jurisdiction.id}"}, payload={"quality_summary": quality})
         background_tasks.add_task(comptroller_cad_review.refresh_after_import, configured, result.import_id, quality)

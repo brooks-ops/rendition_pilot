@@ -256,3 +256,42 @@ def test_omitted_active_export_account_is_excluded_without_erasing_history(store
 def test_active_export_account_still_matches(store):
     seed(store,owner='ACME',account_status='A')
     assert match(store).candidate.account_number=='P1'
+
+
+def test_first_bpp_only_county_import_maps_numeric_accounts_without_existing_setup(store,monkeypatch):
+    from dataclasses import replace
+    from fastapi.testclient import TestClient
+    import base64
+    fake,j=store
+    j=replace(j,account_type_prefixes={},property_field_mapping={},capabilities={**j.capabilities,'real_property_linkage':False})
+    fake.jurisdictions[j.id]=asdict(j)
+    monkeypatch.setattr(backend,'require_bpp_access',lambda _:make_district())
+    monkeypatch.setattr(backend.comptroller_jurisdictions,'get_jurisdiction_by_district_id',lambda _:j)
+    monkeypatch.setattr(cad_review,'refresh_after_import',lambda *a:None)
+    payload={'access_token':'holly','filename':'accounts.csv','file_base64':base64.b64encode(b'Account,PhysicalAddress,OwnerName,TaxYear\n12345,100 MAIN ST,ACME LLC,2026\n').decode()}
+    client=TestClient(backend.app)
+    assert client.post('/api/admin/intelligence/cad-import-preview',json=payload).status_code==400
+    preview=client.post('/api/admin/intelligence/cad-import-preview',json={**payload,'bpp_only':True})
+    assert preview.status_code==200,preview.text
+    data=preview.json()
+    assert data['mapping']['source_property_id']=='Account'
+    assert data['sample_rows'][0]['Account']=='12345'
+    assert data['result']['quality_summary']['bpp_record_count']==1
+    assert not fake.real_property_records and not fake.property_source_imports
+    assert not fake.jurisdictions[j.id]['capabilities']['real_property_linkage']
+    result=client.post('/api/admin/intelligence/cad-import',json={**payload,'bpp_only':True,'mapping':data['mapping'],'source_as_of_date':'2026-01-01'})
+    assert result.status_code==200,result.text
+    assert result.json()['result']['rows_imported']==1
+    assert fake.jurisdictions[j.id]['account_type_prefixes']=={'export_scope':'personal'}
+    assert fake.jurisdictions[j.id]['capabilities']['real_property_linkage'] is True
+
+
+def test_bpp_only_scope_cannot_reclassify_existing_mixed_property_records(store,monkeypatch):
+    from fastapi.testclient import TestClient
+    import base64
+    fake,j=store;seed(store,account='R1')
+    monkeypatch.setattr(backend,'require_bpp_access',lambda _:make_district())
+    monkeypatch.setattr(backend.comptroller_jurisdictions,'get_jurisdiction_by_district_id',lambda _:j)
+    response=TestClient(backend.app).post('/api/admin/intelligence/cad-import-preview',json={'access_token':'test','filename':'bpp.csv','bpp_only':True,'file_base64':base64.b64encode(b'Account,Address\n1,100 MAIN ST\n').decode()})
+    assert response.status_code==400
+    assert 'mixed-property' in response.json()['detail']

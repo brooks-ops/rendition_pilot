@@ -59,6 +59,8 @@ def classify_account_type(account_number: str | None, *, prefixes: dict[str, str
 
     if not account_number or not prefixes:
         return "UNKNOWN"
+    if prefixes.get("export_scope") == "personal":
+        return "PERSONAL"
     cleaned = account_number.strip().upper()
     personal_prefix = (prefixes.get("personal") or "").strip().upper()
     real_prefix = (prefixes.get("real") or "").strip().upper()
