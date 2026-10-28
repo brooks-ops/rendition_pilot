@@ -108,3 +108,49 @@ def test_extract_pdf_bundle_returns_structured_error_when_all_extractors_fail(mo
     assert result["pages"][0]["text"] == ""
     assert result["pages"][0]["ocr_unavailable"] is True
     assert "Embedded PDF text extraction failed" in result["pages"][0]["ocr_error"]
+
+
+def test_fast_web_review_runs_local_ocr_on_scanned_pdf(monkeypatch):
+    from unittest.mock import Mock
+    monkeypatch.setenv('RENDITION_FAST_REVIEW', '1')
+    extractor = Mock()
+    extractor.extract_pages.return_value = [{'page_number': 1, 'text': ''}]
+    extractor.extract_page_words.return_value = []
+    monkeypatch.setattr('app.pipeline.PDFExtractor', lambda: extractor)
+    local = Mock(return_value=[{'page_number': 1, 'text': 'Total value 184,724.43', 'ocr_blocks': [], 'text_source': 'pymupdf_tesseract_ocr'}])
+    monkeypatch.setattr('app.pipeline._ocr_pdf_pages_with_pymupdf', local)
+    remote = Mock(side_effect=AssertionError('Fast review must not call cloud OCR'))
+    monkeypatch.setattr('app.pipeline._ocr_pdf_pages_with_google_document_ai', remote)
+    monkeypatch.setattr('app.pipeline._ocr_pdf_pages_with_azure_document_intelligence', remote)
+    result = _extract_pdf_bundle('scanned.pdf')
+    local.assert_called_once()
+    assert '184,724.43' in result['pages'][0]['text']
+    assert not result['pages'][0].get('ocr_unavailable')
+
+
+def test_tesseract_reads_printed_amounts_from_image_only_pdf(tmp_path, monkeypatch):
+    import shutil
+    import pytest
+    import fitz
+    if not shutil.which('tesseract'):
+        pytest.skip('System Tesseract required for OCR integration test')
+    pytest.importorskip('pytesseract')
+    source = fitz.open()
+    page = source.new_page()
+    page.insert_text((55, 90), 'Business Personal Property Rendition', fontsize=18)
+    page.insert_text((55, 130), 'Schedule E - Historical Cost', fontsize=16)
+    page.insert_text((55, 170), 'Total Fixed Assets 184,724.43', fontsize=16)
+    page.insert_text((55, 210), 'Inventory 9,805.07', fontsize=16)
+    pix = page.get_pixmap(dpi=200)
+    scanned = fitz.open()
+    scanned.new_page().insert_image(page.rect, stream=pix.tobytes('png'))
+    path = tmp_path / 'image-only.pdf'
+    scanned.save(path)
+    scanned.close()
+    source.close()
+    monkeypatch.setenv('RENDITION_FAST_REVIEW', '1')
+    result = _extract_pdf_bundle(str(path))
+    text = result['pages'][0]['text']
+    assert '184,724.43' in text
+    assert '9,805.07' in text
+    assert result['pages'][0]['extraction_provider'] == 'pymupdf_tesseract_ocr'

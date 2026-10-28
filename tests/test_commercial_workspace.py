@@ -271,6 +271,7 @@ def test_commercial_uses_existing_rendition_account_and_district(monkeypatch):
     monkeypatch.setattr(main,'sign_in_with_supabase',sign_in)
     monkeypatch.setattr(main,'get_supabase_user',lambda token:user)
     monkeypatch.setattr(main,'build_district_context',lambda user,token:district)
+    monkeypatch.setattr(main,'access_for',lambda district:{'bpp':True,'commercial':True})
     client=TestClient(main.app)
     page=client.get('/commercial')
     assert page.status_code==200 and 'commercialLoginForm' in page.text
