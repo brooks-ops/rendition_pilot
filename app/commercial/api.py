@@ -136,7 +136,12 @@ def commercial_router(resolve_context):
         store,c,account=sketch_context(payload)
         result=sketch_result(store,account)
         from . import sketch
-        result['area_defaults']=sketch.area_defaults(store,store.detail(payload['id']))
+        record=store.detail(payload['id'])
+        result['area_defaults']=sketch.area_defaults(store,record)
+        if 'lubbock' in str(getattr(c,'district_slug','')).lower():
+            from .orion_codes import catalog,defaults
+            result['area_catalog']=catalog()
+            result['area_defaults']=sketch.area_defaults(store,record,defaults(record))
         return result
 
     @router.post('/sketch/save')

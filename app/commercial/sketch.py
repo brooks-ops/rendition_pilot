@@ -234,10 +234,10 @@ def area_context(record):
     return {'model':str(record.get('model') or ''),'category':str(record.get('values',{}).get('category') or '').strip().casefold()}
 
 
-def area_defaults(store, record):
+def area_defaults(store, record, seeded=None):
     """District-local defaults from explicit codes saved for the same model/category."""
     context=area_context(record);choices={}
-    if not context['model'] or not context['category']:return {}
+    if not context['model'] or not context['category']:return seeded or {}
     with store.connect() as db:
         rows=db.execute('SELECT document FROM building_sketches').fetchall()
     for row in rows:
@@ -247,7 +247,7 @@ def area_defaults(store, record):
             if comp.get('area_code') and comp.get('area_description') and comp.get('verified'):
                 choices.setdefault(comp['kind'],set()).add((comp['area_code'],comp['area_description']))
     # Ambiguous category mappings require a choice rather than guessing.
-    return {kind:{'area_code':next(iter(values))[0],'area_description':next(iter(values))[1]} for kind,values in choices.items() if len(values)==1}
+    return {**{kind:value for kind,value in (seeded or {}).items() if kind not in choices},**{kind:{'area_code':next(iter(values))[0],'area_description':next(iter(values))[1]} for kind,values in choices.items() if len(values)==1}}
 
 
 def export_apex_xml(document, available):
