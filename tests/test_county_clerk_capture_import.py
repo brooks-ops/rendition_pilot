@@ -39,3 +39,30 @@ def test_precomputed_matches_reject_a_changed_bpp_export(monkeypatch):
     monkeypatch.setattr(service,'request',lambda *a,**kw:pytest.fail('Must not write stale classifications'))
     with pytest.raises(ValueError,match='export changed'):
         import_captured.commit_prepared({'district_id':'d'},SimpleNamespace(id='j'),[],b'{}','2026-01-01','2026-09-30',cad_import_id='old-export')
+
+
+def test_source_archive_upload_streams_original_bytes(monkeypatch):
+    from types import SimpleNamespace
+    from app.county_clerk import service
+    monkeypatch.setattr(service,'get_supabase_config',lambda:('https://database.example','private-key'))
+    data=b'original source capture'*10000
+    def send(method,url,**kwargs):
+        assert hasattr(kwargs['data'],'read')
+        assert kwargs['data'].read()==data
+        assert kwargs['headers']['Content-Type']=='application/json'
+        assert 'verify' not in kwargs
+        return SimpleNamespace(raise_for_status=lambda:None)
+    monkeypatch.setattr(service.requests,'request',send)
+    service.storage('POST','district/original.json',data,bucket='county-clerk-records',content_type='application/json')
+
+
+def test_chunked_archive_roundtrip_and_integrity():
+    from app.county_clerk.archive import build,read
+    original=b'{"source":"original filing"}'*10000
+    manifest,parts,metadata=build(original,'district/import.json')
+    assert metadata['archive_encoding']=='gzip-base64-parts'
+    stored=dict(parts)
+    assert read(manifest,'district/import.json',stored.__getitem__)==original
+    stored[parts[0][0]]=b'changed'
+    with pytest.raises(ValueError,match='integrity'):read(manifest,'district/import.json',stored.__getitem__)
+    with pytest.raises(ValueError,match='path mismatch'):read(manifest,'another/import.json',dict(parts).__getitem__)

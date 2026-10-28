@@ -2,6 +2,7 @@
 from copy import deepcopy
 from datetime import datetime,timezone
 from pathlib import Path
+from io import BytesIO
 import re,uuid
 import requests
 from app.comptroller.service import _request_json,get_supabase_config,postgrest_headers,ComptrollerServiceError
@@ -21,7 +22,7 @@ def source_for(district_id):
     return rows[0]
 def storage(method,path,data=None,*,bucket=BUCKET,content_type="application/pdf"):
     url,key=get_supabase_config()
-    r=requests.request(method,url+'/storage/v1/object/'+bucket+'/'+path,headers={'apikey':key,'Authorization':'Bearer '+key,'Content-Type':content_type},data=data,timeout=90)
+    r=requests.request(method,url+'/storage/v1/object/'+bucket+'/'+path,headers={'apikey':key,'Authorization':'Bearer '+key,'Content-Type':content_type},data=BytesIO(data) if isinstance(data,bytes) else data,timeout=90)
     r.raise_for_status();return r
 
 def name_key(name):return re.sub('[^a-z0-9]','',(name or '').lower())
@@ -105,9 +106,14 @@ def history(district_id):
     return {'source':source,'imports':rows,'next_window':schedule()['pending_window']}
 
 def original(district_id,import_id):
-    rows=request('GET','county_clerk_dba_imports',params={'select':'storage_path,filename,metadata','district_id':'eq.'+district_id,'id':'eq.'+import_id,'limit':1})
+    rows=request('GET','county_clerk_dba_imports',params={'select':'storage_path,filename,metadata,sha256','district_id':'eq.'+district_id,'id':'eq.'+import_id,'limit':1})
     if not rows:raise ImportError('This PDF import was not found in your district.')
-    return storage('GET',rows[0]['storage_path'],bucket=rows[0].get('metadata',{}).get('storage_bucket',BUCKET)).content,rows[0]['filename']
+    row=rows[0];bucket=row.get('metadata',{}).get('storage_bucket',BUCKET)
+    data=storage('GET',row['storage_path'],bucket=bucket).content
+    if row.get('metadata',{}).get('archive_encoding')=='gzip-base64-parts':
+        from .archive import read
+        data=read(data,row['storage_path'],lambda path:storage('GET',path,bucket=bucket).content)
+    return data,row['filename']
 
 def refresh_item(item):
     filing_id=item.raw.get('source_dba_filing_id');rows=request('GET','county_clerk_dba_filings',params={'select':'*','district_id':'eq.'+item.district_id,'id':'eq.'+filing_id,'limit':1})

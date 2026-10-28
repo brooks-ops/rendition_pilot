@@ -39,3 +39,15 @@ fulfilled with the real import ID and counts, labeled as browser-assisted.
 The status endpoint verifies the linked import's complete coverage and counts
 before showing October coverage as complete. It continues to report
 `automation_enabled=false` and preserves the separate automated-sync timestamp.
+
+Large original captures are stored losslessly as small private JSON parts plus
+an integrity-checked manifest. Original downloads reconstruct the exact source
+bytes with SHA-256 validation and a 25 MB decompression limit. Filing payloads
+are staged in service-only batches of at most 25 records and approximately
+60 KB. Finalization verifies that every batch and expected record is present,
+then invokes the existing atomic import transaction. Failed staging cannot
+publish a partial Intelligence Queue set or overwrite appraiser decisions.
+
+Apply `20261028_county_clerk_staged_import.sql` before using this transport.
+Run `tests/sql/county_clerk_staged.sql` only in a disposable test database;
+its fixtures roll back.

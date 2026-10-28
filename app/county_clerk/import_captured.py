@@ -78,11 +78,23 @@ def commit_prepared(source,j,records,original,start,end,*,result_pages=1,cad_imp
     if cad_import_id and latest.get('id')!=cad_import_id:raise ValueError('The BPP account export changed; match this set again before importing')
     district_id=source['district_id']
     identifier=str(uuid.uuid4());path=district_id+'/'+identifier+'.json'
-    row=dict(id=identifier,source_id=source['id'],jurisdiction_id=j.id,district_id=district_id,filename='eagleweb-captured-records.json',sha256=hashlib.sha256(original).hexdigest(),storage_path=path,parser_version='eagleweb-captured-v2',status='PROCESSING',coverage='COMPLETE',page_count=0,reported_total=len(records),extracted_count=len(records),search_start=start,search_end=end,metadata={'storage_bucket':BUCKET,'collection_method':'bounded_browser_assisted','unattended':False,'result_pages':result_pages,'cad_import_id':cad_import_id or latest.get('id')})
+    from .archive import build
+    archive_data,archive_parts,archive_metadata=build(original,path)
+    row=dict(id=identifier,source_id=source['id'],jurisdiction_id=j.id,district_id=district_id,filename='eagleweb-captured-records.json',sha256=hashlib.sha256(original).hexdigest(),storage_path=path,parser_version='eagleweb-captured-v2',status='PROCESSING',coverage='COMPLETE',page_count=0,reported_total=len(records),extracted_count=len(records),search_start=start,search_end=end,metadata={'storage_bucket':BUCKET,'collection_method':'bounded_browser_assisted','unattended':False,'result_pages':result_pages,'cad_import_id':cad_import_id or latest.get('id'),**archive_metadata})
     service.request('POST','county_clerk_dba_imports',payload=row)
     try:
-        service.storage('POST',path,original,bucket=BUCKET,content_type='application/json')
-        return service.request('POST','rpc/dba_commit_import',payload={'p_import_id':identifier,'p_filings':records})
+        for part_path,part_data in archive_parts:
+            service.storage('POST',part_path,part_data,bucket=BUCKET,content_type='application/json')
+        service.storage('POST',path,archive_data,bucket=BUCKET,content_type='application/json')
+        batches=[];batch=[]
+        for record in records:
+            if batch and (len(batch)>=25 or len(json.dumps(batch+[record]).encode())>60000):
+                batches.append(batch);batch=[]
+            batch.append(record)
+        if batch:batches.append(batch)
+        for number,batch in enumerate(batches):
+            service.request('POST','rpc/dba_stage_import_batch',payload={'p_import_id':identifier,'p_batch_number':number,'p_filings':batch})
+        return service.request('POST','rpc/dba_commit_staged_import',payload={'p_import_id':identifier})
     except Exception:
         current=service.request('GET','county_clerk_dba_imports',params={'select':'id,status,imported_count,duplicate_count','id':'eq.'+identifier,'district_id':'eq.'+district_id,'limit':1})
         if current and current[0]['status'] in ('COMPLETED','PARTIAL'):return current[0]
