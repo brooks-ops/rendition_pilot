@@ -1,5 +1,6 @@
 from __future__ import annotations
 from app import bpp_work_claims
+from app.login_aliases import resolve_login_identifier
 
 import base64
 import gc
@@ -1406,7 +1407,7 @@ def info() -> dict[str, str]:
 
 @app.post("/api/auth/login")
 def auth_login(request: LoginRequest) -> dict[str, Any]:
-    auth_result = sign_in_with_supabase(request.email.strip().lower(), request.password)
+    auth_result = sign_in_with_supabase(resolve_login_identifier(request.email), request.password)
     access_token = auth_result.get("access_token")
     if not access_token:
         raise HTTPException(status_code=400, detail="Login did not return a session.")
@@ -1476,7 +1477,7 @@ def auth_signup(request: SignupRequest) -> dict[str, Any]:
 
 @app.post("/api/arb/auth/login")
 def arb_auth_login(request: LoginRequest) -> dict[str, Any]:
-    auth_result = sign_in_with_supabase(request.email.strip().lower(), request.password)
+    auth_result = sign_in_with_supabase(resolve_login_identifier(request.email), request.password)
     access_token = auth_result.get("access_token")
     if not access_token:
         raise HTTPException(status_code=400, detail="Login did not return a session.")
