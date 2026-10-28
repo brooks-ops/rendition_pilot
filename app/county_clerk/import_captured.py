@@ -55,21 +55,30 @@ def prepare(captures,source,start,end):
 def ingest(captures,district_id,start,end,*,commit=False):
     source=service.source_for(district_id);j=get_jurisdiction_by_district_id(district_id)
     if not j or j.id!=source['jurisdiction_id']:raise ValueError('District/source mismatch')
+    from app.comptroller.cad_review import latest_completed_import
+    cad_import=latest_completed_import(j.id) or {}
     records,original=prepare(captures,source,start,end)
-    context=service.match_context(source,[{'assumed_name':r['assumed_name'],'owner_name':owner} for r in records for owner in r['owners'] or [None]])
-    def classify(r):
-        return classify_detail(r,context,j)
+    classifications=[]
     with ThreadPoolExecutor(max_workers=4) as pool:
-        classifications=list(pool.map(classify,records))
+        # Bound each name lookup so a year of filings cannot truncate the
+        # indexed CRS/sales-tax context and hide later name-only candidates.
+        for offset in range(0,len(records),50):
+            batch=records[offset:offset+50]
+            context=service.match_context(source,[{'assumed_name':r['assumed_name'],'owner_name':owner} for r in batch for owner in r['owners'] or [None]])
+            def classify(r):return classify_detail(r,context,j)
+            classifications.extend(pool.map(classify,batch))
     for r,intelligence in zip(records,classifications):r['intelligence']=intelligence
     if not commit:return {'records':len(records),'commit':False}
-    return commit_prepared(source,j,records,original,start,end,result_pages=json.loads((captures/'index.json').read_text()).get('pages',1))
+    return commit_prepared(source,j,records,original,start,end,result_pages=json.loads((captures/'index.json').read_text()).get('pages',1),cad_import_id=cad_import.get('id'))
 
 
-def commit_prepared(source,j,records,original,start,end,*,result_pages=1):
+def commit_prepared(source,j,records,original,start,end,*,result_pages=1,cad_import_id=None):
+    from app.comptroller.cad_review import latest_completed_import
+    latest=latest_completed_import(j.id) or {}
+    if cad_import_id and latest.get('id')!=cad_import_id:raise ValueError('The BPP account export changed; match this set again before importing')
     district_id=source['district_id']
     identifier=str(uuid.uuid4());path=district_id+'/'+identifier+'.json'
-    row=dict(id=identifier,source_id=source['id'],jurisdiction_id=j.id,district_id=district_id,filename='eagleweb-captured-records.json',sha256=hashlib.sha256(original).hexdigest(),storage_path=path,parser_version='eagleweb-captured-v2',status='PROCESSING',coverage='COMPLETE',page_count=0,reported_total=len(records),extracted_count=len(records),search_start=start,search_end=end,metadata={'storage_bucket':BUCKET,'collection_method':'bounded_browser_assisted','unattended':False,'result_pages':result_pages})
+    row=dict(id=identifier,source_id=source['id'],jurisdiction_id=j.id,district_id=district_id,filename='eagleweb-captured-records.json',sha256=hashlib.sha256(original).hexdigest(),storage_path=path,parser_version='eagleweb-captured-v2',status='PROCESSING',coverage='COMPLETE',page_count=0,reported_total=len(records),extracted_count=len(records),search_start=start,search_end=end,metadata={'storage_bucket':BUCKET,'collection_method':'bounded_browser_assisted','unattended':False,'result_pages':result_pages,'cad_import_id':cad_import_id or latest.get('id')})
     service.request('POST','county_clerk_dba_imports',payload=row)
     try:
         service.storage('POST',path,original,bucket=BUCKET,content_type='application/json')

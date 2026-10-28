@@ -10,7 +10,7 @@ def evidence():
 def test_exact_normalized_address_zip_and_identity_is_high():
     assert filing_priority(evidence=evidence(),account='P1',record_id='id')[:2]==(0,'HIGH')
 
-@pytest.mark.parametrize('change',['partial_name','address','zip','suite','ambiguous','wrong_account','no_pid'])
+@pytest.mark.parametrize('change',['partial_name','address','zip','suite','ambiguous','wrong_account','wrong_pid','no_pid'])
 def test_non_exact_matches_are_capped_at_medium(change):
     e=evidence();d=e['comparison']['candidate_details'];kwargs={'account':'P1','record_id':'id'}
     if change=='partial_name':d.update(business_name='ACME SHOP SOUTH',owner_name='SMITH JANET')
@@ -19,6 +19,7 @@ def test_non_exact_matches_are_capped_at_medium(change):
     if change=='suite':d['situs_address_raw']='100 MAIN ST STE 2'
     if change=='ambiguous':kwargs['ambiguous']=True
     if change=='wrong_account':kwargs['account']='P2'
+    if change=='wrong_pid':kwargs['record_id']='other'
     if change=='no_pid':kwargs['record_id']=None
     assert filing_priority(evidence=e,**kwargs)[1]=='MEDIUM'
 

@@ -29,3 +29,13 @@ def test_paginated_set_preserves_all_original_pages(tmp_path):
 def test_partial_changing_or_duplicate_results_are_rejected(tmp_path,change):
     write_set(tmp_path,**{change:True})
     with pytest.raises(ValueError):prepare(tmp_path,{'county':'LUBBOCK','state':'TX'},'2026-01-01','2026-10-31')
+
+
+def test_precomputed_matches_reject_a_changed_bpp_export(monkeypatch):
+    from types import SimpleNamespace
+    from app.county_clerk import import_captured, service
+    from app.comptroller import cad_review
+    monkeypatch.setattr(cad_review,'latest_completed_import',lambda j:{'id':'new-export'})
+    monkeypatch.setattr(service,'request',lambda *a,**kw:pytest.fail('Must not write stale classifications'))
+    with pytest.raises(ValueError,match='export changed'):
+        import_captured.commit_prepared({'district_id':'d'},SimpleNamespace(id='j'),[],b'{}','2026-01-01','2026-09-30',cad_import_id='old-export')

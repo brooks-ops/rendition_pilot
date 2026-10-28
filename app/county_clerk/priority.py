@@ -21,7 +21,8 @@ def filing_priority(*, evidence, account=None, record_id=None, ambiguous=False):
     source_names = {normalize_name(n) for n in names if normalize_name(n)}
     target_names = {normalize_name(detail.get(k)) for k in ('owner_name','business_name','dba_name') if normalize_name(detail.get(k))}
     same_account = detail.get('real_account_number') == account
-    exact = (bool(account and record_id) and not ambiguous and same_account
+    same_pid = (detail.get('property_id') or detail.get('id')) == record_id
+    exact = (bool(account and record_id) and not ambiguous and same_account and same_pid
              and bool(source.base_address) and source.base_address == target.base_address
              and source.unit == target.unit and bool(source.zip5) and source.zip5 == target.zip5
              and bool(source_names.intersection(target_names)))
