@@ -198,3 +198,16 @@ def test_property_enrichment_results_are_jurisdiction_scoped(fake_supabase, monk
     assert result.existing_high_confidence == 0
     item = next(iter(fake_supabase.intelligence_items.values()))
     assert item["property_match_status"] == "NO_PROPERTY_MATCH"
+
+
+def test_empty_detection_does_not_load_county_property_or_accounts(fake_supabase,monkeypatch):
+    from unittest.mock import Mock
+    jurisdiction=seed_jurisdiction_with_property(fake_supabase)
+    properties=Mock(side_effect=AssertionError('No candidate needs county property data'))
+    accounts=Mock(side_effect=AssertionError('No candidate needs accounts'))
+    monkeypatch.setattr(property_adapter.ImportedPropertyAdapter,'search_properties',properties)
+    from app.comptroller.cad_adapter import RenditionPilotCadAdapter
+    monkeypatch.setattr(RenditionPilotCadAdapter,'get_bpp_accounts',accounts)
+    result=new_business.run_new_business_detection(jurisdiction.id)
+    assert result.evaluated==0
+    properties.assert_not_called();accounts.assert_not_called()

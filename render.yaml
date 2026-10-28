@@ -29,7 +29,7 @@ services:
     buildCommand: pip install -r requirements.txt
     # Every day. Idempotent and safe to re-run or overlap with a manual run.
     schedule: "0 11 * * *"
-    command: python -m app.comptroller.cli sync
+    command: COMPTROLLER_MONITORED_COUNTIES=Lubbock,Dallam python -m app.comptroller.cli sync
     envVars:
       - key: SUPABASE_URL
         sync: false
@@ -84,7 +84,7 @@ services:
     # editing this file again (see app/comptroller/cli.py's run-intelligence
     # docstring).
     schedule: "30 11 * * *"
-    command: python -m app.comptroller.cli run-intelligence --jurisdiction lubbock && python -m app.comptroller.cli run-intelligence --jurisdiction dallam
+    command: python -m app.comptroller.cli run-intelligence --jurisdiction dallam && python -m app.comptroller.cli run-intelligence --jurisdiction lubbock
     envVars:
       - key: SUPABASE_URL
         sync: false

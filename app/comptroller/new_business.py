@@ -303,8 +303,9 @@ def run_new_business_detection(
     # property_enrichment.py) must never block or change New Business
     # Detection's existing name-only behavior. Any failure here silently
     # disables enrichment for this run rather than raising.
+    candidates = get_new_business_candidates(jurisdiction, reevaluate=reevaluate)
     all_properties: list | None = None
-    if jurisdiction.has_capability(PROPERTY_CAPABILITY):
+    if candidates and jurisdiction.has_capability(PROPERTY_CAPABILITY):
         property_validation = validate_capability(
             jurisdiction, PROPERTY_CAPABILITY, frozenset(jurisdiction.property_field_mapping.keys())
         )
@@ -315,11 +316,9 @@ def run_new_business_detection(
             except PropertySourceError:
                 all_properties = None
 
-    candidates = get_new_business_candidates(jurisdiction, reevaluate=reevaluate)
-
     # Fetch once, reuse for every candidate in this run (mirrors month_end.py's
     # per-district account caching -- one fetch, not one per candidate).
-    normalized_accounts = adapter.get_bpp_accounts(jurisdiction)
+    normalized_accounts = adapter.get_bpp_accounts(jurisdiction) if candidates else []
     match_candidates = [
         MatchCandidate(
             record_id=account.account_id,

@@ -230,7 +230,7 @@ class ImportedPropertyAdapter:
             raise PropertySourceError(str(exc)) from exc
         headers = postgrest_headers(service_role_key)
         base_params = {"select": _SELECT, "jurisdiction_id": f"eq.{jurisdiction.id}"}
-        rows: list[dict[str, Any]] = []
+        properties: list[NormalizedRealProperty] = []
         offset = 0
         while True:
             page = _request_json(
@@ -243,9 +243,9 @@ class ImportedPropertyAdapter:
                 raise PropertySourceError(f"Unexpected response fetching real_property_records: {page!r}")
             if not page:
                 break
-            rows.extend(page)
+            properties.extend(_row_to_property(row) for row in page)
             offset += len(page)
-        return [_row_to_property(row) for row in rows]
+        return properties
 
     def get_property_by_id(self, jurisdiction: Jurisdiction, property_id: str) -> NormalizedRealProperty | None:
         rows = self._fetch(jurisdiction, {"id": f"eq.{property_id}", "limit": "1"})
