@@ -17,7 +17,7 @@ def test_get_county_code_unknown_county_returns_none():
 
 def test_get_monitored_counties_defaults_to_lubbock(monkeypatch):
     monkeypatch.delenv("COMPTROLLER_MONITORED_COUNTIES", raising=False)
-    assert counties.get_monitored_counties() == ["Lubbock"]
+    assert counties.get_monitored_counties() == ["Lubbock", "Dallam"]
 
 
 def test_get_monitored_counties_parses_comma_separated_list(monkeypatch):
@@ -39,3 +39,8 @@ def test_district_slug_defaults_to_convention(monkeypatch):
 def test_district_slug_override_via_env(monkeypatch):
     monkeypatch.setenv("COMPTROLLER_DISTRICT_SLUG__LUBBOCK", "custom-slug")
     assert counties.get_district_slug_for_county("Lubbock") == "custom-slug"
+
+
+def test_dallam_county_routes_to_consolidated_district():
+    assert counties.get_county_code("Dallam")=="56"
+    assert counties.get_district_slug_for_county("Dallam")=="cad"

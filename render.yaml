@@ -84,7 +84,7 @@ services:
     # editing this file again (see app/comptroller/cli.py's run-intelligence
     # docstring).
     schedule: "30 11 * * *"
-    command: python -m app.comptroller.cli run-intelligence --jurisdiction lubbock
+    command: python -m app.comptroller.cli run-intelligence --jurisdiction lubbock && python -m app.comptroller.cli run-intelligence --jurisdiction dallam
     envVars:
       - key: SUPABASE_URL
         sync: false

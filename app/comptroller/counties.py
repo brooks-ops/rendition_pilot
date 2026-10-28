@@ -35,6 +35,8 @@ TEXAS_COUNTY_CODES: dict[str, str] = {
     # Verified 2026-08-18 against https://data.texas.gov/resource/3kx8-uryv.json:
     # of 14,013 rows with loc_city=LUBBOCK, 13,958 (99.6%) carry loc_county=152.
     "Lubbock": "152",
+    # Verified against Texline permit locations in the official Comptroller feed.
+    "Dallam": "56",
 }
 
 
@@ -56,7 +58,7 @@ def get_monitored_counties() -> list[str]:
     healthy sync that simply found nothing.
     """
 
-    raw = os.getenv("COMPTROLLER_MONITORED_COUNTIES", "Lubbock")
+    raw = os.getenv("COMPTROLLER_MONITORED_COUNTIES", "Lubbock,Dallam")
     names = [normalize_county_name(part) for part in raw.split(",") if part.strip()]
     unknown = [name for name in names if name not in TEXAS_COUNTY_CODES]
     if unknown:
@@ -82,4 +84,4 @@ def get_district_slug_for_county(county_name: str) -> str | None:
     override = os.getenv(env_key)
     if override:
         return override.strip()
-    return f"{normalized.lower().replace(' ', '-')}-cad"
+    return {"Dallam":"cad"}.get(normalized, f"{normalized.lower().replace(' ', '-')}-cad")
