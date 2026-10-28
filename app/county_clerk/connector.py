@@ -18,4 +18,4 @@ class EagleWebConnector:
         return url if target.scheme=='https' and target.hostname==source.hostname and target.path.endswith('/viewDoc.jsp') else None
     def retrieve_window(self,start,end):
         # Public manual viewing is not authorization for unattended collection.
-        raise RetrievalNotAuthorized('Unattended EagleWeb retrieval is disabled. An approved access method, authorization and integration tests are required first. The weekly check is blocked; existing imported filings remain available in BPP Intelligence.')
+        raise RetrievalNotAuthorized('Unattended EagleWeb retrieval is disabled. An approved access method, authorization and integration tests are required first. The quarterly year-to-date pull is blocked; existing imported filings remain available in BPP Intelligence.')

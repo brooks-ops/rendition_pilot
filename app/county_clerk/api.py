@@ -38,10 +38,8 @@ def router(require_bpp):
     @api.post('/collection-status')
     def collection_status(request:Session):
         district=require_bpp(request.access_token)
-        try:source=service.source_for(district.district_id)
-        except ImportError:return {'configured':False}
-        except (ComptrollerServiceError,service.requests.RequestException):raise HTTPException(503,'County filing status is unavailable.')
-        return {'configured':True,'cadence':'weekly','scheduled_day':'Monday','status':'BLOCKED','last_successful_sync':source.get('last_successful_retrieval_at'),'message':'Weekly source check: Monday. Automatic collection is blocked pending an approved connection. Imported filings can be reviewed below.'}
+        from .collection_status import for_district
+        return run(for_district,district.district_id)
     @api.post('/sync-status')
     def sync_status(request:Session):
         district=require_bpp(request.access_token)

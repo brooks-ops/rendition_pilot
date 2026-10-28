@@ -252,15 +252,15 @@ def cmd_run_intelligence(args: argparse.Namespace) -> int:
         return 1
 
     exit_code = 0
-    # Run before county modules so their failures cannot skip the weekly check.
-    # This service-only readiness command checks all explicitly configured sources;
+    # Run before county modules so their failures cannot skip the quarterly plan.
+    # This service-only planning command checks all explicitly configured sources;
     # it never retrieves public pages or modifies another county's queue.
     if not args.dry_run:
         try:
-            from app.county_clerk.weekly import main as weekly_readiness
-            exit_code = max(exit_code, weekly_readiness())
+            from app.county_clerk.quarterly import main as quarterly_planning
+            exit_code = max(exit_code, quarterly_planning())
         except Exception as exc:
-            print(f"[county-clerk-weekly] FAILED: {type(exc).__name__}", file=sys.stderr)
+            print(f"[county-clerk-quarterly] FAILED: {type(exc).__name__}", file=sys.stderr)
             exit_code = max(exit_code, 1)
     ran_any = False
 

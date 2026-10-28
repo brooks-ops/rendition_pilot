@@ -1,28 +1,10 @@
 from datetime import datetime,timezone
 from types import SimpleNamespace
-from app.county_clerk import weekly, detailed, import_captured, captured
+from app.county_clerk import detailed, import_captured, captured
 from app.comptroller.matching import MatchResult,MatchCandidate
 import pytest
 
 J=SimpleNamespace(id='j',district_id='d',account_type_prefixes={'personal':'P','real':'R'})
-
-def test_not_due_never_queries_source(monkeypatch):
-    monkeypatch.setattr(weekly,'request',lambda *a,**k:pytest.fail('Not due'))
-    assert weekly.check_weekly(J,now=datetime(2026,10,28,12,tzinfo=timezone.utc))['status']=='NOT_DUE'
-
-def test_weekly_even_enabled_source_is_blocked_without_network(monkeypatch):
-    def request(*args,**kwargs):
-        assert kwargs['params']['district_id']=='eq.d'
-        assert kwargs['params']['jurisdiction_id']=='eq.j'
-        return [{'county':'LUBBOCK','automation_authorized':True,'automation_enabled':True,'last_complete_recording_date':'2026-10-28','overlap_days':7}]
-    monkeypatch.setattr(weekly,'request',request)
-    r=weekly.check_weekly(J,now=datetime(2026,11,2,12,tzinfo=timezone.utc))
-    assert r['status']=='BLOCKED' and r['records_retrieved']==0
-    assert r['window']['start']=='2026-10-21'
-
-def test_unconfigured_county_has_no_fallback(monkeypatch):
-    monkeypatch.setattr(weekly,'request',lambda *a,**kw:[])
-    assert weekly.check_weekly(J,now=datetime(2026,11,2,12,tzinfo=timezone.utc))['status']=='NOT_CONFIGURED'
 
 @pytest.mark.parametrize('confidence,linked',[('HIGH','P1'),('MEDIUM',None),('LOW',None)])
 def test_detailed_classification_uses_only_strong_links(monkeypatch,confidence,linked):

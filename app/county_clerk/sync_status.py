@@ -4,6 +4,7 @@ No source requests, scheduled jobs, or success timestamps are fabricated here.
 """
 from concurrent.futures import ThreadPoolExecutor
 from . import service
+from .schedule import schedule
 
 ACTIVATION_REQUIREMENTS=[
     'County or licensed provider approves unattended retrieval and Rendition Pilot use.',
@@ -25,6 +26,7 @@ def dashboard(district_id):
     try:history=service.history(district_id)
     except service.ImportError as exc:return {'configured':False,'message':str(exc),'automation_enabled':False,'manual_sync_available':False}
     source=history['source']
+    plan=schedule()
     specs={
         'new_filings':('county_clerk_dba_filings',{'filing_type':'eq.ASSUMED NAME'}),
         'abandonments':('county_clerk_dba_filings',{'filing_type':'eq.ASSUMED NAME ABANDONMENT'}),
@@ -37,16 +39,16 @@ def dashboard(district_id):
     with ThreadPoolExecutor(max_workers=3) as pool:metrics=dict(zip(specs,pool.map(count,specs.values())))
     return {
         'configured':True,'county':source['county'],'state':source['state'],
-        'connection_status':'AWAITING_APPROVED_CONNECTION','cadence':'weekly','scheduled_day':'Monday',
+        'connection_status':'AWAITING_APPROVED_CONNECTION',**plan,
         'automation_enabled':False,'manual_sync_available':False,
         'last_successful_sync':source.get('last_successful_retrieval_at'),
         'last_successful_fallback_import':source.get('last_successful_import_at'),
-        'metrics_scope':'All imported county filings, including PDF fallback imports. These are not daily automated-sync counts.',
+        'metrics_scope':'All imported county filings, including PDF fallback imports. These are not quarterly automated-sync counts.',
         'metrics':metrics,
-        'sync_message':'The existing intelligence job checks source readiness each Monday. Weekly collection has not been activated. No supported, authorized Lubbock retrieval method has been confirmed.',
+        'sync_message':'Quarterly year-to-date pulls are planned for January 1, April 1, July 1 and October 1. October covers January–September for November/December work. Automatic collection remains blocked; full year-to-date coverage has not been collected.',
         'activation_requirements':ACTIVATION_REQUIREMENTS,
         'sync_errors':[],
         'sync_error_note':'No direct collection runs have occurred; no successful unattended run has been demonstrated.',
         'fallback_import_issues':[{k:r.get(k) for k in ('id','filename','status','created_at','error_message')} for r in history['imports'] if r['status'] in ('FAILED','PROCESSING','PARTIAL')],
-        'next_window':history['next_window'],
+        'next_window':plan['pending_window'],
     }

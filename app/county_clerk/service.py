@@ -101,7 +101,8 @@ def commit(context,data,filename,expected_sha256,acknowledge_incomplete):
 def history(district_id):
     source=source_for(district_id)
     rows=request('GET','county_clerk_dba_imports',params={'select':'id,filename,status,coverage,page_count,extracted_count,imported_count,duplicate_count,search_start,search_end,created_at,completed_at,error_message,metadata','district_id':'eq.'+district_id,'order':'created_at.desc','limit':50})
-    return {'source':source,'imports':rows,'next_window':next_window(source)}
+    from .schedule import schedule
+    return {'source':source,'imports':rows,'next_window':schedule()['pending_window']}
 
 def original(district_id,import_id):
     rows=request('GET','county_clerk_dba_imports',params={'select':'storage_path,filename,metadata','district_id':'eq.'+district_id,'id':'eq.'+import_id,'limit':1})
