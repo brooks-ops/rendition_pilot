@@ -83,7 +83,7 @@ services:
     # editing this file again (see app/comptroller/cli.py's run-intelligence
     # docstring).
     schedule: "30 11 * * *"
-    command: python -m app.county_clerk.weekly; python -m app.comptroller.cli run-intelligence --jurisdiction dallam && python -m app.comptroller.cli run-intelligence --jurisdiction lubbock
+    command: python -m app.comptroller.cli run-intelligence --jurisdiction dallam && python -m app.comptroller.cli run-intelligence --jurisdiction lubbock
     envVars:
       - key: SUPABASE_URL
         sync: false

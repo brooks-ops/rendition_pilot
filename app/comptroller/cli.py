@@ -252,6 +252,16 @@ def cmd_run_intelligence(args: argparse.Namespace) -> int:
         return 1
 
     exit_code = 0
+    # Run before county modules so their failures cannot skip the weekly check.
+    # This service-only readiness command checks all explicitly configured sources;
+    # it never retrieves public pages or modifies another county's queue.
+    if not args.dry_run:
+        try:
+            from app.county_clerk.weekly import main as weekly_readiness
+            exit_code = max(exit_code, weekly_readiness())
+        except Exception as exc:
+            print(f"[county-clerk-weekly] FAILED: {type(exc).__name__}", file=sys.stderr)
+            exit_code = max(exit_code, 1)
     ran_any = False
 
     if jurisdiction.has_capability("new_business_detection"):

@@ -23,14 +23,16 @@ Captured imports are not recorded as successful unattended synchronization.
 
 ## Weekly readiness check
 
-The existing daily Render job invokes `python -m app.county_clerk.weekly` before
-its regular intelligence commands, checking each configured county source each Monday (America/Chicago). It logs a structured BLOCKED result with
+The existing daily Render `run-intelligence` command invokes the weekly readiness
+module before its regular county processing, checking explicitly configured sources each Monday (America/Chicago). It logs a structured BLOCKED result with
 zero records retrieved and the overlapping recording-date window. Other days
 are NOT_DUE. Districts without a source are NOT_CONFIGURED. This reuses the
 existing daily Render cron without adding a paid service. A missed Monday is
 checked the following Monday; this is a readiness check, not a reliable
-collection scheduler. The weekly command returns a nonzero exit on errors. The shell separator keeps
-regular intelligence processing independent; weekly failures are visible in logs.
+collection scheduler. The weekly command returns a nonzero exit on errors while still allowing regular
+intelligence processing. Weekly failures are visible in logs. If multiple county
+commands run on Monday, readiness messages may appear more than once; no source
+collection occurs. No Render schedule or paid-service change is required.
 
 **Unattended collection is not active.** The provider has a hard gate even if
 configuration flags are changed. Public browsing has only been tested through
