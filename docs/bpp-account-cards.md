@@ -75,3 +75,13 @@ Printed cards are hidden by default; **Select unprinted** skips them. Unhide
 them for an intentional reprint, which asks for confirmation. Prior print jobs
 cannot be detected retroactively and remain unconfirmed until acknowledged.
 Deploy migration `20261029_bpp_account_card_prints.sql` before the API update.
+
+## Appraiser access
+
+All card actions require BPP workspace access, not the admin role. Regular
+member and appraiser roles can reserve, fill, save/reopen, finish, list their
+completed cards, batch print, and confirm printing. The completed-card list is
+scoped to the signed-in completing appraiser and district. Admin/user management
+and Readiness retain their separate restrictions. HTTP regression tests in
+`tests/test_workspace_access.py` exercise this flow with the real BPP authorization
+guard for both roles, and verify users without BPP access are rejected.

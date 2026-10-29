@@ -168,3 +168,70 @@ def test_bpp_only_district_admin_retains_admin_but_cannot_enter_commercial(api,g
     assert users.status_code==200
     admin=next(u for u in users.json()['users'] if u['role']=='admin')
     assert admin['workspace_access']=={'bpp':True,'commercial':False}
+
+
+@pytest.mark.parametrize('role',['member','appraiser'])
+def test_regular_bpp_appraiser_can_complete_and_print_account_card_flow(api,monkeypatch,role):
+    """Exercise real HTTP authorization; mock storage/enrichment, never BPP guards."""
+    from dataclasses import replace
+    from tests.test_new_account_enrichment import make_item,make_jurisdiction
+    client,_=api
+    context=district('bpp@cad.org',role)
+    original_context=main.get_authenticated_district_context
+    monkeypatch.setattr(main,'get_authenticated_district_context',lambda token:context if token=='bpp' else original_context(token))
+    item_id='00000000-0000-0000-0000-000000000123'
+    current=[make_item(id=item_id,district_id='d1')]
+    printed=[]
+    monkeypatch.setattr(main.comptroller_intelligence,'get_intelligence_item',lambda *a:current[0])
+    monkeypatch.setattr(main.comptroller_jurisdictions,'get_jurisdiction',lambda _:make_jurisdiction(district_id='d1'))
+    monkeypatch.setattr(main.comptroller_new_account_enrichment,'generate_account_card',lambda *a:object())
+    monkeypatch.setattr(main.comptroller_new_account_enrichment,'account_card_to_dict',lambda _:dict(appraiser={},exceptions=[],personal_property_accounts=[]))
+    monkeypatch.setattr(main,'get_supabase_user',lambda _:dict(id=context.user_id))
+    monkeypatch.setattr(main.activity_analytics,'record_activity',lambda *a,**kw:None)
+    def claim(ctx,item):
+        assert ctx.role==role and ctx.user_id==context.user_id
+    monkeypatch.setattr(main.bpp_work_claims,'claim',claim)
+    def investigate(*args,**kw):
+        current[0]=replace(current[0],status='IN_REVIEW');return current[0]
+    def resolve(*args,**kw):
+        assert kw['reviewed_by']==context.user_id
+        current[0]=replace(current[0],status='RESOLVED',resolution=kw['resolution']);return current[0]
+    monkeypatch.setattr(main.comptroller_intelligence,'investigate_item',investigate)
+    monkeypatch.setattr(main.comptroller_intelligence,'resolve_item',resolve)
+    def storage(method,table,params=None,payload=None):
+        if table=='rpc/bpp_save_account_card':
+            assert payload['p_district_id']=='d1' and payload['p_actor_id']==context.user_id
+            current[0]=replace(current[0],raw={'account_card_draft':payload['p_data'],'account_card_version':1})
+            return {'version':1,'saved_at':'2026-10-29T01:00:00Z'}
+        if table=='bpp_intelligence_items':
+            assert params['district_id']=='eq.d1' and params['reviewed_by']=='eq.'+context.user_id
+            assert current[0].status=='RESOLVED'
+            return [{'id':item_id,'account_card_draft':current[0].raw['account_card_draft'],'account_card_version':1,'bpp_account_card_prints':printed}]
+        assert table=='rpc/bpp_confirm_account_card_prints'
+        assert payload['p_district_id']=='d1' and payload['p_actor_id']==context.user_id
+        printed[:]=[{'item_id':item_id,'version':1,'printed_at':'2026-10-29T01:01:00Z'}]
+        return printed
+    monkeypatch.setattr(main.comptroller_cad_review,'_request',storage)
+    base={'access_token':'bpp','source_table':'bpp_intelligence_items','item_id':item_id}
+    assert client.post('/api/admin/intelligence/investigate',json=base).status_code==200
+    card=client.post('/api/admin/intelligence/account-card',json=base)
+    assert card.status_code==200
+    draft=card.json()['card']['data'];draft['business_name']='Appraiser test';draft['segments'][0]['flat_value']='123.45'
+    saved=client.post('/api/admin/intelligence/account-card/save',json={**base,'version':0,'data':draft})
+    assert saved.status_code==200 and saved.json()['total_value']=='123.45'
+    reopened=client.post('/api/admin/intelligence/account-card',json=base)
+    assert reopened.json()['card']['data']['business_name']=='Appraiser test'
+    assert client.post('/api/admin/intelligence/resolve',json={**base,'resolution':'NEW_ACCOUNT_NEEDED'}).status_code==200
+    cards=client.post('/api/admin/intelligence/account-cards/completed',json={'access_token':'bpp'})
+    assert cards.status_code==200 and cards.json()['cards'][0]['printed_at'] is None
+    assert cards.json()['cards'][0]['data']['business_name']=='Appraiser test'
+    result=client.post('/api/admin/intelligence/account-cards/confirm-printed',json={'access_token':'bpp','cards':[{'id':item_id,'version':1}]})
+    assert result.status_code==200
+    reloaded=client.post('/api/admin/intelligence/account-cards/completed',json={'access_token':'bpp'})
+    assert reloaded.json()['cards'][0]['printed_at']=='2026-10-29T01:01:00Z'
+    # Admin-only tools remain unavailable despite full BPP workflow access.
+    assert client.post('/api/district/users',json={'access_token':'bpp'}).status_code==403
+    assert client.post('/api/admin/production-readiness',json={'access_token':'bpp'}).status_code==403
+    # Every card endpoint rejects a user without BPP access before storage runs.
+    for path,body in [('/account-card',base),('/account-card/save',{**base,'version':1,'data':draft}),('/account-cards/completed',{}),('/account-cards/confirm-printed',{'cards':[{'id':item_id,'version':1}]}),('/resolve',{**base,'resolution':'NEW_ACCOUNT_NEEDED'})]:
+        assert client.post('/api/admin/intelligence'+path,json={**body,'access_token':'commercial'}).status_code==403
