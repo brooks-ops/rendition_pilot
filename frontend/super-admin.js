@@ -1,7 +1,7 @@
 (()=>{
  const $=id=>document.getElementById(id),esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const date=v=>v?new Date(v).toLocaleString():'Not recorded';let session,districts=[],sequence=0;
- const api=async(path,body={})=>{const r=await fetch('/api/super-admin/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:session.access_token,...body}),cache:'no-store'});const data=await r.json();if(!r.ok)throw Error(data.detail||'County review is unavailable.');return data;};
+ const api=async(path,body={})=>{const r=await RenditionSession.fetch('/api/super-admin/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:session.access_token,...body}),cache:'no-store'});const data=await r.json();if(!r.ok)throw Error(data.detail||'County review is unavailable.');return data;};
  function options(){const selected=$('district').value;const visible=districts.filter(d=>d.active||$('inactive').checked);$('district').innerHTML='<option value="">Choose a county to review</option>'+visible.map(d=>`<option value="${esc(d.id)}">${esc(d.name)}${d.active?'':' · inactive'}</option>`).join('');if(visible.some(d=>d.id===selected))$('district').value=selected;else{$('review').replaceChildren();$('refresh').disabled=true;sequence++;}}
  const workspace=g=>[g?.bpp?'BPP':null,g?.commercial?'Commercial':null].filter(Boolean).join(' + ')||'None';
  function render(r){const j=r.jurisdiction,imp=r.latest_import,sync=r.latest_sync;

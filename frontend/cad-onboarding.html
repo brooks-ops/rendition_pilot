@@ -150,6 +150,7 @@
     </div>
   </main>
 
+  <script src="/frontend/auth-session.js?v=20261029"></script>
   <script>
     const API_BASE = window.location.protocol.startsWith("http") ? window.location.origin : "http://127.0.0.1:8000";
     const AUTH_KEY = "appraisalpilot_auth";
@@ -177,7 +178,7 @@
     }
 
     async function fetchJson(path, options = {}) {
-      const response = await fetch(`${API_BASE}${path}`, options);
+      const response = await RenditionSession.fetch(`${API_BASE}${path}`, options);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || data.message || "Request failed.");
       return data;
@@ -377,7 +378,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(collectPayload())
         });
-        if (data.access_token) localStorage.setItem(AUTH_KEY, JSON.stringify(data));
+        if (data.access_token) RenditionSession.save(data);
         document.querySelectorAll(".step-panel, .stepper, #prev-step, #finish").forEach((el) => el.classList.add("hidden"));
         $("success-panel").classList.remove("hidden");
         showFlash("CAD onboarding completed.", "success");

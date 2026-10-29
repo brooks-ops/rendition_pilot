@@ -962,6 +962,7 @@
     </main>
   </div>
 
+  <script src="/frontend/auth-session.js?v=20261029"></script>
   <script src="/frontend/bpp-account-card.js"></script>
   <script>
     const API_BASE = (() => {
@@ -1102,15 +1103,15 @@
     async function fetchJson(path, options = {}) {
       const headers = new Headers(options.headers || {});
       if (appState.auth?.access_token) headers.set('Authorization','Bearer '+appState.auth.access_token);
-      const response = await fetch(`${API_BASE}${path}`, {...options,headers});
+      const response = await RenditionSession.fetch(`${API_BASE}${path}`, {...options,headers});
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || data.message || "Request failed.");
+      if (!response.ok) throw Object.assign(new Error(response.status===401?"Please sign in again to renew your session.":(data.detail || data.message || "Request failed.")),{status:response.status});
       return data;
     }
 
     function setAuthSession(session) {
+      session=RenditionSession.save(session);
       appState.auth = session;
-      localStorage.setItem(AUTH_KEY, JSON.stringify(session));
       renderAuthState();
       if (!session.district?.must_change_password) refreshCadSchedules().catch(() => {});
       const params = new URLSearchParams(location.search);
@@ -1127,7 +1128,7 @@
       $("temporary-credentials").classList.add("hidden");
       appState.auth = null;
       appState.cadSchedules = [];
-      localStorage.removeItem(AUTH_KEY);
+      RenditionSession.clear();
       if (appState.bootstrap) {
         Object.keys(appState.bootstrap.table_metadata || {}).forEach((key) => {
           if (key.startsWith("cad_")) delete appState.bootstrap.table_metadata[key];
@@ -1138,20 +1139,22 @@
     }
 
     async function restoreAuthSession() {
-      const raw = localStorage.getItem(AUTH_KEY);
-      if (!raw) return;
+      if(!RenditionSession.read())return;
       try {
-        const session = JSON.parse(raw);
-        const restored = await fetchJson("/api/auth/restore", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ access_token: session.access_token })
-        });
+        const session=await RenditionSession.ensure();
+        const restored=await fetchJson('/api/auth/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:session.access_token})});
         setAuthSession(restored);
-      } catch (error) {
-        localStorage.removeItem(AUTH_KEY);
+      } catch(error) {
+        if([401,403].includes(error.status))RenditionSession.clear();
+        showFlash(error.message||'Could not reconnect. Please retry.','warn');
       }
     }
+    RenditionSession.subscribe(session=>{
+      if(!session||!appState.auth)return;
+      if(session.user?.id!==appState.auth.user?.id){showFlash('The signed-in account changed in another tab. Reload before continuing.','warn');return;}
+      const changed=JSON.stringify(session.district)!==JSON.stringify(appState.auth.district);
+      appState.auth=session;if(changed)renderAuthState();
+    });
 
     function canUseBpp() {
       return !!appState.auth?.access_token && !appState.auth?.district?.must_change_password &&
@@ -2329,7 +2332,7 @@
       status.textContent = `Preparing ${reviewMonth} export...`;
       status.classList.remove("hidden");
       try {
-        const response = await fetch(`${API_BASE}/api/admin/comptroller/review-queue/export`, {
+        const response = await RenditionSession.fetch(`${API_BASE}/api/admin/comptroller/review-queue/export`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ access_token: appState.auth.access_token, review_month: reviewMonth })
@@ -2497,10 +2500,10 @@
       $('card-batch-more').classList.toggle('hidden',completedCards.next===null);
     }
     async function confirmPrintedCards(cards){
-      const owner=appState.auth.access_token;
+      const owner=RenditionSession.identity();
       for(let offset=0;offset<cards.length;offset+=1000){
-        const result=await fetchJson('/api/admin/intelligence/account-cards/confirm-printed',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:owner,cards:cards.slice(offset,offset+1000).map(c=>({id:c.id,version:c.version}))})});
-        if(owner!==appState.auth.access_token)throw Error('Your session changed. Reload completed cards to see print status.');
+        const result=await fetchJson('/api/admin/intelligence/account-cards/confirm-printed',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,cards:cards.slice(offset,offset+1000).map(c=>({id:c.id,version:c.version}))})});
+        if(owner!==RenditionSession.identity())throw Error('Your session changed. Reload completed cards to see print status.');
         for(const p of result.prints){const c=completedCards.cards.find(c=>c.id===p.item_id&&c.version===p.version);if(c)c.printed_at=p.printed_at;completedCards.selected.delete(p.item_id);}
       }
       if($('card-batch-print-status').value!=='all')await loadCompletedCards();
@@ -2509,7 +2512,7 @@
 
     async function loadCompletedCards(more=false){
       if(completedCards.loading)return;
-      const owner=appState.auth.access_token,isAdmin=appState.auth.district?.role==='admin';
+      const owner=RenditionSession.identity(),isAdmin=appState.auth.district?.role==='admin';
       $('card-batch-appraiser-field').classList.toggle('hidden',!isAdmin);
       $('card-batch-refresh').textContent=isAdmin?'Load completed cards':'Load my completed cards';
       $('card-batch-description').textContent=isAdmin?'Completed cards for your district. Filter by appraiser and print status, then select cards to print.':'Your completed cards. Select as many as you need; each card starts on a new printed page.';
@@ -2517,8 +2520,8 @@
       if(!more||completedCards.owner!==owner){completedCards.cards=[];completedCards.selected.clear();completedCards.next=null;}
       completedCards.owner=owner;completedCards.loading=true;['card-batch-appraiser','card-batch-print-status'].forEach(id=>$(id).disabled=true);renderCompletedCards();$('card-batch-status').textContent='Loading completed cards…';
       try{
-        const result=await fetchJson('/api/admin/intelligence/account-cards/completed',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:owner,offset:more?(completedCards.next||0):0,print_status:$('card-batch-print-status').value,...(isAdmin&&$('card-batch-appraiser').value?{appraiser_id:$('card-batch-appraiser').value}:{})})});
-        if(appState.auth.access_token!==owner){completedCards.cards=[];completedCards.selected.clear();return;}
+        const result=await fetchJson('/api/admin/intelligence/account-cards/completed',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,offset:more?(completedCards.next||0):0,print_status:$('card-batch-print-status').value,...(isAdmin&&$('card-batch-appraiser').value?{appraiser_id:$('card-batch-appraiser').value}:{})})});
+        if(RenditionSession.identity()!==owner){completedCards.cards=[];completedCards.selected.clear();return;}
         if(isAdmin){const select=$('card-batch-appraiser'),selected=select.value;select.innerHTML='<option value="">All appraisers</option>'+(result.appraisers||[]).map(a=>`<option value="${batchEscape(a.id)}">${batchEscape(a.label)}</option>`).join('');select.value=selected;}
         const known=new Set(completedCards.cards.map(c=>c.id));completedCards.cards.push(...result.cards.filter(c=>!known.has(c.id)));completedCards.next=result.next_offset;
         $('card-batch-status').textContent=completedCards.cards.length?`${completedCards.cards.length} completed cards loaded. Select the cards to print.`:'No completed saved cards yet.';
@@ -2756,7 +2759,7 @@
       const controls=['activity-refresh','activity-export-team','activity-export-sales','activity-workspace','activity-start','activity-end'];
       controls.forEach(id=>$(id).disabled=true);
       try {
-        const response=await fetch(API_BASE+'/api/admin/activity',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,...dates,export:exportKind})});
+        const response=await RenditionSession.fetch(API_BASE+'/api/admin/activity',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,...dates,export:exportKind})});
         if (!response.ok) { const err=await response.json();throw new Error(err.detail || 'Activity could not load.'); }
         if (exportKind) {
           const url=URL.createObjectURL(await response.blob());const link=document.createElement('a');link.href=url;link.download=`rendition-pilot-${exportKind}-activity.csv`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -3153,7 +3156,7 @@
         if (!appState.single.lockedRecord) return showFlash("Lock the final value before downloading the stamped rendition.", "error");
         if (!appState.single.fileBase64 || !appState.single.file) return showFlash("Upload and review a rendition PDF before downloading the stamped rendition.", "error");
         try {
-          const response = await fetch(`${API_BASE}/api/review/save`, {
+          const response = await RenditionSession.fetch(`${API_BASE}/api/review/save`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": "Bearer "+appState.auth.access_token },
             body: JSON.stringify({
@@ -3224,7 +3227,7 @@
       $('card-batch-all').addEventListener('click',()=>{completedCards.cards.filter(c=>!c.printed_at).forEach(c=>completedCards.selected.add(c.id));renderCompletedCards();});
       ['card-batch-appraiser','card-batch-print-status'].forEach(id=>$(id).addEventListener('change',()=>loadCompletedCards()));
       $('card-batch-none').addEventListener('click',()=>{completedCards.selected.clear();renderCompletedCards();});
-      $('card-batch-print').addEventListener('click',()=>{try{if(completedCards.owner!==appState.auth.access_token)return loadCompletedCards();const cards=completedCards.cards.filter(c=>completedCards.selected.has(c.id));if(cards.some(c=>c.printed_at)&&!confirm('Some selected cards were already printed / saved. Print them again?'))return;BppAccountCard.batchPrint(cards,()=>confirmPrintedCards(cards));}catch(error){$('card-batch-status').textContent=error.message;}});
+      $('card-batch-print').addEventListener('click',()=>{try{if(completedCards.owner!==RenditionSession.identity())return loadCompletedCards();const cards=completedCards.cards.filter(c=>completedCards.selected.has(c.id));if(cards.some(c=>c.printed_at)&&!confirm('Some selected cards were already printed / saved. Print them again?'))return;BppAccountCard.batchPrint(cards,()=>confirmPrintedCards(cards));}catch(error){$('card-batch-status').textContent=error.message;}});
       $("intel-action-resolve").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/resolve", {
         resolution: $("intel-resolution").value,
         resolution_notes: $("intel-resolution-notes").value || null

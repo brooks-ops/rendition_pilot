@@ -228,6 +228,10 @@ class SessionRequest(BaseModel):
     access_token: str
 
 
+class RefreshSessionRequest(BaseModel):
+    refresh_token: str = Field(min_length=1, max_length=10000)
+
+
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -760,6 +764,8 @@ def get_supabase_user(access_token: str) -> dict[str, Any]:
         data = {"message": response.text}
     if response.status_code >= 400:
         message = data.get("msg") or data.get("message") or "Could not restore Supabase session."
+        if re.search(r'jwt.*expired|token.*expired',str(message),re.I):
+            raise HTTPException(401,'Your sign-in needs to be renewed.')
         raise HTTPException(status_code=response.status_code, detail=str(message))
     return data
 
@@ -1450,6 +1456,29 @@ def super_admin_page():
     return FileResponse(FRONTEND_DIR/'super-admin.html')
 
 
+def session_tokens(result: dict[str, Any]) -> dict[str, Any]:
+    """Return renewable session metadata; never persist or log the credentials."""
+    tokens=result.get('session') or result
+    return {key:tokens[key] for key in ('refresh_token','expires_at','expires_in','token_type') if tokens.get(key) is not None}
+
+
+@app.post("/api/auth/refresh")
+def auth_refresh(request: RefreshSessionRequest) -> dict[str, Any]:
+    try:
+        result=supabase_auth_request('token?grant_type=refresh_token',{'refresh_token':request.refresh_token})
+    except HTTPException as exc:
+        if exc.status_code in (400,401,403):raise HTTPException(401,'Please sign in again to renew your session.') from None
+        raise
+    except (requests.ConnectionError,requests.Timeout):
+        raise HTTPException(503,'Session renewal is temporarily unavailable. Please retry.') from None
+    token=result.get('access_token')
+    if not token:raise HTTPException(502,'Session renewal did not return a login token. Please retry.')
+    user=result.get('user') or get_supabase_user(token)
+    district=build_district_context(user,token)
+    if not district:raise HTTPException(403,UNLINKED_DISTRICT_MESSAGE)
+    return {'access_token':token,**session_tokens(result),'user':to_jsonable(user),'district':_district_to_dict(district)}
+
+
 @app.post("/api/auth/login")
 def auth_login(request: LoginRequest) -> dict[str, Any]:
     auth_result = sign_in_with_supabase(resolve_login_identifier(request.email), request.password)
@@ -1463,7 +1492,7 @@ def auth_login(request: LoginRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not district:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
-    return {"access_token": access_token, "user": to_jsonable(user), "district": _district_to_dict(district)}
+    return {"access_token": access_token, **session_tokens(auth_result), "user": to_jsonable(user), "district": _district_to_dict(district)}
 
 
 @app.post("/api/auth/restore")
@@ -1516,7 +1545,7 @@ def auth_signup(request: SignupRequest) -> dict[str, Any]:
         district = build_district_context(user or {"email": email}, access_token)
         if not district:
             raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
-        return {"access_token": access_token, "user": to_jsonable(user), "district": _district_to_dict(district)}
+        return {"access_token": access_token, **session_tokens(signup_result), "user": to_jsonable(user), "district": _district_to_dict(district)}
     return {"message": "Login created. Confirm the email if Supabase requires confirmation, then sign in."}
 
 
@@ -1619,7 +1648,7 @@ def auth_district_setup(request: DistrictSetupRequest) -> dict[str, Any]:
     linked_district = build_district_context(user or {"email": request.admin_email}, access_token)
     if not linked_district:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
-    return {"access_token": access_token, "user": to_jsonable(user), "district": _district_to_dict(linked_district)}
+    return {"access_token": access_token, **session_tokens(signup_result), "user": to_jsonable(user), "district": _district_to_dict(linked_district)}
 
 
 @app.post("/api/cad-onboarding")
