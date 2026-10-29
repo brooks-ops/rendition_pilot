@@ -10,7 +10,7 @@ from app.comptroller.service import _request_json, get_supabase_config, postgres
 
 ACTIONS = {
     'review_started', 'review_released', 'review_completed', 'review_dismissed', 'cad_match_decided',
-    'account_summary_generated', 'rendition_locked', 'rendition_report_generated',
+    'account_summary_generated', 'account_card_saved', 'rendition_locked', 'rendition_report_generated',
     'commercial_update_applied', 'commercial_update_undone', 'commercial_account_created',
     'commercial_report_generated', 'commercial_equity_generated',
     'commercial_sketch_saved', 'commercial_sketch_approved', 'commercial_sketch_generated', 'commercial_sketch_photo_added',

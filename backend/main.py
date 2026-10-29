@@ -2496,7 +2496,7 @@ def intelligence_account_card_save(request: AccountCardSaveRequest) -> dict[str,
         if 'CARD_VERSION_CONFLICT' in str(exc):raise HTTPException(409,'Someone saved a newer card. Reopen the account to load it before editing.') from exc
         if 'CARD_WORK_CONFLICT' in str(exc):raise HTTPException(409,'This account is reserved by another appraiser or is already complete.') from exc
         raise HTTPException(503,'The account card could not be saved. Your changes are still on screen.') from exc
-    activity_analytics.record_activity(district,'account_card_saved','business_intelligence',request.source_table,item.id)
+    activity_analytics.record_activity(district,'account_card_saved','business_intelligence',request.source_table,item.id,dedup_key=f"{item.id}:{saved['version']}")
     return {**saved,'total_value':total(data)}
 
 
