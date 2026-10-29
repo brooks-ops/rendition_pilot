@@ -2573,10 +2573,8 @@
       if (confidence) payload.confidence = confidence;
       if (city) payload.city = city;
 
-      const [summary, queue] = await Promise.all([
-        fetchJson("/api/admin/intelligence/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ access_token: appState.auth.access_token }) }),
-        fetchJson("/api/admin/intelligence/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
-      ]);
+      const queue = await fetchJson("/api/admin/intelligence/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const summary=queue.summary || {new:0,high_priority:0,needs_review:0,resolved:0};
       if(request!==queueRequests.intel)return;
       $("intel-summary-new").textContent = summary.new;
       $("intel-summary-high").textContent = summary.high_priority;
