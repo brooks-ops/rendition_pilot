@@ -35,3 +35,18 @@ def test_backup_roundtrip_and_tampering_detection():
 
 def test_recovery_drill_refuses_an_existing_or_production_database():
     with pytest.raises(ValueError):b.restore_drill(b'','postgres')
+
+
+def test_transient_storage_520_is_retried_only_for_idempotent_operations(monkeypatch):
+    import requests
+    calls=[]
+    def fake(*a,**kw):
+        r=requests.Response();r.status_code=520 if not calls else 200;r._content=b'{}';calls.append(True);return r
+    monkeypatch.setattr(b,'config',lambda:('https://storage.test',{}))
+    monkeypatch.setattr(b.requests,'request',fake)
+    monkeypatch.setattr(b.time,'sleep',lambda _:None)
+    assert b.request('POST','/storage/v1/object/security-backups/part',headers={'x-upsert':'true'}).status_code==200
+    assert len(calls)==2
+    calls.clear()
+    with pytest.raises(requests.HTTPError):b.request('POST','/other-write',json={})
+    assert len(calls)==1

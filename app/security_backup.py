@@ -39,16 +39,16 @@ def request(method, path, **kwargs):
     # Only idempotent operations are retried; object uploads use a unique name
     # and upsert so a dropped response cannot duplicate an archive part.
     retryable=method=='GET' or path.startswith('/storage/v1/object/list/') or (method=='POST' and supplied_headers.get('x-upsert')=='true') or method=='DELETE'
-    for attempt in range(3 if retryable else 1):
+    for attempt in range(5 if retryable else 1):
         try:
             response=requests.request(method,url+path,headers={**headers,**supplied_headers},timeout=(10,120),**kwargs)
-            if retryable and response.status_code in (502,503,504) and attempt<2:
-                time.sleep(0.5*(attempt+1));continue
+            if retryable and (response.status_code==429 or 500<=response.status_code<600) and attempt<4:
+                time.sleep(min(8,0.5*2**attempt));continue
             response.raise_for_status()
             return response
         except (requests.ConnectionError,requests.Timeout):
-            if not retryable or attempt==2:raise
-            time.sleep(0.5*(attempt+1))
+            if not retryable or attempt==4:raise
+            time.sleep(min(8,0.5*2**attempt))
 
 
 def list_objects(bucket, prefix=''):
@@ -135,11 +135,21 @@ def verify(archive):
     return manifest
 
 
-def upload(encrypted):
-    name=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'.rpbackup'
+def upload(encrypted, name=None):
+    resume=name is not None
+    if resume:datetime.strptime(name,'%Y%m%dT%H%M%SZ.rpbackup')
+    name=name or datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'.rpbackup'
     parts=[]
     for index,start in enumerate(range(0,len(encrypted),256*1024)):
         part=encrypted[start:start+256*1024];path=name+f'.{index:04d}'
+        digest=hashlib.sha256(part).hexdigest()
+        if resume:
+            try:
+                existing=request('GET','/storage/v1/object/'+BUCKET+'/'+path).content
+                if hashlib.sha256(existing).hexdigest()==digest:
+                    parts.append({'path':path,'bytes':len(part),'sha256':digest});continue
+            except requests.HTTPError as exc:
+                if exc.response.status_code not in (400,404):raise
         request('POST','/storage/v1/object/'+BUCKET+'/'+path,data=part,headers={'Content-Type':'application/octet-stream','x-upsert':'true'})
         downloaded=request('GET','/storage/v1/object/'+BUCKET+'/'+path).content
         digest=hashlib.sha256(part).hexdigest()
