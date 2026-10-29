@@ -228,6 +228,7 @@ def handoff_after_sync(result):
     import sys
     # exec releases the sync process's heap; a child process would keep both
     # heaps resident and can still exceed the shared 512-MiB instance limit.
+    sys.stdout.flush();sys.stderr.flush()
     os.execv(sys.executable,[sys.executable,'-m','app.security_backup','--sync-exit-code',str(result)])
 
 
