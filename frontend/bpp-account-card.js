@@ -31,7 +31,7 @@ const BppAccountCard = (() => {
   function render() {
     const c=state.card,d=c.data;
     root().innerHTML=`<div class="account-card-heading"><div><h3>New account card</h3><p class="subtle">${esc(c.district_name)} · Field review worksheet</p></div><div class="button-row"><button type="button" data-card-reserve>Start editing</button><button type="button" class="secondary" data-card-print>Print / save PDF</button><button type="button" class="secondary" data-card-save>Save draft</button><button type="button" data-card-finish>Finish &amp; print / PDF</button></div></div>
-      <p class="subtle" data-card-edit-note></p><p class="subtle">Review the prefilled details, add what you know, then finish to save and open the print / PDF view. Blank fields are allowed. This worksheet does not create an official CAD account or mark the investigation complete.</p>
+      <p class="subtle" data-card-edit-note></p><p class="subtle">Review the prefilled details, add what you know, then finish to save, mark complete, and open the print / PDF view. Blank fields are allowed. Finishing completes this review; it does not create an official CAD account.</p>
       ${c.existing_accounts?.length?`<div class="status warn">BPP accounts already found: ${esc(c.existing_accounts.join(', '))}. Verify before creating another account.</div>`:''}
       ${c.sections.map(section=>`${section.title==='Property and codes'?'<details class="account-card-section"><summary>Property and codes · optional</summary>':`<section class="account-card-section"><h4>${esc(section.title)}</h4>`}${section.title==='Mailing'?'<div class="button-row"><button type="button" class="secondary" data-card-copy>Use business location for mailing</button></div><p class="subtle">Use only when you have confirmed the mailing address is the same.</p>':''}<div class="account-card-grid">${section.fields.map(f=>`<div class="field ${f.type==='textarea'?'account-card-wide':''}"><label for="account-card-${f.name}">${esc(f.label)}</label>${f.name==='new_value'?`<select id="account-card-${f.name}" data-card-field="${f.name}"><option value="">Not entered</option>${['Y','N'].map(v=>`<option value="${v}" ${d[f.name]===v?'selected':''}>${v==='Y'?'Yes':'No'}</option>`).join('')}</select>`:f.type==='textarea'?`<textarea id="account-card-${f.name}" data-card-field="${f.name}" rows="3" maxlength="4000">${esc(d[f.name])}</textarea>`:`<input id="account-card-${f.name}" data-card-field="${f.name}" type="${f.type}" ${f.type==='number'?'min="1900" max="2200" step="1"':''} maxlength="500" value="${esc(d[f.name])}" ${({contact_name:'name',contact_email:'email',contact_phone:'tel'})[f.name]?`autocomplete="${({contact_name:'name',contact_email:'email',contact_phone:'tel'})[f.name]}"`:''}>`}${f.name==='last_inspected'?'<button type="button" class="secondary" data-card-today>Use today</button>':''}</div>`).join('')}</div>${section.title==='Property and codes'?'</details>':'</section>'}`).join('')}
       <section class="account-card-section"><h4>Valuation segments</h4><div class="account-card-table"><table><thead><tr><th>Segment</th>${segmentFields.map(([,label])=>`<th>${label}</th>`).join('')}<th></th></tr></thead><tbody>${d.segments.map((row,i)=>`<tr data-card-segment><td>${i+1}</td>${segmentFields.map(([name,label])=>`<td><input aria-label="Segment ${i+1} ${label}" data-segment-field="${name}" ${name==='flat_value'?'type="number" step="0.01"':'type="text" maxlength="80"'} value="${esc(row[name])}"></td>`).join('')}<td><button type="button" class="secondary" data-card-remove="${i}" aria-label="Remove segment ${i+1}">×</button></td></tr>`).join('')}</tbody></table></div><div class="account-card-total"><button type="button" class="secondary" data-card-add>Add segment</button><strong>Total value: <span data-card-total>${totalLabel(d)}</span></strong></div></section>
@@ -66,11 +66,17 @@ const BppAccountCard = (() => {
   async function finish() {
     if(!state.card||state.saving)return;
     // Open synchronously so saving first does not trigger popup blocking.
-    const seq=state.seq,win=window.open('','_blank');
+    const seq=state.seq,options=state.options,item=options.selected(),win=window.open('','_blank');
     if(!win){message('Allow pop-ups to finish and print this card.',true);return;}
     win.document.body.textContent='Saving account card…';
-    if(await save()){if(seq===state.seq&&!win.closed)print(win);else win.close();}
-    else win.close();
+    if(!await save()){win.close();return;}
+    if(seq!==state.seq||win.closed){win.close();return;}
+    print(win);
+    try {
+      await options.complete(item);
+    } catch(error) {
+      if(seq===state.seq)message('Card saved and print / PDF ready, but the review was not completed: '+error.message,true);
+    }
   }
   document.getElementById('intel-account-card').addEventListener('input',()=>{if(!state.card)return;state.dirty=true;root().querySelector('[data-card-total]').textContent=totalLabel(read());message('Unsaved changes.');});
   document.getElementById('intel-account-card').addEventListener('click',async event=>{

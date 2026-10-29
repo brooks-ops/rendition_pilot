@@ -2770,7 +2770,19 @@
       await BppAccountCard.load(item,{
         selected:()=>appState.intelligence.selected,
         send:(path,payload)=>fetchJson(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,...payload})}),
-        reserve:()=>intelligenceAction('/api/admin/intelligence/investigate',{})
+        reserve:()=>intelligenceAction('/api/admin/intelligence/investigate',{}),
+        complete:async completedItem=>{
+          const notes=$('intel-resolution-notes').value.trim();
+          if(completedItem.signal_type==='county_clerk_dba'&&notes.length<20)throw new Error('Add independently verified evidence in the review notes, then finish again.');
+          const result=await fetchJson('/api/admin/intelligence/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+            access_token:appState.auth.access_token,source_table:completedItem.source_table,item_id:completedItem.id,
+            resolution:'NEW_ACCOUNT_NEEDED',resolution_notes:[notes,'New account card finished; print / PDF copy prepared.'].filter(Boolean).join('\n')
+          })});
+          if(appState.intelligence.selected?.id===completedItem.id)closeIntelligenceDetail();
+          showFlash(result.warning||'Account card saved and review marked complete. Your print / PDF copy is open.',result.warning?'warn':'success');
+          try{await Promise.all([refreshIntelligenceQueue(),refreshMailingQueue()]);}
+          catch{showFlash('Review completed. Refresh the queue to see the latest status.','warn');}
+        }
       });
     }
 

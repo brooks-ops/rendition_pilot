@@ -37,8 +37,11 @@ Local browser testing covers reserve/edit/save/reopen and the printable view.
 worksheet in a print view. Choose **Print / save PDF**, then select a printer or
 Save as PDF in the browser print dialog. A failed save keeps edits in place and
 does not export a misleading saved copy. **Save draft** supports unfinished work;
-**Print / save PDF** remains available on read-only cards. Completing the
-investigation still uses **Mark as complete**.
+**Print / save PDF** remains available on read-only cards. Finishing also resolves the review as **New account needed**, using the existing
+completion endpoint, work ownership checks, and audit trail. Save draft and
+standalone reprints do not complete it. Browsers cannot verify whether printing
+or PDF saving actually succeeded; completion records that the appraiser finished
+the card and opened its output. Failed completion remains visible for retry.
 
 Known details remain prefilled. The mailing shortcut explicitly copies the
 business location only when selected and asks before replacing different mailing
