@@ -948,7 +948,7 @@
             </div>
             <div class="field">
               <label>&nbsp;</label>
-              <button id="intel-action-resolve" type="button">Mark as complete</button>
+              <button id="intel-action-resolve" type="button">Mark as complete</button><button id="intel-save-next" type="button">Save &amp; Next →</button><button id="intel-reopen" type="button" class="secondary hidden">Reopen review</button>
             </div>
           </div>
           <div class="field">
@@ -2531,6 +2531,25 @@
       finally{completedCards.loading=false;['card-batch-appraiser','card-batch-print-status'].forEach(id=>$(id).disabled=false);renderCompletedCards();}
     }
 
+    let queuePreferenceOwner=null;
+    const queueFilterIds=['intel-filter-signal','intel-filter-status','intel-filter-confidence','intel-filter-city','mailing-filter-status','mailing-filter-confidence'];
+    function ensureQueuePreferences(){
+      const owner=RenditionSession.identity();if(owner===queuePreferenceOwner)return;queuePreferenceOwner=owner;
+      let saved={};try{saved=JSON.parse(localStorage.getItem('bpp-queue-preferences:'+owner)||'{}');}catch{}
+      ['intel','mailing'].forEach(prefix=>setQueueFolder(prefix,saved.folders?.[prefix]==='resolved'?'resolved':'active'));
+      queueFilterIds.forEach(id=>{const el=$(id);el.value='';const value=saved.filters?.[id];if(typeof value==='string'&&(el.tagName!=='SELECT'||[...el.options].some(o=>o.value===value)))el.value=value;});
+    }
+    function saveQueuePreferences(){
+      try{localStorage.setItem('bpp-queue-preferences:'+queuePreferenceOwner,JSON.stringify({folders:queueFolders,filters:Object.fromEntries(queueFilterIds.map(id=>[id,$(id).value]))}));}catch{}
+    }
+    function renderFolderCounts(prefix,counts){
+      document.querySelectorAll(`[data-queue="${prefix}"]`).forEach(button=>{button.textContent=(button.dataset.folder==='active'?'Active':'Resolved')+' ('+(counts?.[button.dataset.folder]??0)+')';});
+    }
+    function nextReview(items,current,previous){
+      const index=previous.findIndex(i=>i.id===current.id&&i.source_table===current.source_table);
+      const order=[...previous.slice(index+1),...previous.slice(0,index)];
+      return [...order,...items].map(candidate=>items.find(i=>i.id===candidate.id&&i.source_table===candidate.source_table)).find(i=>i&&!(i.id===current.id&&i.source_table===current.source_table)&&!['RESOLVED','DISMISSED'].includes(i.status)&&(!i.work_claim||i.work_claim.mine));
+    }
     const queueFolders={intel:'active',mailing:'active'};
     const queueRequests={intel:0,mailing:0};
     function setQueueFolder(prefix,folder){
@@ -2542,6 +2561,7 @@
     }
     async function refreshIntelligenceQueue() {
       if (!canUseBpp()) return;
+      ensureQueuePreferences();saveQueuePreferences();
       const request=++queueRequests.intel;
       const payload = { access_token: appState.auth.access_token, folder:queueFolders.intel };
       const signal = $("intel-filter-signal").value;
@@ -2563,6 +2583,7 @@
       $("intel-summary-review").textContent = summary.needs_review;
       $("intel-summary-resolved").textContent = summary.resolved;
 
+      renderFolderCounts('intel',queue.folder_counts);
       appState.intelligence.items = queue.items || [];
       renderIntelligenceQueue(appState.intelligence.items);
       refreshCadHealth();
@@ -2573,6 +2594,7 @@
 
     async function refreshMailingQueue() {
       if (!canUseBpp()) return;
+      ensureQueuePreferences();saveQueuePreferences();
       const request=++queueRequests.mailing;
       const payload = { access_token: appState.auth.access_token, signal_type: "mailing_address_change", folder:queueFolders.mailing };
       const status = $("mailing-filter-status").value;
@@ -2583,6 +2605,7 @@
       const queue = await fetchJson("/api/admin/intelligence/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if(request!==queueRequests.mailing)return;
       const items = queue.items || [];
+      renderFolderCounts('mailing',queue.folder_counts);
       appState.mailingIntelligence.items = items;
 
       $("mailing-summary-new").textContent = queue.summary?.new ?? 0;
@@ -2617,7 +2640,7 @@
           <td>${cadHtml(address || "Address unavailable")}${mailing ? `<div class="subtle">On file: ${cadHtml(item.mailing_address_current || "Unknown")}</div>` : ""}</td>
           <td><strong>${cadHtml(item.matched_account_number || (item.is_ambiguous ? "Multiple possible accounts" : "No account identified"))}</strong><div class="subtle">${cadHtml(item.matched_owner_name || "")} ${item.confidence ? `· ${cadHtml(item.confidence)}` : ""}</div></td>
           <td><span class="bpp-priority ${item.priority === "HIGH" ? "high" : item.priority === "MEDIUM" ? "medium" : "low"}">${cadHtml(item.priority)}</span><div class="subtle">${cadHtml(item.priority_reason || item.match_reason || "")}</div></td>
-          <td><span class="bpp-status">${cadHtml(item.status)}</span><div class="bpp-work-badge" data-work-key="${cadHtml(intelWorkKey(item))}" data-work-item="${cadHtml(`item:${item.source_table}:${item.id}`)}">${cadHtml(intelWorkLabel(item.work_claim))}</div></td></tr>`;
+          <td><span class="bpp-status">${cadHtml(item.status)}</span>${["RESOLVED","DISMISSED"].includes(item.status)?`<div class="subtle">${cadHtml(intelResolutionLabel(item.resolution||item.status))}<br>Completed ${cadHtml(cadDate(item.reviewed_at))}<br>By ${cadHtml(item.reviewer_label||item.reviewed_by||"Not recorded")}</div>`:""}<div class="bpp-work-badge" data-work-key="${cadHtml(intelWorkKey(item))}" data-work-item="${cadHtml(`item:${item.source_table}:${item.id}`)}">${cadHtml(intelWorkLabel(item.work_claim))}</div></td></tr>`;
       }).join("")}</tbody></table></div>`;
     }
 
@@ -2689,7 +2712,9 @@
       $('intel-release-work').textContent=mine?'Release account':'Release appraiser’s claim';
       $('intel-action-investigate').textContent=mine?'Working on this account':'Start review';
       $('intel-action-investigate').disabled=!!claim||closed||appState.intelligence.saving;
-      ['intel-action-resolve','intel-action-dismiss','intel-resolution','intel-resolution-notes'].forEach(id=>$(id).disabled=!mine||closed||appState.intelligence.saving);
+      ['intel-save-next','intel-action-resolve','intel-action-dismiss','intel-resolution','intel-resolution-notes'].forEach(id=>$(id).disabled=!mine||closed||appState.intelligence.saving);
+      $('intel-reopen').classList.toggle('hidden',!closed);$('intel-reopen').disabled=appState.intelligence.saving;
+      $('intel-save-next').classList.toggle('hidden',closed);
       BppAccountCard.access();
       $('cad-review-panel').classList.toggle('intel-readonly',!mine||closed);$('cad-review-panel').inert=!mine||closed;
     }
@@ -2796,16 +2821,18 @@
       } finally {controls.forEach(id=>$(id).disabled=false);}
     }
 
-    async function intelligenceAction(path, extraPayload) {
+    async function intelligenceAction(path, extraPayload,advance=false) {
       const item = appState.intelligence.selected;
       if (!item || appState.intelligence.saving) return;
+      const prefix=$('view-mailing').classList.contains('active')?'mailing':'intel';
+      const previous=[...(prefix==='mailing'?appState.mailingIntelligence.items:appState.intelligence.items)];
       const statusEl = $("intel-detail-status");
       if (path.endsWith("/resolve") && !extraPayload.resolution) {
         statusEl.textContent="Choose an outcome before marking complete."; statusEl.className="status warn"; $("intel-resolution").focus(); return;
       }
       if((path.endsWith('/resolve')||path.endsWith('/dismiss')||path.endsWith('/release'))&&(BppAccountCard.isDirty()||BppAccountCard.isSaving())){statusEl.textContent='Save the account card before finishing or releasing this review.';statusEl.className='status warn';return;}
       appState.intelligence.saving=true;
-      const buttons=["intel-action-investigate","intel-action-resolve","intel-action-dismiss","intel-release-work"];
+      const buttons=["intel-action-investigate","intel-action-resolve","intel-save-next","intel-reopen","intel-action-dismiss","intel-release-work"];
       buttons.forEach(id=>$(id).disabled=true);
       statusEl.textContent="Saving…"; statusEl.className="status";
       try {
@@ -2815,8 +2842,10 @@
           const sourceLine=$("intel-detail-body").querySelector(".intel-source-line");
           if (sourceLine) sourceLine.textContent=`${item.source_label || item.source || ""} · Detected ${cadDate(item.first_detected_at)} · ${(appState.intelligence.selected.status || "").replaceAll("_"," ")}`;
           statusEl.textContent=path.endsWith("/release")?"Account released for another appraiser.":"Account reserved for you. Choose an outcome when finished."; statusEl.className="status success";
-        } else { closeIntelligenceDetail(); showFlash(data.warning || (path.endsWith("/dismiss") ? "Item moved to the Resolved folder as dismissed." : "Account moved to the Resolved folder."),data.warning?"warn":"success"); }
-        try { await Promise.all([refreshIntelligenceQueue(),refreshMailingQueue()]); }
+        } else { closeIntelligenceDetail(); showFlash(data.warning || (path.endsWith("/dismiss") ? "Item moved to the Resolved folder as dismissed." : (path.endsWith("/reopen")?"Review reopened and returned to Active.":"Account moved to the Resolved folder.")),data.warning?"warn":"success"); }
+        try { await Promise.all([refreshIntelligenceQueue(),refreshMailingQueue()]);
+          if(advance){const items=prefix==='mailing'?appState.mailingIntelligence.items:appState.intelligence.items;const next=nextReview(items,item,previous);if(next)openIntelligenceDetail(next.id,next.source_table);else showFlash('Saved. No more available accounts match your active filters.','success');}
+        }
         catch { showFlash("Your review was saved. Refresh the queue to see the latest status.","warn"); }
       } catch(error) { statusEl.textContent=error.message; statusEl.className="status error"; }
       finally {
@@ -3245,6 +3274,9 @@
       ['card-batch-appraiser','card-batch-print-status'].forEach(id=>$(id).addEventListener('change',()=>loadCompletedCards()));
       $('card-batch-none').addEventListener('click',()=>{completedCards.selected.clear();renderCompletedCards();});
       $('card-batch-print').addEventListener('click',()=>{try{if(completedCards.owner!==RenditionSession.identity())return loadCompletedCards();const cards=completedCards.cards.filter(c=>completedCards.selected.has(c.id));if(cards.some(c=>c.printed_at)&&!confirm('Some selected cards were already printed / saved. Print them again?'))return;BppAccountCard.batchPrint(cards,()=>confirmPrintedCards(cards));}catch(error){$('card-batch-status').textContent=error.message;}});
+      $('intel-save-next').addEventListener('click',()=>intelligenceAction('/api/admin/intelligence/resolve',{resolution:$('intel-resolution').value,resolution_notes:$('intel-resolution-notes').value||null},true));
+      $('intel-reopen').addEventListener('click',()=>intelligenceAction('/api/admin/intelligence/reopen',{}));
+      $('intel-filter-city').addEventListener('change',()=>refreshIntelligenceQueue().catch(error=>showFlash(error.message,'error')));
       $("intel-action-resolve").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/resolve", {
         resolution: $("intel-resolution").value,
         resolution_notes: $("intel-resolution-notes").value || null

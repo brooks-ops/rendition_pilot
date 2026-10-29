@@ -335,3 +335,21 @@ def test_all_signals_sort_by_priority_before_recency(fake_supabase):
     assert [i.priority for i in items]==['HIGH','MEDIUM','LOW','LOW']
     assert items[0].id==old_high['id'] and items[1].id==medium['id']
     assert next(i for i in items if i.id==dba['id']).priority=='LOW'
+
+
+@pytest.mark.parametrize('closure',[False,True])
+def test_reopen_preserves_previous_completion_and_followup_notes(fake_supabase,closure):
+    if closure:
+        row=add_closure_review(fake_supabase,workflow_status='CONFIRMED_CLOSURE',reviewer_notes='Verified closure',reviewed_by='reviewer',reviewed_at='2026-10-28')
+        table=intelligence.SOURCE_TABLE_CLOSURE_REVIEW
+    else:
+        row=add_intelligence_item(fake_supabase,status='RESOLVED',resolution='ACCOUNT_EXISTS',resolution_notes='Verified account',reviewed_by='reviewer',reviewed_at='2026-10-28')
+        table=intelligence.SOURCE_TABLE_INTELLIGENCE
+    original=intelligence.get_intelligence_item(table,row['id'])
+    reopened=intelligence.reopen_item(original,'appraiser@cad.org')
+    assert reopened.status=='NEW' and original.resolution in reopened.resolution_notes
+    assert 'reviewer' in reopened.resolution_notes and '2026-10-28' in reopened.resolution_notes
+    assert '[Reopened review]' in reopened.resolution_notes
+    followup=intelligence.retain_review_history(reopened,'Corrected the outcome')
+    assert original.resolution_notes in followup and 'Corrected the outcome' in followup
+    with pytest.raises(intelligence.IntelligenceQueueError):intelligence.reopen_item(reopened,'appraiser@cad.org')
