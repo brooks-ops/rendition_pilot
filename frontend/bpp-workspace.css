@@ -110,8 +110,11 @@ body { font-size:14px; }
 .account-card-heading .button-row { flex-wrap:wrap; }.account-card-heading button { font-size:12px; padding:9px 12px; }
 .account-card-section { padding:15px 0; border-top:1px solid var(--line); }.account-card-section h4 { margin:0 0 12px; }
 .account-card-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-.account-card-wide { grid-column:1/-1; }.account-card-grid input,.account-card-grid textarea { min-width:0; width:100%; box-sizing:border-box; }
+.account-card-wide { grid-column:1/-1; }.account-card-grid input,.account-card-grid textarea,.account-card-grid select { min-width:0; width:100%; box-sizing:border-box; }
 .account-card-table { overflow-x:auto; }.account-card-table table { width:100%; min-width:540px; }.account-card-table th,.account-card-table td { padding:7px 4px; }.account-card-table input { width:100%; min-width:0; box-sizing:border-box; }
 .account-card-total { display:flex; justify-content:space-between; gap:14px; align-items:center; margin-top:12px; }
 .account-card-shell :disabled { opacity:.8; }.account-card-shell [data-card-status] { margin-top:12px; }
 @media(max-width:520px){.account-card-grid{grid-template-columns:1fr}.account-card-shell{padding:12px}.account-card-total{align-items:start;flex-direction:column}}
+
+.account-card-section > summary { cursor:pointer; font-weight:600; margin-bottom:12px; }
+.account-card-grid [data-card-today] { margin-top:6px; font-size:12px; padding:5px 9px; }

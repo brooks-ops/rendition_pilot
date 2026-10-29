@@ -30,3 +30,18 @@ prefill boundaries, identifiers, zeros, totals and API concurrency handling.
 `tests/sql/bpp_account_cards.sql` uses rolled-back disposable fixtures to check
 saved drafts, audit history, ownership/district isolation and stale versions.
 Local browser testing covers reserve/edit/save/reopen and the printable view.
+
+## Finishing a card
+
+**Finish & print / PDF** saves the current draft first, then opens the saved
+worksheet in a print view. Choose **Print / save PDF**, then select a printer or
+Save as PDF in the browser print dialog. A failed save keeps edits in place and
+does not export a misleading saved copy. **Save draft** supports unfinished work;
+**Print / save PDF** remains available on read-only cards. Completing the
+investigation still uses **Mark as complete**.
+
+Known details remain prefilled. The mailing shortcut explicitly copies the
+business location only when selected and asks before replacing different mailing
+details. Property codes are expandable, New value uses a Yes/No selector, and
+Last inspected has a local-date shortcut. None of these populate unknown facts
+without appraiser input.
