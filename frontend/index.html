@@ -915,7 +915,7 @@
       </div>
         <div class="modal-backdrop hidden" id="intel-detail-backdrop"></div>
         <section class="card modal-panel hidden intel-review-drawer" id="intel-detail-card" role="dialog" aria-modal="true" aria-labelledby="intel-detail-title">
-          <header class="intel-review-header"><div><div id="intel-detail-kind" class="subtle"></div><h2 id="intel-detail-title">Account review</h2></div><button id="intel-detail-close" class="secondary" type="button" aria-label="Close review">✕</button></header>
+          <header class="intel-review-header"><div><div id="intel-detail-kind" class="subtle"></div><h2 id="intel-detail-title">Account review</h2></div><button id="intel-action-account-card" class="secondary hidden" type="button">Account card</button><button id="intel-detail-close" class="secondary" type="button" aria-label="Close review">✕</button></header>
           <div id="intel-work-status" class="status" role="status"></div><button id="intel-release-work" type="button" class="secondary hidden">Release account</button><div id="intel-detail-body"></div>
           <details id="cad-review-panel" class="hidden intel-support"><summary>Check or change the CAD account match</summary><div>
             <div class="subtle">Compare each account with the Comptroller details above. Confirming or rejecting a match saves an advisory decision and leaves the alert open.</div>
@@ -926,7 +926,7 @@
             <div class="field"><label for="cad-review-notes">Match review notes</label><textarea id="cad-review-notes" rows="2" placeholder="Evidence supporting your decision; required when confirming an address or suite conflict"></textarea></div>
             <details><summary>Saved match decisions</summary><div id="cad-review-history" class="subtle"></div></details>
           </div></details>
-          <section id="intel-extra-tools" class="hidden account-card-shell"><button id="intel-action-account-card" class="secondary" type="button">Open new account card</button><div id="intel-account-card" class="hidden"></div></section>
+
           <section class="intel-outcome"><h3>Handle this account</h3>
           <p id="intel-next-step" class="subtle"></p>
           <div class="intel-outcome-fields">
@@ -950,6 +950,7 @@
           <div class="button-row"><button id="intel-action-dismiss" class="secondary" type="button">Dismiss</button><span class="subtle">Saving records your review; it does not update the CAD system.</span></div>
           <div id="intel-detail-status" class="status hidden" role="status"></div>
           </section>
+          <section id="intel-extra-tools" class="hidden account-card-shell"><div id="intel-account-card" class="hidden"></div></section>
 
         </section>
     </main>
@@ -2663,7 +2664,7 @@
       $("intel-resolution-notes").value = item.resolution_notes || "";
       $("intel-detail-status").classList.add("hidden");
       const hasCard=BppAccountCard.eligible(item);
-      $("intel-action-account-card").classList.remove("hidden");
+      $("intel-action-account-card").classList.toggle("hidden",!hasCard);
       $("intel-extra-tools").classList.toggle("hidden",!hasCard);
       $("intel-account-card").classList.add("hidden");
       renderIntelWork();refreshIntelWork();
@@ -2766,7 +2767,6 @@
     async function generateAccountCard() {
       const item=appState.intelligence.selected;
       if(!item||!BppAccountCard.eligible(item))return;
-      $("intel-action-account-card").classList.add('hidden');
       await BppAccountCard.load(item,{
         selected:()=>appState.intelligence.selected,
         send:(path,payload)=>fetchJson(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,...payload})}),
@@ -3171,7 +3171,7 @@
       $("property-lookup-account-submit").addEventListener("click", () => { runPropertyLookupByAccount().catch((error) => showFlash(error.message, "error")); });
       $("readiness-refresh").addEventListener("click", () => { refreshReadiness().catch((error) => showFlash(error.message, "error")); });
       $("intel-resolution").addEventListener('change',()=>{if($('intel-resolution').value==='NEW_ACCOUNT_NEEDED'&&$('intel-account-card').classList.contains('hidden'))generateAccountCard();});
-      $("intel-action-account-card").addEventListener("click", () => { generateAccountCard().catch((error) => showFlash(error.message, "error")); });
+      $("intel-action-account-card").addEventListener("click", async () => { if($("intel-account-card").classList.contains('hidden'))await generateAccountCard();$("intel-extra-tools").scrollIntoView({behavior:'smooth',block:'start'}); });
       $('invite-role').addEventListener('change',()=>{const admin=$('invite-role').value==='admin';$('invite-access').disabled=admin;if(admin)$('invite-access').value='both';});
       $("invite-submit").addEventListener("click", addDistrictUser);
 
