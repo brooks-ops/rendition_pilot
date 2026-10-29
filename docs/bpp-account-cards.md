@@ -58,7 +58,7 @@ and Load more support larger batches; pages load 100 records at a time. The
 result is one printable document with a page break before each account. Saved
 worksheet values are reused without enrichment or changes to review status.
 The endpoint enforces the authenticated district and completing appraiser;
-other appraisers' completed cards are not listed. Standalone reprints are safe.
+regular appraisers cannot list other appraisers' completed cards. District admins can view their district's team cards. Standalone reprints are safe.
 
 ## Print confirmation and duplicate prevention
 
@@ -85,3 +85,15 @@ scoped to the signed-in completing appraiser and district. Admin/user management
 and Readiness retain their separate restrictions. HTTP regression tests in
 `tests/test_workspace_access.py` exercise this flow with the real BPP authorization
 guard for both roles, and verify users without BPP access are rejected.
+
+## Admin oversight
+
+District admins see all completed saved cards in their own district. The
+Appraiser selector includes completing appraisers (with an identifier fallback
+for former staff). Print status offers All, Not printed, and Printed / PDF saved.
+Filters are applied in PostgreSQL before pagination, so they cover the full
+collection rather than just loaded rows. Regular appraisers retain own-only
+access even when sending filter requests directly. Admins can also batch print
+and confirm the team's cards; the confirming admin is retained in the print
+record without changing who completed the review.
+Deploy `20261029_bpp_completed_card_admin.sql` before this API version.

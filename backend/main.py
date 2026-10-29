@@ -364,6 +364,8 @@ class ConfirmPrintedCardsRequest(BaseModel):
 
 class CompletedCardsRequest(BaseModel):
     access_token: str
+    appraiser_id: UUID | None = None
+    print_status: Literal["all","printed","unprinted"] = "all"
     offset: int = Field(default=0, ge=0, le=100000)
 
 
@@ -2502,8 +2504,18 @@ def completed_account_cards(request: CompletedCardsRequest) -> dict[str, Any]:
     district = require_bpp_access(request.access_token)
     if not district.user_id:raise HTTPException(403,'A signed-in appraiser is required.')
     from app.comptroller.account_card_form import SECTIONS, validate, total
+    is_admin=district.role=='admin'
+    if not is_admin and request.appraiser_id and str(request.appraiser_id)!=str(district.user_id):
+        raise HTTPException(403,'Appraisers can only view their own completed cards.')
+    appraisers=[]
     try:
-        rows=comptroller_cad_review._request('GET','bpp_intelligence_items',params={
+        if is_admin or request.print_status!='all':
+            result=comptroller_cad_review._request('POST','rpc/bpp_completed_account_cards',payload={
+                'p_district_id':district.district_id,'p_reviewer':str(request.appraiser_id) if is_admin and request.appraiser_id else (None if is_admin else district.user_id),
+                'p_print_status':request.print_status,'p_offset':request.offset})
+            rows=result['rows'];appraisers=result.get('appraisers',[]) if is_admin else []
+        else:
+            rows=comptroller_cad_review._request('GET','bpp_intelligence_items',params={
             'select':'id,business_name,reviewed_at,account_card_draft,account_card_saved_at,account_card_version,bpp_account_card_prints(version,printed_at,printed_by)',
             'district_id':f'eq.{district.district_id}','reviewed_by':f'eq.{district.user_id}',
             'status':'eq.RESOLVED','account_card_draft':'not.is.null',
@@ -2514,12 +2526,13 @@ def completed_account_cards(request: CompletedCardsRequest) -> dict[str, Any]:
     for row in rows[:100]:
         data=validate({k:v for k,v in row['account_card_draft'].items() if k!='additional_permit_date'})
         cards.append({'id':row['id'],'business_name':data.get('business_name') or row.get('business_name'),
-            'completed_at':row.get('reviewed_at'),'district_name':district.district_name,
+            'completed_at':row.get('reviewed_at'),'district_name':district.district_name,'appraiser_id':row.get('reviewed_by'),
+            'appraiser_label':next((a['label'] for a in appraisers if a['id']==row.get('reviewed_by')),None),
             'saved_at':row.get('account_card_saved_at'),'version':row.get('account_card_version'),
-            'printed_at':next((p['printed_at'] for p in row.get('bpp_account_card_prints',[]) if p['version']==row.get('account_card_version')),None),
+            'printed_at':row.get('printed_at') or next((p['printed_at'] for p in row.get('bpp_account_card_prints',[]) if p['version']==row.get('account_card_version')),None),
             'data':data,'total_value':total(data),
             'sections':[{'title':title,'fields':[{'name':n,'label':label,'type':kind} for n,label,kind in fields]} for title,fields in SECTIONS]})
-    return {'cards':cards,'next_offset':request.offset+100 if len(rows)>100 else None}
+    return {'cards':cards,'next_offset':request.offset+100 if len(rows)>100 else None,'appraisers':appraisers,'district_wide':is_admin}
 
 
 @app.post("/api/admin/intelligence/account-cards/confirm-printed")

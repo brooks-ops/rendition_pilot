@@ -690,9 +690,9 @@
           <div class="subtle" style="margin-bottom:12px;">Evidence-backed work for review -- possible new businesses, sales-tax closures, and (later) relocations/ownership changes. Every item is a signal for a human to review, never an automatic change to official CAD/appraisal data.</div>
           <details id="completed-card-batch" class="intel-support">
             <summary>Print completed account cards</summary>
-            <p class="subtle">Your completed cards. Select as many as you need; each card starts on a new printed page.</p>
+            <p id="card-batch-description" class="subtle">Your completed cards. Select as many as you need; each card starts on a new printed page.</p>
             <div class="button-row"><button type="button" id="card-batch-refresh">Load my completed cards</button><button type="button" class="secondary" id="card-batch-all">Select unprinted</button><button type="button" class="secondary" id="card-batch-none">Clear selection</button><button type="button" id="card-batch-print" disabled>Print selected / save PDF (0)</button></div>
-            <label class="batch-card-choice"><input type="checkbox" id="card-batch-hide-printed" checked> Hide already printed / PDF saved cards</label><div id="card-batch-status" class="status" role="status"></div><div id="card-batch-list"></div><button type="button" class="secondary hidden" id="card-batch-more">Load more</button>
+            <div class="account-card-grid"><div class="field hidden" id="card-batch-appraiser-field"><label for="card-batch-appraiser">Appraiser</label><select id="card-batch-appraiser"><option value="">All appraisers</option></select></div><div class="field"><label for="card-batch-print-status">Print status</label><select id="card-batch-print-status"><option value="all">All cards</option><option value="unprinted">Not printed</option><option value="printed">Printed / PDF saved</option></select></div></div><div id="card-batch-status" class="status" role="status"></div><div id="card-batch-list"></div><button type="button" class="secondary hidden" id="card-batch-more">Load more</button>
           </details>
           <div id="intel-county-status" class="subtle hidden" style="margin-bottom:12px;"></div>
           <div class="bpp-stats" style="margin-bottom:25px;">
@@ -2491,7 +2491,7 @@
     const batchEscape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const completedCards={cards:[],selected:new Set(),next:null,loading:false,owner:null};
     function renderCompletedCards(){
-      $('card-batch-list').innerHTML=completedCards.cards.map((c,i)=>c.printed_at&&$('card-batch-hide-printed').checked?'':`<label class="batch-card-choice"><input type="checkbox" data-batch-card="${i}" ${completedCards.selected.has(c.id)?'checked':''}> <span>${batchEscape(c.business_name||'Unnamed business')} · ${batchEscape(c.data.situs_address||'No situs address')} · Completed ${batchEscape(cadDate(c.completed_at))} <strong class="${c.printed_at?'card-printed':'card-unprinted'}">${c.printed_at?'Printed / PDF saved '+batchEscape(new Date(c.printed_at).toLocaleString()):'Not printed'}</strong></span></label>`).join('');
+      $('card-batch-list').innerHTML=completedCards.cards.map((c,i)=>($('card-batch-print-status').value==='unprinted'&&c.printed_at)||($('card-batch-print-status').value==='printed'&&!c.printed_at)?'':`<label class="batch-card-choice"><input type="checkbox" data-batch-card="${i}" ${completedCards.selected.has(c.id)?'checked':''}> <span>${batchEscape(c.business_name||'Unnamed business')} · ${batchEscape(c.data.situs_address||'No situs address')} · Completed ${batchEscape(cadDate(c.completed_at))}${c.appraiser_label?' · Appraiser: '+batchEscape(c.appraiser_label):''} <strong class="${c.printed_at?'card-printed':'card-unprinted'}">${c.printed_at?'Printed / PDF saved '+batchEscape(new Date(c.printed_at).toLocaleString()):'Not printed'}</strong></span></label>`).join('');
       $('card-batch-print').disabled=!completedCards.selected.size||completedCards.loading;
       $('card-batch-print').textContent=`Print selected / save PDF (${completedCards.selected.size})`;
       $('card-batch-more').classList.toggle('hidden',completedCards.next===null);
@@ -2503,21 +2503,27 @@
         if(owner!==appState.auth.access_token)throw Error('Your session changed. Reload completed cards to see print status.');
         for(const p of result.prints){const c=completedCards.cards.find(c=>c.id===p.item_id&&c.version===p.version);if(c)c.printed_at=p.printed_at;completedCards.selected.delete(p.item_id);}
       }
+      if($('card-batch-print-status').value!=='all')await loadCompletedCards();
       renderCompletedCards();$('card-batch-status').textContent='Print / PDF confirmed. Those cards are labeled and excluded from Select unprinted.';
     }
 
     async function loadCompletedCards(more=false){
       if(completedCards.loading)return;
-      const owner=appState.auth.access_token;
+      const owner=appState.auth.access_token,isAdmin=appState.auth.district?.role==='admin';
+      $('card-batch-appraiser-field').classList.toggle('hidden',!isAdmin);
+      $('card-batch-refresh').textContent=isAdmin?'Load completed cards':'Load my completed cards';
+      $('card-batch-description').textContent=isAdmin?'Completed cards for your district. Filter by appraiser and print status, then select cards to print.':'Your completed cards. Select as many as you need; each card starts on a new printed page.';
+      if(completedCards.owner!==owner){$('card-batch-appraiser').value='';$('card-batch-print-status').value=isAdmin?'all':'unprinted';}
       if(!more||completedCards.owner!==owner){completedCards.cards=[];completedCards.selected.clear();completedCards.next=null;}
-      completedCards.owner=owner;completedCards.loading=true;renderCompletedCards();$('card-batch-status').textContent='Loading completed cards…';
+      completedCards.owner=owner;completedCards.loading=true;['card-batch-appraiser','card-batch-print-status'].forEach(id=>$(id).disabled=true);renderCompletedCards();$('card-batch-status').textContent='Loading completed cards…';
       try{
-        const result=await fetchJson('/api/admin/intelligence/account-cards/completed',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:owner,offset:more?(completedCards.next||0):0})});
+        const result=await fetchJson('/api/admin/intelligence/account-cards/completed',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:owner,offset:more?(completedCards.next||0):0,print_status:$('card-batch-print-status').value,...(isAdmin&&$('card-batch-appraiser').value?{appraiser_id:$('card-batch-appraiser').value}:{})})});
         if(appState.auth.access_token!==owner){completedCards.cards=[];completedCards.selected.clear();return;}
+        if(isAdmin){const select=$('card-batch-appraiser'),selected=select.value;select.innerHTML='<option value="">All appraisers</option>'+(result.appraisers||[]).map(a=>`<option value="${batchEscape(a.id)}">${batchEscape(a.label)}</option>`).join('');select.value=selected;}
         const known=new Set(completedCards.cards.map(c=>c.id));completedCards.cards.push(...result.cards.filter(c=>!known.has(c.id)));completedCards.next=result.next_offset;
         $('card-batch-status').textContent=completedCards.cards.length?`${completedCards.cards.length} completed cards loaded. Select the cards to print.`:'No completed saved cards yet.';
       }catch(error){$('card-batch-status').textContent=error.message;}
-      finally{completedCards.loading=false;renderCompletedCards();}
+      finally{completedCards.loading=false;['card-batch-appraiser','card-batch-print-status'].forEach(id=>$(id).disabled=false);renderCompletedCards();}
     }
 
     async function refreshIntelligenceQueue() {
@@ -3211,11 +3217,12 @@
       $('activity-export-sales').addEventListener('click',()=>refreshActivityAnalytics('sales'));
       $("intel-release-work").addEventListener("click", () => {const c=appState.intelligence.selected?.work_claim;if(c&&!c.mine&&!confirm("Release this appraiser’s account claim? Coordinate with them before starting work."))return;intelligenceAction("/api/admin/intelligence/release", {});});
       $("intel-action-investigate").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/investigate", {}));
+      $('completed-card-batch').addEventListener('toggle',()=>{if($('completed-card-batch').open&&!completedCards.loading)loadCompletedCards();});
       $('card-batch-refresh').addEventListener('click',()=>loadCompletedCards());
       $('card-batch-more').addEventListener('click',()=>loadCompletedCards(true));
       $('card-batch-list').addEventListener('change',event=>{const c=completedCards.cards[Number(event.target.dataset.batchCard)];if(!c)return;event.target.checked?completedCards.selected.add(c.id):completedCards.selected.delete(c.id);renderCompletedCards();});
       $('card-batch-all').addEventListener('click',()=>{completedCards.cards.filter(c=>!c.printed_at).forEach(c=>completedCards.selected.add(c.id));renderCompletedCards();});
-      $('card-batch-hide-printed').addEventListener('change',()=>{if($('card-batch-hide-printed').checked)completedCards.cards.filter(c=>c.printed_at).forEach(c=>completedCards.selected.delete(c.id));renderCompletedCards();});
+      ['card-batch-appraiser','card-batch-print-status'].forEach(id=>$(id).addEventListener('change',()=>loadCompletedCards()));
       $('card-batch-none').addEventListener('click',()=>{completedCards.selected.clear();renderCompletedCards();});
       $('card-batch-print').addEventListener('click',()=>{try{if(completedCards.owner!==appState.auth.access_token)return loadCompletedCards();const cards=completedCards.cards.filter(c=>completedCards.selected.has(c.id));if(cards.some(c=>c.printed_at)&&!confirm('Some selected cards were already printed / saved. Print them again?'))return;BppAccountCard.batchPrint(cards,()=>confirmPrintedCards(cards));}catch(error){$('card-batch-status').textContent=error.message;}});
       $("intel-action-resolve").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/resolve", {

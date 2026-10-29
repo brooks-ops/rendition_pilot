@@ -64,7 +64,7 @@ def test_single_permit_date_preserves_legacy_drafts():
 def test_completed_cards_are_scoped_to_authenticated_appraiser_and_district(monkeypatch):
     from backend import main
     from tests.test_backend_intelligence_queue import make_district
-    monkeypatch.setattr(main,'require_bpp_access',lambda token:make_district())
+    monkeypatch.setattr(main,'require_bpp_access',lambda token:make_district(role='member'))
     def fetch(method,table,params):
         assert table=='bpp_intelligence_items'
         assert params['district_id']=='eq.district-1' and params['reviewed_by']=='eq.user-1'
@@ -92,3 +92,40 @@ def test_print_confirmation_uses_authenticated_scope_and_maps_conflicts(monkeypa
     request=main.ConfirmPrintedCardsRequest(access_token='test',cards=[{'id':'00000000-0000-0000-0000-000000000001','version':2}])
     with pytest.raises(HTTPException) as exc:main.confirm_printed_account_cards(request)
     assert exc.value.status_code==409
+
+
+@pytest.mark.parametrize('appraiser',[None,'00000000-0000-0000-0000-000000000001'])
+@pytest.mark.parametrize('status',['all','printed','unprinted'])
+def test_admin_can_filter_all_district_cards(monkeypatch,appraiser,status):
+    from backend import main
+    from tests.test_backend_intelligence_queue import make_district
+    monkeypatch.setattr(main,'require_bpp_access',lambda token:make_district())
+    def rpc(method,table,payload):
+        assert table=='rpc/bpp_completed_account_cards'
+        assert payload=={'p_district_id':'district-1','p_reviewer':appraiser,'p_print_status':status,'p_offset':100}
+        return {'rows':[{'id':'card','reviewed_by':'other','account_card_version':1,'account_card_draft':{'business_name':'Team card'},'printed_at':'printed'}], 'appraisers':[{'id':'other','label':'Appraiser B'}]}
+    monkeypatch.setattr(main.comptroller_cad_review,'_request',rpc)
+    result=main.completed_account_cards(main.CompletedCardsRequest(access_token='test',appraiser_id=appraiser,print_status=status,offset=100))
+    assert result['district_wide'] and result['cards'][0]['appraiser_label']=='Appraiser B'
+    assert result['cards'][0]['printed_at']=='printed'
+
+def test_member_cannot_choose_another_appraiser(monkeypatch):
+    from backend import main
+    from tests.test_backend_intelligence_queue import make_district
+    from fastapi import HTTPException
+    monkeypatch.setattr(main,'require_bpp_access',lambda token:make_district(role='member'))
+    monkeypatch.setattr(main.comptroller_cad_review,'_request',lambda *a,**kw:pytest.fail('Unauthorized query'))
+    with pytest.raises(HTTPException) as exc:
+        main.completed_account_cards(main.CompletedCardsRequest(access_token='test',appraiser_id='00000000-0000-0000-0000-000000000001'))
+    assert exc.value.status_code==403
+
+def test_member_print_filter_keeps_own_scope(monkeypatch):
+    from backend import main
+    from tests.test_backend_intelligence_queue import make_district
+    monkeypatch.setattr(main,'require_bpp_access',lambda token:make_district(role='member'))
+    def rpc(method,table,payload):
+        assert payload['p_reviewer']=='user-1' and payload['p_district_id']=='district-1'
+        return {'rows':[],'appraisers':[{'id':'other','label':'Not exposed'}]}
+    monkeypatch.setattr(main.comptroller_cad_review,'_request',rpc)
+    result=main.completed_account_cards(main.CompletedCardsRequest(access_token='test',print_status='printed'))
+    assert result['appraisers']==[] and not result['district_wide']
