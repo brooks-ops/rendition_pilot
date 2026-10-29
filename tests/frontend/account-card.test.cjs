@@ -25,3 +25,12 @@ test('failed save preserves dirty edits and closes export window',async()=>{
 test('completion failure retains saved card and printable copy for retry',async()=>{
  const f=fixture(false,true);await f.api.finish();assert.equal(f.api.isDirty(),false);assert.equal(f.popup.closed,false);assert.equal(f.completions(),1);assert.match(f.status.textContent,/review was not completed: Completion failed/);
 });
+
+test('finish for later saves and completes without opening output',async()=>{
+ const f=fixture();await f.api.finish(true);assert.equal(f.saves(),1);assert.equal(f.completions(),1);assert.equal(f.popup.document.html,undefined);
+});
+test('batch output contains every selected saved card with page breaks',()=>{
+ const f=fixture();const card=name=>({district_name:'LCAD',saved_at:'2026-10-28',sections:[{title:'Business',fields:[{name:'business_name',label:'DBA'}]}],data:{business_name:name,segments:[]}});
+ f.api.batchPrint([card('First & Co'),card('Second <Co>')]);
+ assert.match(f.popup.document.html,/First &amp; Co/);assert.match(f.popup.document.html,/Second &lt;Co&gt;/);assert.match(f.popup.document.html,/break-before:page/);assert.equal((f.popup.document.html.match(/class="batch-card"/g)||[]).length,2);
+});

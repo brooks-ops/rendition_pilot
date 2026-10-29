@@ -351,6 +351,11 @@ class IntelligenceItemRequest(BaseModel):
     item_id: str
 
 
+class CompletedCardsRequest(BaseModel):
+    access_token: str
+    offset: int = Field(default=0, ge=0, le=100000)
+
+
 class AccountCardSaveRequest(IntelligenceItemRequest):
     version: int = Field(ge=0)
     data: dict[str, Any]
@@ -2479,6 +2484,30 @@ def intelligence_account_card(request: IntelligenceItemRequest) -> dict[str, Any
     summary=comptroller_new_account_enrichment.account_card_to_dict(card)
     from app.comptroller.account_card_form import form
     return {"card":to_jsonable({**summary,**form(item,jurisdiction,summary)})}
+
+
+@app.post("/api/admin/intelligence/account-cards/completed")
+def completed_account_cards(request: CompletedCardsRequest) -> dict[str, Any]:
+    district = require_bpp_access(request.access_token)
+    if not district.user_id:raise HTTPException(403,'A signed-in appraiser is required.')
+    from app.comptroller.account_card_form import SECTIONS, validate, total
+    try:
+        rows=comptroller_cad_review._request('GET','bpp_intelligence_items',params={
+            'select':'id,business_name,reviewed_at,account_card_draft,account_card_saved_at,account_card_version',
+            'district_id':f'eq.{district.district_id}','reviewed_by':f'eq.{district.user_id}',
+            'status':'eq.RESOLVED','account_card_draft':'not.is.null',
+            'order':'reviewed_at.desc,id.desc','limit':'101','offset':str(request.offset)})
+    except ComptrollerServiceError as exc:
+        raise HTTPException(503,'Completed account cards are unavailable. Please retry.') from exc
+    cards=[]
+    for row in rows[:100]:
+        data=validate({k:v for k,v in row['account_card_draft'].items() if k!='additional_permit_date'})
+        cards.append({'id':row['id'],'business_name':data.get('business_name') or row.get('business_name'),
+            'completed_at':row.get('reviewed_at'),'district_name':district.district_name,
+            'saved_at':row.get('account_card_saved_at'),'version':row.get('account_card_version'),
+            'data':data,'total_value':total(data),
+            'sections':[{'title':title,'fields':[{'name':n,'label':label,'type':kind} for n,label,kind in fields]} for title,fields in SECTIONS]})
+    return {'cards':cards,'next_offset':request.offset+100 if len(rows)>100 else None}
 
 
 @app.post("/api/admin/intelligence/account-card/save")

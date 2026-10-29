@@ -48,3 +48,14 @@ business location only when selected and asks before replacing different mailing
 details. Property codes are expandable, New value uses a Yes/No selector, and
 Last inspected has a local-date shortcut. None of these populate unknown facts
 without appraiser input.
+
+## Batch output
+
+Choose **Finish — print later** to save and complete without opening output. In
+BPP Intelligence, expand **Print completed account cards**, load your cards,
+select any subset, and choose **Print selected / save PDF**. Select all loaded
+and Load more support larger batches; pages load 100 records at a time. The
+result is one printable document with a page break before each account. Saved
+worksheet values are reused without enrichment or changes to review status.
+The endpoint enforces the authenticated district and completing appraiser;
+other appraisers' completed cards are not listed. Standalone reprints are safe.

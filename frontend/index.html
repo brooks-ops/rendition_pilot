@@ -688,6 +688,12 @@
         <section class="card">
           <h3>BPP Intelligence Queue</h3><div class="button-row" style="margin-bottom:12px"><button id="cad-open-import" type="button">Import accounts</button><span class="subtle">Upload or refresh your county’s BPP account export.</span></div>
           <div class="subtle" style="margin-bottom:12px;">Evidence-backed work for review -- possible new businesses, sales-tax closures, and (later) relocations/ownership changes. Every item is a signal for a human to review, never an automatic change to official CAD/appraisal data.</div>
+          <details id="completed-card-batch" class="intel-support">
+            <summary>Print completed account cards</summary>
+            <p class="subtle">Your completed cards. Select as many as you need; each card starts on a new printed page.</p>
+            <div class="button-row"><button type="button" id="card-batch-refresh">Load my completed cards</button><button type="button" class="secondary" id="card-batch-all">Select all loaded</button><button type="button" class="secondary" id="card-batch-none">Clear selection</button><button type="button" id="card-batch-print" disabled>Print selected / save PDF (0)</button></div>
+            <div id="card-batch-status" class="status" role="status"></div><div id="card-batch-list"></div><button type="button" class="secondary hidden" id="card-batch-more">Load more</button>
+          </details>
           <div id="intel-county-status" class="subtle hidden" style="margin-bottom:12px;"></div>
           <div class="bpp-stats" style="margin-bottom:25px;">
             <div class="field"><label>New</label><div id="intel-summary-new" class="bpp-stat-value">-</div></div>
@@ -2482,6 +2488,28 @@
       return String(code || "").replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
     }
 
+    const batchEscape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const completedCards={cards:[],selected:new Set(),next:null,loading:false,owner:null};
+    function renderCompletedCards(){
+      $('card-batch-list').innerHTML=completedCards.cards.map((c,i)=>`<label class="batch-card-choice"><input type="checkbox" data-batch-card="${i}" ${completedCards.selected.has(c.id)?'checked':''}> <span>${batchEscape(c.business_name||'Unnamed business')} · ${batchEscape(c.data.situs_address||'No situs address')} · Completed ${batchEscape(cadDate(c.completed_at))}</span></label>`).join('');
+      $('card-batch-print').disabled=!completedCards.selected.size||completedCards.loading;
+      $('card-batch-print').textContent=`Print selected / save PDF (${completedCards.selected.size})`;
+      $('card-batch-more').classList.toggle('hidden',completedCards.next===null);
+    }
+    async function loadCompletedCards(more=false){
+      if(completedCards.loading)return;
+      const owner=appState.auth.access_token;
+      if(!more||completedCards.owner!==owner){completedCards.cards=[];completedCards.selected.clear();completedCards.next=null;}
+      completedCards.owner=owner;completedCards.loading=true;renderCompletedCards();$('card-batch-status').textContent='Loading completed cards…';
+      try{
+        const result=await fetchJson('/api/admin/intelligence/account-cards/completed',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:owner,offset:more?(completedCards.next||0):0})});
+        if(appState.auth.access_token!==owner){completedCards.cards=[];completedCards.selected.clear();return;}
+        const known=new Set(completedCards.cards.map(c=>c.id));completedCards.cards.push(...result.cards.filter(c=>!known.has(c.id)));completedCards.next=result.next_offset;
+        $('card-batch-status').textContent=completedCards.cards.length?`${completedCards.cards.length} completed cards loaded. Select the cards to print.`:'No completed saved cards yet.';
+      }catch(error){$('card-batch-status').textContent=error.message;}
+      finally{completedCards.loading=false;renderCompletedCards();}
+    }
+
     async function refreshIntelligenceQueue() {
       if (!canUseBpp()) return;
       const payload = { access_token: appState.auth.access_token };
@@ -2771,15 +2799,15 @@
         selected:()=>appState.intelligence.selected,
         send:(path,payload)=>fetchJson(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,...payload})}),
         reserve:()=>intelligenceAction('/api/admin/intelligence/investigate',{}),
-        complete:async completedItem=>{
+        complete:async (completedItem,defer=false)=>{
           const notes=$('intel-resolution-notes').value.trim();
           if(completedItem.signal_type==='county_clerk_dba'&&notes.length<20)throw new Error('Add independently verified evidence in the review notes, then finish again.');
           const result=await fetchJson('/api/admin/intelligence/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
             access_token:appState.auth.access_token,source_table:completedItem.source_table,item_id:completedItem.id,
-            resolution:'NEW_ACCOUNT_NEEDED',resolution_notes:[notes,'New account card finished; print / PDF copy prepared.'].filter(Boolean).join('\n')
+            resolution:'NEW_ACCOUNT_NEEDED',resolution_notes:[notes,defer?'New account card finished; queued for batch printing.':'New account card finished; print / PDF copy prepared.'].filter(Boolean).join('\n')
           })});
           if(appState.intelligence.selected?.id===completedItem.id)closeIntelligenceDetail();
-          showFlash(result.warning||'Account card saved and review marked complete. Your print / PDF copy is open.',result.warning?'warn':'success');
+          showFlash(result.warning||(defer?'Account card saved and completed. Use Print completed account cards when ready.':'Account card saved and review marked complete. Your print / PDF copy is open.'),result.warning?'warn':'success');
           try{await Promise.all([refreshIntelligenceQueue(),refreshMailingQueue()]);}
           catch{showFlash('Review completed. Refresh the queue to see the latest status.','warn');}
         }
@@ -3172,6 +3200,12 @@
       $('activity-export-sales').addEventListener('click',()=>refreshActivityAnalytics('sales'));
       $("intel-release-work").addEventListener("click", () => {const c=appState.intelligence.selected?.work_claim;if(c&&!c.mine&&!confirm("Release this appraiser’s account claim? Coordinate with them before starting work."))return;intelligenceAction("/api/admin/intelligence/release", {});});
       $("intel-action-investigate").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/investigate", {}));
+      $('card-batch-refresh').addEventListener('click',()=>loadCompletedCards());
+      $('card-batch-more').addEventListener('click',()=>loadCompletedCards(true));
+      $('card-batch-list').addEventListener('change',event=>{const c=completedCards.cards[Number(event.target.dataset.batchCard)];if(!c)return;event.target.checked?completedCards.selected.add(c.id):completedCards.selected.delete(c.id);renderCompletedCards();});
+      $('card-batch-all').addEventListener('click',()=>{completedCards.cards.forEach(c=>completedCards.selected.add(c.id));renderCompletedCards();});
+      $('card-batch-none').addEventListener('click',()=>{completedCards.selected.clear();renderCompletedCards();});
+      $('card-batch-print').addEventListener('click',()=>{try{if(completedCards.owner!==appState.auth.access_token)return loadCompletedCards();BppAccountCard.batchPrint(completedCards.cards.filter(c=>completedCards.selected.has(c.id)));}catch(error){$('card-batch-status').textContent=error.message;}});
       $("intel-action-resolve").addEventListener("click", () => intelligenceAction("/api/admin/intelligence/resolve", {
         resolution: $("intel-resolution").value,
         resolution_notes: $("intel-resolution-notes").value || null

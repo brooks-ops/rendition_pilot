@@ -59,3 +59,19 @@ def test_single_permit_date_preserves_legacy_drafts():
     assert permit_fields==['permit_issued']
     with pytest.raises(NewAccountEnrichmentError):
         validate({'additional_permit_date':'2026-09-01'})
+
+
+def test_completed_cards_are_scoped_to_authenticated_appraiser_and_district(monkeypatch):
+    from backend import main
+    from tests.test_backend_intelligence_queue import make_district
+    monkeypatch.setattr(main,'require_bpp_access',lambda token:make_district())
+    def fetch(method,table,params):
+        assert table=='bpp_intelligence_items'
+        assert params['district_id']=='eq.district-1' and params['reviewed_by']=='eq.user-1'
+        assert params['status']=='eq.RESOLVED' and params['account_card_draft']=='not.is.null'
+        assert params['offset']=='100'
+        return [{'id':str(i),'account_card_draft':{'business_name':'Saved business','segments':[]},'account_card_version':2} for i in range(101)]
+    monkeypatch.setattr(main.comptroller_cad_review,'_request',fetch)
+    result=main.completed_account_cards(main.CompletedCardsRequest(access_token='test',offset=100))
+    assert len(result['cards'])==100 and result['next_offset']==200
+    assert result['cards'][0]['data']['business_name']=='Saved business'

@@ -118,3 +118,6 @@ body { font-size:14px; }
 
 .account-card-section > summary { cursor:pointer; font-weight:600; margin-bottom:12px; }
 .account-card-grid [data-card-today] { margin-top:6px; font-size:12px; padding:5px 9px; }
+
+.batch-card-choice { display:flex; gap:10px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+.batch-card-choice input { width:auto; flex:none; }
