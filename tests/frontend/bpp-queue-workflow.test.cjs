@@ -20,3 +20,14 @@ test('filter preferences are scoped per user and district and survive storage fa
  owner='district1:user1';ctx.ensureQueuePreferences();assert.equal(els['intel-filter-city'].value,'LUBBOCK');assert.equal(els['mailing-filter-confidence'].value,'HIGH');
  ctx.localStorage.setItem=()=>{throw Error('unavailable')};assert.doesNotThrow(()=>ctx.saveQueuePreferences());
 });
+test('intelligence totals follow signal and filters from the same queue response',async()=>{
+ const els={};const el=id=>els[id]??=( {value:'',textContent:'',classList:{toggle(){},remove(){}}});
+ el('intel-filter-signal').value='sales_tax_inactive';el('intel-filter-confidence').value='HIGH';el('intel-filter-city').value='LUBBOCK';
+ const requests=[];const ctx={$:el,canUseBpp:()=>true,ensureQueuePreferences(){},saveQueuePreferences(){},queueRequests:{intel:0},queueFolders:{intel:'active'},appState:{auth:{access_token:'test'},intelligence:{}},renderFolderCounts(){},renderIntelligenceQueue(){},refreshCadHealth(){},fetchJson:async(path,options)=>{requests.push({path,payload:JSON.parse(options.body)});return path.endsWith('/queue')?{items:[],summary:{new:7,high_priority:3,needs_review:1,resolved:9}}:{configured:false};}};
+ vm.createContext(ctx);const start=source.indexOf('    async function refreshIntelligenceQueue(');vm.runInContext(source.slice(start,source.indexOf('\n    }',start)+6),ctx);
+ await ctx.refreshIntelligenceQueue();
+ assert.equal(el('intel-summary-new').textContent,7);assert.equal(el('intel-summary-resolved').textContent,9);
+ assert.equal(requests[0].payload.signal_type,'sales_tax_inactive');assert.equal(requests[0].payload.confidence,'HIGH');assert.equal(requests[0].payload.city,'LUBBOCK');
+ assert.equal(requests.some(r=>r.path.endsWith('/summary')),false);
+ el('intel-filter-signal').value='new_business';await ctx.refreshIntelligenceQueue();assert.equal(requests.filter(r=>r.path.endsWith('/queue')).at(-1).payload.signal_type,'new_business');
+});
