@@ -50,3 +50,11 @@ def test_transient_storage_520_is_retried_only_for_idempotent_operations(monkeyp
     calls.clear()
     with pytest.raises(requests.HTTPError):b.request('POST','/other-write',json={})
     assert len(calls)==1
+
+
+def test_daily_backup_replaces_sync_process_to_release_memory(monkeypatch):
+    import sys
+    calls=[]
+    monkeypatch.setattr(b.os,'execv',lambda program,args:calls.append((program,args)))
+    b.handoff_after_sync(1)
+    assert calls==[(sys.executable,[sys.executable,'-m','app.security_backup','--sync-exit-code','1'])]

@@ -224,13 +224,23 @@ def restore_drill(archive, database):
     return {'database':database,'tables_restored':len(manifest['tables']),'rows_restored':sum(v['rows'] for v in manifest['tables'].values()),'objects_restored':len(manifest['objects']),'mode':'isolated PostgreSQL JSONB logical-data recovery; not full application restore'}
 
 
+def handoff_after_sync(result):
+    import sys
+    # exec releases the sync process's heap; a child process would keep both
+    # heaps resident and can still exceed the shared 512-MiB instance limit.
+    os.execv(sys.executable,[sys.executable,'-m','app.security_backup','--sync-exit-code',str(result)])
+
+
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--output');parser.add_argument('--verify-file');parser.add_argument('--private-key');parser.add_argument('--restore-drill-db');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--output');parser.add_argument('--verify-file');parser.add_argument('--private-key');parser.add_argument('--restore-drill-db');parser.add_argument('--sync-exit-code',type=int,default=0);args=parser.parse_args()
     if args.verify_file:
         archive=decrypt(Path(args.verify_file).read_bytes(),Path(args.private_key).read_bytes())
         manifest=verify(archive)
         result=restore_drill(archive,args.restore_drill_db) if args.restore_drill_db else {'verified':True,'tables':len(manifest['tables']),'objects':len(manifest['objects'])}
         print(json.dumps(result))
-    else:backup(args.output)
+    else:
+        print(json.dumps({'backup':'STARTED'}),flush=True)
+        backup(args.output)
+    if args.sync_exit_code:raise SystemExit(args.sync_exit_code)
 
 if __name__=='__main__':main()
