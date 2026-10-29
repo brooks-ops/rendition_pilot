@@ -253,3 +253,20 @@ def test_account_card_rejects_non_new_business_signal_type(monkeypatch):
             access_token="fake", source_table=comptroller_intelligence.SOURCE_TABLE_INTELLIGENCE, item_id="intel-1",
         ))
     assert exc_info.value.status_code == 400
+
+
+@pytest.mark.parametrize('folder,expected', [('active',['new','review']),('resolved',['done','dismissed']),('all',['new','review','done','dismissed'])])
+def test_queue_folders_preserve_completed_history_and_summary(monkeypatch,folder,expected):
+    items=[make_item(item_id=i,status=s) for i,s in [('new','NEW'),('review','IN_REVIEW'),('done','RESOLVED'),('dismissed','DISMISSED')]]
+    monkeypatch.setattr(comptroller_intelligence,'list_intelligence_queue',lambda *a,**kw:items)
+    import backend.main as main
+    monkeypatch.setattr(main.bpp_work_claims,'attach',lambda rows,district:rows)
+    result=intelligence_queue(IntelligenceQueueRequest(access_token='fake',folder=folder))
+    assert [i['id'] for i in result['items']]==expected
+    assert result['summary']['resolved']==2 and result['summary']['new']==1
+    assert [i.status for i in items]==['NEW','IN_REVIEW','RESOLVED','DISMISSED']
+
+
+def test_invalid_queue_folder_rejected():
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):IntelligenceQueueRequest(access_token='fake',folder='deleted')
