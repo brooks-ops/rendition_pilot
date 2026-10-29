@@ -138,8 +138,8 @@ def verify(archive):
 def upload(encrypted):
     name=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'.rpbackup'
     parts=[]
-    for index,start in enumerate(range(0,len(encrypted),4*1024*1024)):
-        part=encrypted[start:start+4*1024*1024];path=name+f'.{index:04d}'
+    for index,start in enumerate(range(0,len(encrypted),256*1024)):
+        part=encrypted[start:start+256*1024];path=name+f'.{index:04d}'
         request('POST','/storage/v1/object/'+BUCKET+'/'+path,data=part,headers={'Content-Type':'application/octet-stream','x-upsert':'true'})
         downloaded=request('GET','/storage/v1/object/'+BUCKET+'/'+path).content
         digest=hashlib.sha256(part).hexdigest()
@@ -182,7 +182,7 @@ def backup(local_output=None):
     else:
         upload(encrypted)
     # Counts only: no taxpayer records, auth tokens, paths or keys in cron logs.
-    print(json.dumps({'backup':'SUCCESS','tables':len(manifest['tables']),'rows':sum(v['rows'] for v in manifest['tables'].values()),'objects':len(manifest['objects']),'encrypted_bytes':len(encrypted),'finished_at':manifest['finished_at']}))
+    print(json.dumps({'backup':'SUCCESS','destination':'local' if local_output else 'private cloud storage','tables':len(manifest['tables']),'rows':sum(v['rows'] for v in manifest['tables'].values()),'objects':len(manifest['objects']),'encrypted_bytes':len(encrypted),'finished_at':manifest['finished_at']}))
     return encrypted,manifest
 
 

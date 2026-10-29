@@ -42,8 +42,14 @@ def enforce_mfa(user, token, role=None):
         raise HTTPException(403, 'Verify your authenticator in Rendition Pilot before using administrator tools.')
 
 
+def external_scheme(scope):
+    # Render terminates TLS upstream. Its server-provided URL is trusted;
+    # arbitrary client Forwarded/X-Forwarded-Proto headers are not.
+    return 'https' if os.environ.get('RENDER_EXTERNAL_URL','').startswith('https://') else scope.get('scheme','http')
+
+
 def secure_request(request):
-    return request.url.scheme == 'https'
+    return external_scheme(request.scope) == 'https'
 
 
 def refresh_cookie(request):
@@ -119,7 +125,7 @@ class SecurityMiddleware:
                     b'referrer-policy': b'strict-origin-when-cross-origin',
                     b'permissions-policy': b'camera=(self), microphone=(), geolocation=(self)',
                 })
-                if scope.get('scheme') == 'https':
+                if external_scheme(scope) == 'https':
                     response_headers[b'strict-transport-security'] = b'max-age=31536000'
                 if path.startswith('/api/'):
                     response_headers[b'cache-control'] = b'no-store'
@@ -133,7 +139,7 @@ class SecurityMiddleware:
             # Cookie-bearing session endpoints must only be called by this origin.
             origin = headers.get(b'origin', b'').decode()
             host = headers.get(b'host', b'').decode()
-            same_origin = origin == scope.get('scheme', 'http') + '://' + host
+            same_origin = origin == external_scheme(scope) + '://' + host
             if (path.startswith('/api/auth/') and scope['method'] != 'OPTIONS' and
                 (headers.get(b'sec-fetch-site') == b'cross-site' or (origin and not same_origin))):
                 return await reject(403, 'Cross-site sign-in requests are not permitted.')

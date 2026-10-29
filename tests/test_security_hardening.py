@@ -43,7 +43,9 @@ def test_session_cookie_secure_httponly_and_refresh_credentials_never_returned(m
     monkeypatch.setattr(main,'supabase_auth_request',refresh)
     r=c.post('/api/auth/refresh',json={})
     assert r.status_code==200 and 'refresh_token' not in r.json() and c.cookies['__Secure-rp-refresh']=='rotated'
-    assert c.post('/api/auth/logout').status_code==200
+    monkeypatch.setattr(main,'supabase_auth_request',lambda *a:{'access_token':'logout-token'})
+    monkeypatch.setattr(main.requests,'post',lambda *a,**kw:SimpleNamespace(status_code=204))
+    assert c.post('/api/auth/logout').json()['provider_session_revoked'] is True
     assert '__Secure-rp-refresh' not in c.cookies
 
 
@@ -141,3 +143,17 @@ def test_demo_resolution_fails_closed_if_membership_is_moved_to_a_live_county(mo
     monkeypatch.setattr(main,'resolve_district_for_user',lambda **kw:make_district(role='admin'))
     with pytest.raises(HTTPException) as exc:main.build_district_context({'email':DEMO_AUTH_EMAIL,'id':'u'},'token')
     assert exc.value.status_code==403
+
+
+def test_render_tls_termination_still_sets_secure_cookie_and_accepts_same_origin(monkeypatch):
+    monkeypatch.setenv('RENDER_EXTERNAL_URL','https://service.onrender.com')
+    app=FastAPI()
+    @app.post('/api/auth/test')
+    def auth_test():return {}
+    app.add_middleware(security.SecurityMiddleware,frontend=main.FRONTEND_DIR)
+    c=TestClient(app,base_url='http://www.renditionpilot.com')
+    response=c.post('/api/auth/test',headers={'Origin':'https://www.renditionpilot.com'})
+    assert response.status_code==200 and response.headers['strict-transport-security']
+    from starlette.requests import Request
+    request=Request({'type':'http','scheme':'http','headers':[]})
+    assert security.secure_request(request)

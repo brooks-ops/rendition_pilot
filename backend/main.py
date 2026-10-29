@@ -1927,9 +1927,22 @@ async def protect_session_credentials(request, call_next):
 
 
 @app.post('/api/auth/logout')
-def auth_logout():
-    # Clearing this origin's HttpOnly credential also signs out every browser tab.
-    return {'signed_out': True}
+def auth_logout(request: Request):
+    # Revoke this device's provider session as well as clearing the browser
+    # cookie. Other devices and appraisers are unaffected.
+    revoked = False
+    credential = security.refresh_cookie(request)
+    if credential:
+        try:
+            result=supabase_auth_request('token?grant_type=refresh_token',{'refresh_token':credential})
+            token=result.get('access_token')
+            if token:
+                url,key=get_supabase_config()
+                response=requests.post(url+'/auth/v1/logout?scope=local',headers={'apikey':key,'Authorization':'Bearer '+token},timeout=10)
+                revoked=response.status_code in (200,204,401,403)
+        except (HTTPException,requests.RequestException):
+            pass  # Always clear the browser credential, including during outages.
+    return {'signed_out': True, 'provider_session_revoked': revoked}
 
 
 def admin_auth_request(method, path, payload):
