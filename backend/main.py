@@ -351,6 +351,11 @@ class IntelligenceItemRequest(BaseModel):
     item_id: str
 
 
+class AccountCardSaveRequest(IntelligenceItemRequest):
+    version: int = Field(ge=0)
+    data: dict[str, Any]
+
+
 class CadCandidatesRequest(IntelligenceItemRequest):
     account_number: str | None = Field(default=None, max_length=80)
     offset: int = Field(default=0, ge=0, le=500)
@@ -2471,7 +2476,28 @@ def intelligence_account_card(request: IntelligenceItemRequest) -> dict[str, Any
     except comptroller_new_account_enrichment.NewAccountEnrichmentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     activity_analytics.record_activity(district, 'account_summary_generated', 'business_intelligence', request.source_table, item.id)
-    return {"card": to_jsonable(comptroller_new_account_enrichment.account_card_to_dict(card))}
+    summary=comptroller_new_account_enrichment.account_card_to_dict(card)
+    from app.comptroller.account_card_form import form
+    return {"card":to_jsonable({**summary,**form(item,jurisdiction,summary)})}
+
+
+@app.post("/api/admin/intelligence/account-card/save")
+def intelligence_account_card_save(request: AccountCardSaveRequest) -> dict[str, Any]:
+    district=require_bpp_access(request.access_token)
+    item=_require_own_district_item(district,request.source_table,request.item_id)
+    from app.comptroller.account_card_form import eligible,validate,total
+    if not eligible(item):raise HTTPException(400,'This item is not a new-account lead.')
+    try:data=validate(request.data)
+    except comptroller_new_account_enrichment.NewAccountEnrichmentError as exc:raise HTTPException(400,str(exc)) from exc
+    _claim_bpp_work(district,item)
+    try:
+        saved=comptroller_cad_review._request('POST','rpc/bpp_save_account_card',payload={'p_item_id':item.id,'p_district_id':district.district_id,'p_actor_id':district.user_id,'p_version':request.version,'p_data':data})
+    except ComptrollerServiceError as exc:
+        if 'CARD_VERSION_CONFLICT' in str(exc):raise HTTPException(409,'Someone saved a newer card. Reopen the account to load it before editing.') from exc
+        if 'CARD_WORK_CONFLICT' in str(exc):raise HTTPException(409,'This account is reserved by another appraiser or is already complete.') from exc
+        raise HTTPException(503,'The account card could not be saved. Your changes are still on screen.') from exc
+    activity_analytics.record_activity(district,'account_card_saved','business_intelligence',request.source_table,item.id)
+    return {**saved,'total_value':total(data)}
 
 
 # --- Property Lookup ----------------------------------------------------------

@@ -926,6 +926,7 @@
             <div class="field"><label for="cad-review-notes">Match review notes</label><textarea id="cad-review-notes" rows="2" placeholder="Evidence supporting your decision; required when confirming an address or suite conflict"></textarea></div>
             <details><summary>Saved match decisions</summary><div id="cad-review-history" class="subtle"></div></details>
           </div></details>
+          <section id="intel-extra-tools" class="hidden account-card-shell"><button id="intel-action-account-card" class="secondary" type="button">Open new account card</button><div id="intel-account-card" class="hidden"></div></section>
           <section class="intel-outcome"><h3>Handle this account</h3>
           <p id="intel-next-step" class="subtle"></p>
           <div class="intel-outcome-fields">
@@ -949,11 +950,12 @@
           <div class="button-row"><button id="intel-action-dismiss" class="secondary" type="button">Dismiss</button><span class="subtle">Saving records your review; it does not update the CAD system.</span></div>
           <div id="intel-detail-status" class="status hidden" role="status"></div>
           </section>
-          <details id="intel-extra-tools" class="intel-support hidden"><summary>New-account tools</summary><div><button id="intel-action-account-card" class="secondary hidden" type="button">Prepare new-account summary</button><div id="intel-account-card" class="hidden" style="margin-top:12px;"></div></div></details>
+
         </section>
     </main>
   </div>
 
+  <script src="/frontend/bpp-account-card.js"></script>
   <script>
     const API_BASE = (() => {
       const params = new URLSearchParams(window.location.search);
@@ -2625,6 +2627,7 @@
       $('intel-action-investigate').textContent=mine?'Working on this account':'Start review';
       $('intel-action-investigate').disabled=!!claim||closed||appState.intelligence.saving;
       ['intel-action-resolve','intel-action-dismiss','intel-resolution','intel-resolution-notes'].forEach(id=>$(id).disabled=!mine||closed||appState.intelligence.saving);
+      BppAccountCard.access();
       $('cad-review-panel').classList.toggle('intel-readonly',!mine||closed);$('cad-review-panel').inert=!mine||closed;
     }
     async function refreshIntelWork() {
@@ -2643,6 +2646,7 @@
     function openIntelligenceDetail(itemId, sourceTable) {
       const item = findIntelligenceItem(itemId, sourceTable);
       if (!item) return;
+      BppAccountCard.reset();
       appState.intelligence.selected = item;
 
       const mailing = item.signal_type === "mailing_address_change";
@@ -2658,12 +2662,12 @@
       resolutionSelect.value = options.includes(item.resolution) ? item.resolution : "";
       $("intel-resolution-notes").value = item.resolution_notes || "";
       $("intel-detail-status").classList.add("hidden");
-      $("intel-action-account-card").classList.toggle("hidden", item.signal_type !== "new_business");
-      $("intel-extra-tools").classList.toggle("hidden", item.signal_type !== "new_business");
-      $("intel-extra-tools").open = false;
-      renderIntelWork();refreshIntelWork();
+      const hasCard=BppAccountCard.eligible(item);
+      $("intel-action-account-card").classList.remove("hidden");
+      $("intel-extra-tools").classList.toggle("hidden",!hasCard);
       $("intel-account-card").classList.add("hidden");
-      $("intel-account-card").innerHTML = "";
+      renderIntelWork();refreshIntelWork();
+      if(hasCard&&BppAccountCard.auto(item))generateAccountCard();
       $("intel-detail-backdrop").classList.remove("hidden");
       $("intel-detail-card").classList.remove("hidden");
       $("cad-review-panel").classList.toggle("hidden", item.signal_type === "mailing_address_change");
@@ -2680,6 +2684,9 @@
     }
 
     function closeIntelligenceDetail() {
+      if(BppAccountCard.isSaving())return;
+      if(BppAccountCard.isDirty()&&!window.confirm('Discard unsaved account-card changes?'))return;
+      BppAccountCard.reset();
       appState.intelligence.selected = null;
       $("intel-detail-backdrop").classList.add("hidden");
       $("intel-detail-card").classList.add("hidden");
@@ -2733,6 +2740,7 @@
       if (path.endsWith("/resolve") && !extraPayload.resolution) {
         statusEl.textContent="Choose an outcome before marking complete."; statusEl.className="status warn"; $("intel-resolution").focus(); return;
       }
+      if((path.endsWith('/resolve')||path.endsWith('/dismiss')||path.endsWith('/release'))&&(BppAccountCard.isDirty()||BppAccountCard.isSaving())){statusEl.textContent='Save the account card before finishing or releasing this review.';statusEl.className='status warn';return;}
       appState.intelligence.saving=true;
       const buttons=["intel-action-investigate","intel-action-resolve","intel-action-dismiss","intel-release-work"];
       buttons.forEach(id=>$(id).disabled=true);
@@ -2755,50 +2763,15 @@
       }
     }
 
-    function accountCardHtml(card) {
-      const appraiser = card.appraiser || {};
-      const exceptions = card.exceptions || [];
-      const exceptionsBlock = exceptions.length
-        ? `<div class="status warn" style="margin-bottom:8px;">${exceptions.map((e) => `<div>${cadHtml(e)}</div>`).join("")}</div>`
-        : `<div class="status success" style="margin-bottom:8px;">No exceptions -- this card is ready to use.</div>`;
-      return `
-        <div class="card">
-          <h4>New Account Card</h4>
-          <div class="subtle" style="margin-bottom:8px;">Advisory only -- use this to manually create the account in your CAD's own system. Nothing here has been written to official CAD data.</div>
-          ${exceptionsBlock}
-          <div>Business/DBA: ${cadHtml(card.business_name)}</div>
-          <div>Legal Name: ${cadHtml(card.legal_name)}</div>
-          <div>Address: ${cadHtml([card.source_address, card.source_city, card.source_state, card.source_zip].filter(Boolean).join(", "))}</div>
-          <div>Permit Start: ${cadHtml(card.permit_start_date)}</div>
-          <div style="margin-top:8px;">Property Match: ${cadHtml(card.property_match_status)}</div>
-          <div>Situs Address: ${cadHtml(card.situs_address)}</div>
-          <div>Suggested Property Link (R-account): ${cadHtml(card.suggested_property_link)}</div>
-          <div class="subtle">${cadHtml(card.suggested_property_link_reason)}</div>
-          <div>Personal Property (P) Accounts on File: ${cadHtml((card.personal_property_accounts || []).join(", "))}</div>
-          <div>TUG: ${cadHtml(card.tug)} | Neighborhood: ${cadHtml(card.neighborhood)} | Map: ${cadHtml(card.map_id)}</div>
-          <div style="margin-top:8px;">Suggested Appraiser: <strong>${cadHtml(appraiser.appraiser || "UNASSIGNED")}</strong> (${cadHtml(appraiser.basis)})</div>
-          <div class="subtle">${cadHtml(appraiser.reason)}</div>
-        </div>`;
-    }
-
     async function generateAccountCard() {
-      const item = appState.intelligence.selected;
-      if (!item) return;
-      const statusEl = $("intel-detail-status");
-      try {
-        const data = await fetchJson("/api/admin/intelligence/account-card", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ access_token: appState.auth.access_token, source_table: item.source_table, item_id: item.id })
-        });
-        $("intel-account-card").innerHTML = accountCardHtml(data.card);
-        $("intel-account-card").classList.remove("hidden");
-        statusEl.classList.add("hidden");
-      } catch (error) {
-        statusEl.textContent = error.message;
-        statusEl.className = "status error";
-        statusEl.classList.remove("hidden");
-      }
+      const item=appState.intelligence.selected;
+      if(!item||!BppAccountCard.eligible(item))return;
+      $("intel-action-account-card").classList.add('hidden');
+      await BppAccountCard.load(item,{
+        selected:()=>appState.intelligence.selected,
+        send:(path,payload)=>fetchJson(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,...payload})}),
+        reserve:()=>intelligenceAction('/api/admin/intelligence/investigate',{})
+      });
     }
 
     function propertyLookupResultHtml(result) {
@@ -3197,6 +3170,7 @@
       $("property-lookup-submit").addEventListener("click", () => { runPropertyLookup().catch((error) => showFlash(error.message, "error")); });
       $("property-lookup-account-submit").addEventListener("click", () => { runPropertyLookupByAccount().catch((error) => showFlash(error.message, "error")); });
       $("readiness-refresh").addEventListener("click", () => { refreshReadiness().catch((error) => showFlash(error.message, "error")); });
+      $("intel-resolution").addEventListener('change',()=>{if($('intel-resolution').value==='NEW_ACCOUNT_NEEDED'&&$('intel-account-card').classList.contains('hidden'))generateAccountCard();});
       $("intel-action-account-card").addEventListener("click", () => { generateAccountCard().catch((error) => showFlash(error.message, "error")); });
       $('invite-role').addEventListener('change',()=>{const admin=$('invite-role').value==='admin';$('invite-access').disabled=admin;if(admin)$('invite-access').value='both';});
       $("invite-submit").addEventListener("click", addDistrictUser);

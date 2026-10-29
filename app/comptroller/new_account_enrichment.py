@@ -12,21 +12,11 @@ pieces: appraiser assignment (a jurisdiction-configurable TUG/neighborhood ->
 appraiser mapping) and the account card itself, which bundles everything
 already known into one staff-facing summary.
 
-An "account card" is a REPORT, not a new database entity: everything in it
-is reconstructible on demand from the intelligence item, real_property_records,
-and appraiser_assignment_rules, so there is nothing here to go stale or need
-its own audit trail beyond `account_card_generated_at` on the source item.
-
-SAFETY: this module only ever reads. It does not create a BPP account, does
-not write to real_property_records, and does not touch any official CAD
-data. The account card is advisory output for a human to use when manually
-creating an account in the CAD's actual system -- exactly like every other
-"Suggested Property Link" in this codebase.
-
-Only applies to `new_business` signal-type intelligence items -- "new
-account needed" is a new-business resolution outcome (see
-RESOLUTION_OPTIONS_BY_SIGNAL_TYPE in intelligence.py), not something the
-sales-tax closure monitor produces.
+The generated summary remains advisory. The field worksheet adds an editable
+versioned draft on the existing intelligence item (account_card_form.py), with
+appraiser ownership and an append-only save history. It never creates or edits
+an official CAD account. New-business and assumed-name leads share this workflow;
+filing dates are never treated as permit dates or proof of opening.
 """
 
 from __future__ import annotations
@@ -197,7 +187,8 @@ def _compute_exceptions(item: UnifiedIntelligenceItem, assignment: AppraiserAssi
 
 
 def build_account_card(item: UnifiedIntelligenceItem, jurisdiction: Jurisdiction) -> AccountCard:
-    if item.signal_type != "new_business":
+    from .account_card_form import eligible
+    if not eligible(item):
         raise NewAccountEnrichmentError(
             "Account cards are only produced for new-business intelligence items, not "
             f"'{item.signal_type}' items."
@@ -249,7 +240,7 @@ def build_account_card(item: UnifiedIntelligenceItem, jurisdiction: Jurisdiction
     )
 
 
-def mark_account_card_generated(item_id: str) -> None:
+def mark_account_card_generated(item_id: str, district_id: str) -> None:
     """Advisory audit marker only -- see module docstring for why the card's
     content itself isn't separately persisted."""
 
@@ -259,7 +250,7 @@ def mark_account_card_generated(item_id: str) -> None:
         "PATCH",
         f"{supabase_url}/rest/v1/bpp_intelligence_items",
         headers,
-        params={"id": f"eq.{item_id}"},
+        params={"id": f"eq.{item_id}","district_id":f"eq.{district_id}"},
         json_payload={"account_card_generated_at": datetime.now(timezone.utc).isoformat()},
     )
 
@@ -267,7 +258,7 @@ def mark_account_card_generated(item_id: str) -> None:
 def generate_account_card(item: UnifiedIntelligenceItem, jurisdiction: Jurisdiction, *, dry_run: bool = False) -> AccountCard:
     card = build_account_card(item, jurisdiction)
     if not dry_run and item.source_table == SOURCE_TABLE_INTELLIGENCE:
-        mark_account_card_generated(item.id)
+        mark_account_card_generated(item.id,jurisdiction.district_id)
     return card
 
 
