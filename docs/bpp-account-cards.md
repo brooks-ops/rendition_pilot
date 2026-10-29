@@ -59,3 +59,19 @@ result is one printable document with a page break before each account. Saved
 worksheet values are reused without enrichment or changes to review status.
 The endpoint enforces the authenticated district and completing appraiser;
 other appraisers' completed cards are not listed. Standalone reprints are safe.
+
+## Print confirmation and duplicate prevention
+
+After a successful print or PDF save, choose **I printed / saved this PDF** in
+the output window. Opening a print preview or cancelling a print dialog does
+not set the flag. Single-card and batch output use the same confirmation.
+The saved status is per card version, with confirming appraiser and timestamp.
+Repeated confirmation preserves the original timestamp. The service-only RPC
+validates the whole batch against completed reviews, district, completing
+appraiser, and saved version before writing anything.
+
+Completed cards display Not printed or Printed / PDF saved with date/time.
+Printed cards are hidden by default; **Select unprinted** skips them. Unhide
+them for an intentional reprint, which asks for confirmation. Prior print jobs
+cannot be detected retroactively and remain unconfirmed until acknowledged.
+Deploy migration `20261029_bpp_account_card_prints.sql` before the API update.

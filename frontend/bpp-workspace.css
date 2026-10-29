@@ -121,3 +121,7 @@ body { font-size:14px; }
 
 .batch-card-choice { display:flex; gap:10px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); cursor:pointer; }
 .batch-card-choice input { width:auto; flex:none; }
+
+.card-printed,.card-unprinted { display:block; margin-top:4px; font-size:12px; }
+.card-printed { color:#25644b; }
+.card-unprinted { color:#855717; }

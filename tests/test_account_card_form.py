@@ -75,3 +75,20 @@ def test_completed_cards_are_scoped_to_authenticated_appraiser_and_district(monk
     result=main.completed_account_cards(main.CompletedCardsRequest(access_token='test',offset=100))
     assert len(result['cards'])==100 and result['next_offset']==200
     assert result['cards'][0]['data']['business_name']=='Saved business'
+
+
+def test_print_confirmation_uses_authenticated_scope_and_maps_conflicts(monkeypatch):
+    from backend import main
+    from tests.test_backend_intelligence_queue import make_district
+    from app.comptroller.service import ComptrollerServiceError
+    from fastapi import HTTPException
+    monkeypatch.setattr(main,'require_bpp_access',lambda token:make_district())
+    def rpc(method,table,payload):
+        assert table=='rpc/bpp_confirm_account_card_prints'
+        assert payload['p_district_id']=='district-1' and payload['p_actor_id']=='user-1'
+        assert payload['p_cards'][0]['version']==2
+        raise ComptrollerServiceError('PRINT_CARD_CONFLICT')
+    monkeypatch.setattr(main.comptroller_cad_review,'_request',rpc)
+    request=main.ConfirmPrintedCardsRequest(access_token='test',cards=[{'id':'00000000-0000-0000-0000-000000000001','version':2}])
+    with pytest.raises(HTTPException) as exc:main.confirm_printed_account_cards(request)
+    assert exc.value.status_code==409

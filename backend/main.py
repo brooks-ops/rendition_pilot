@@ -15,6 +15,7 @@ from datetime import date, datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal
+from uuid import UUID
 
 import requests
 from dotenv import load_dotenv
@@ -349,6 +350,16 @@ class IntelligenceItemRequest(BaseModel):
     access_token: str
     source_table: Literal["bpp_intelligence_items", "comptroller_closure_reviews"]
     item_id: str
+
+
+class PrintedCardRef(BaseModel):
+    id: UUID
+    version: int = Field(gt=0)
+
+
+class ConfirmPrintedCardsRequest(BaseModel):
+    access_token: str
+    cards: list[PrintedCardRef] = Field(min_length=1, max_length=1000)
 
 
 class CompletedCardsRequest(BaseModel):
@@ -2493,7 +2504,7 @@ def completed_account_cards(request: CompletedCardsRequest) -> dict[str, Any]:
     from app.comptroller.account_card_form import SECTIONS, validate, total
     try:
         rows=comptroller_cad_review._request('GET','bpp_intelligence_items',params={
-            'select':'id,business_name,reviewed_at,account_card_draft,account_card_saved_at,account_card_version',
+            'select':'id,business_name,reviewed_at,account_card_draft,account_card_saved_at,account_card_version,bpp_account_card_prints(version,printed_at,printed_by)',
             'district_id':f'eq.{district.district_id}','reviewed_by':f'eq.{district.user_id}',
             'status':'eq.RESOLVED','account_card_draft':'not.is.null',
             'order':'reviewed_at.desc,id.desc','limit':'101','offset':str(request.offset)})
@@ -2505,9 +2516,24 @@ def completed_account_cards(request: CompletedCardsRequest) -> dict[str, Any]:
         cards.append({'id':row['id'],'business_name':data.get('business_name') or row.get('business_name'),
             'completed_at':row.get('reviewed_at'),'district_name':district.district_name,
             'saved_at':row.get('account_card_saved_at'),'version':row.get('account_card_version'),
+            'printed_at':next((p['printed_at'] for p in row.get('bpp_account_card_prints',[]) if p['version']==row.get('account_card_version')),None),
             'data':data,'total_value':total(data),
             'sections':[{'title':title,'fields':[{'name':n,'label':label,'type':kind} for n,label,kind in fields]} for title,fields in SECTIONS]})
     return {'cards':cards,'next_offset':request.offset+100 if len(rows)>100 else None}
+
+
+@app.post("/api/admin/intelligence/account-cards/confirm-printed")
+def confirm_printed_account_cards(request: ConfirmPrintedCardsRequest) -> dict[str, Any]:
+    district=require_bpp_access(request.access_token)
+    if not district.user_id:raise HTTPException(403,'A signed-in appraiser is required.')
+    try:
+        rows=comptroller_cad_review._request('POST','rpc/bpp_confirm_account_card_prints',payload={
+            'p_district_id':district.district_id,'p_actor_id':district.user_id,
+            'p_cards':[{'id':str(c.id),'version':c.version} for c in request.cards]})
+    except ComptrollerServiceError as exc:
+        if 'PRINT_CARD_CONFLICT' in str(exc):raise HTTPException(409,'A card is incomplete, belongs to another appraiser, or has changed. Reload your completed cards.') from exc
+        raise HTTPException(503,'Print status could not be saved. Please retry confirmation.') from exc
+    return {'prints':rows}
 
 
 @app.post("/api/admin/intelligence/account-card/save")

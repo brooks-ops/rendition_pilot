@@ -2,7 +2,7 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
-const source=fs.readFileSync('frontend/bpp-account-card.js','utf8').replace('return {load,reset,eligible,auto,access,','return {save,finish,_setup:(s)=>Object.assign(state,s),load,reset,eligible,auto,access,');
+const source=fs.readFileSync('frontend/bpp-account-card.js','utf8').replace('return {load,reset,eligible,auto,access,','return {save,finish,attachPrintConfirmation,_setup:(s)=>Object.assign(state,s),load,reset,eligible,auto,access,');
 function fixture(fail=false,completeFail=false){
   const status={},reserve={},note={},fields=[{dataset:{cardField:'business_name'},value:'Business <One>'}];
   const root={addEventListener(){},querySelectorAll:s=>s==='[data-card-field]'?fields:[],querySelector:s=>s==='[data-card-status]'?status:s==='[data-card-reserve]'?reserve:note};
@@ -33,4 +33,13 @@ test('batch output contains every selected saved card with page breaks',()=>{
  const f=fixture();const card=name=>({district_name:'LCAD',saved_at:'2026-10-28',sections:[{title:'Business',fields:[{name:'business_name',label:'DBA'}]}],data:{business_name:name,segments:[]}});
  f.api.batchPrint([card('First & Co'),card('Second <Co>')]);
  assert.match(f.popup.document.html,/First &amp; Co/);assert.match(f.popup.document.html,/Second &lt;Co&gt;/);assert.match(f.popup.document.html,/break-before:page/);assert.equal((f.popup.document.html.match(/class="batch-card"/g)||[]).length,2);
+});
+
+test('print confirmation requires an explicit successful acknowledgement',async()=>{
+ const f=fixture();let calls=0;let box;
+ const win={document:{createElement:()=>({setAttribute(){},append(...children){this.children=children;}}),body:{prepend(el){box=el;}}}};
+ f.api.attachPrintConfirmation(win,async()=>{calls++;if(calls===1)throw Error('Offline');});
+ assert.equal(calls,0);const [button,status]=box.children;
+ await button.onclick();assert.equal(button.disabled,false);assert.equal(status.textContent,'Offline');
+ await button.onclick();assert.equal(button.disabled,true);assert.match(status.textContent,/Confirmed/);
 });
