@@ -1,10 +1,12 @@
 from __future__ import annotations
 from app import bpp_work_claims
-from app.login_aliases import resolve_login_identifier
+from app.login_aliases import resolve_login_identifier, DEMO_AUTH_EMAIL, DEMO_DISTRICT_ID
+from app import security
 
 import base64
 import gc
 import json
+import math
 import os
 import re
 import secrets
@@ -19,7 +21,7 @@ from uuid import UUID
 
 import requests
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -177,18 +179,10 @@ REVIEW_DECISION_LABELS = {
 app = FastAPI(title="Appraisal District Copilot API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "null",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[origin.strip() for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",") if origin.strip()],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
     expose_headers=["Content-Disposition"],
 )
 
@@ -205,8 +199,8 @@ class CalculateRequest(BaseModel):
 
 
 class PdfRequest(BaseModel):
-    file_name: str
-    file_base64: str
+    file_name: str = Field(min_length=1, max_length=255)
+    file_base64: str = Field(min_length=1, max_length=24_000_000)
 
 
 class ManualOverrideRequest(BaseModel):
@@ -229,7 +223,7 @@ class SessionRequest(BaseModel):
 
 
 class RefreshSessionRequest(BaseModel):
-    refresh_token: str = Field(min_length=1, max_length=10000)
+    refresh_token: str | None = Field(default=None, min_length=1, max_length=10000)
 
 
 class LoginRequest(BaseModel):
@@ -609,6 +603,8 @@ def get_authenticated_district_context(access_token: str) -> DistrictContext:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
     if getattr(district, "must_change_password", False):
         raise HTTPException(status_code=403, detail="Change your temporary password before continuing.")
+    if normalize_email(user.get('email', '')) != DEMO_AUTH_EMAIL:
+        security.enforce_mfa(user, access_token, district.role)
     return district
 
 
@@ -621,7 +617,7 @@ app.include_router(commercial_router(get_commercial_context))
 @app.middleware('http')
 async def enforce_bpp_workspace(request,call_next):
     path=request.url.path
-    protected=path.startswith(('/api/review/','/api/cad-profile/','/api/cad-schedules/')) or path in ('/api/review-queue','/api/calculate','/api/batch/run')
+    protected=path.startswith(('/api/review/','/api/cad-profile/','/api/cad-schedules/')) or path in ('/api/review-queue','/api/calculate','/api/batch/run','/api/pdf/render')
     if protected:
         from fastapi.responses import JSONResponse
         from starlette.concurrency import run_in_threadpool
@@ -633,6 +629,16 @@ async def enforce_bpp_workspace(request,call_next):
             if not token:raise HTTPException(401,'Sign in required.')
             district=await run_in_threadpool(get_authenticated_district_context,token)
             await run_in_threadpool(require_access,district,'bpp')
+            if path.startswith(('/api/cad-profile/','/api/cad-schedules/')):
+                identifier=path.rsplit('/',1)[-1]
+                if request.method == 'GET':
+                    if identifier != district.district_id:raise HTTPException(403,'Cannot read another district profile or schedules.')
+                elif request.method in ('PUT','DELETE'):
+                    if district.role != 'admin':raise HTTPException(403,'Only district admins can manage schedules.')
+                    existing=await run_in_threadpool(fetch_cad_schedule,identifier)
+                    profile=await run_in_threadpool(fetch_cad_profile_by_district_id,district.district_id)
+                    if not existing or not profile or str(existing.get('district_id'))!=str(profile['id']):
+                        raise HTTPException(403,'Cannot manage another district schedule.')
         except HTTPException as exc:return JSONResponse({'detail':exc.detail},status_code=exc.status_code)
     activity_payload = None
     if protected and path in ('/api/review/lock','/api/review/save'):
@@ -680,6 +686,8 @@ def build_district_context(user: dict[str, Any], access_token: str) -> DistrictC
         service_role_key=service_role_key or None,
     )
 
+    if email == DEMO_AUTH_EMAIL and district and district.district_id != DEMO_DISTRICT_ID:
+        raise HTTPException(403, "The demo account is restricted to the demonstration district.")
     return replace(district, must_change_password=bool((user.get("app_metadata") or {}).get("must_change_password"))) if district else None
 
 
@@ -1095,6 +1103,8 @@ def link_app_access_user(email: str, app_name: str, user_id: str | None) -> None
 
 def require_arb_access(access_token: str) -> dict[str, Any]:
     user = get_supabase_user(access_token)
+    if normalize_email(user.get('email','')) == DEMO_AUTH_EMAIL:
+        raise HTTPException(403, 'The demonstration account is limited to the demonstration BPP workspace.')
     email = normalize_email(str(user.get("email") or ""))
     user_id = str(user.get("id") or "").strip() or None
     access = get_app_access(email, "arb_pilot")
@@ -1150,10 +1160,18 @@ def render_pdf_pages(file_bytes: bytes) -> list[str]:
     import fitz  # PyMuPDF
 
     previews: list[str] = []
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
     try:
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+    except (ValueError, RuntimeError):
+        raise HTTPException(400, 'Upload a valid PDF document.') from None
+    try:
+        if len(doc) > 40:
+            raise HTTPException(413, 'PDF previews are limited to 40 pages. Split this document before uploading.')
         for page in doc:
-            pix = page.get_pixmap(matrix=fitz.Matrix(1.35, 1.35), alpha=False)
+            if page.rect.width <= 0 or page.rect.height <= 0:
+                raise HTTPException(400, 'The PDF contains an invalid page size.')
+            scale=min(1.35,2000/page.rect.width,2600/page.rect.height,math.sqrt(20_000_000/max(1,len(doc))/(page.rect.width*page.rect.height)))
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
             previews.append(_encode_bytes(pix.tobytes("png")))
     finally:
         doc.close()
@@ -1448,6 +1466,8 @@ def info() -> dict[str, str]:
 
 from app.super_admin import router as super_admin_router
 app.include_router(super_admin_router(get_supabase_user))
+from app.mfa import router as mfa_router
+app.include_router(mfa_router(get_supabase_user, build_district_context, get_supabase_config, _district_to_dict))
 from app.county_clerk.api import router as county_clerk_router
 app.include_router(county_clerk_router(require_bpp_access))
 
@@ -1464,9 +1484,11 @@ def session_tokens(result: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/api/auth/refresh")
-def auth_refresh(request: RefreshSessionRequest) -> dict[str, Any]:
+def auth_refresh(request: RefreshSessionRequest, http_request: Request) -> dict[str, Any]:
+    credential=security.refresh_cookie(http_request) or request.refresh_token
+    if not credential:raise HTTPException(401,'Please sign in again to renew your session.')
     try:
-        result=supabase_auth_request('token?grant_type=refresh_token',{'refresh_token':request.refresh_token})
+        result=supabase_auth_request('token?grant_type=refresh_token',{'refresh_token':credential})
     except HTTPException as exc:
         if exc.status_code in (400,401,403):raise HTTPException(401,'Please sign in again to renew your session.') from None
         raise
@@ -1477,7 +1499,7 @@ def auth_refresh(request: RefreshSessionRequest) -> dict[str, Any]:
     user=result.get('user') or get_supabase_user(token)
     district=build_district_context(user,token)
     if not district:raise HTTPException(403,UNLINKED_DISTRICT_MESSAGE)
-    return {'access_token':token,**session_tokens(result),'user':to_jsonable(user),'district':_district_to_dict(district)}
+    return {'access_token':token,**session_tokens(result),'user':to_jsonable(user),'district':_district_to_dict(district),'mfa_required':security.mfa_required(user,token,district.role) if normalize_email(user.get('email',''))!=DEMO_AUTH_EMAIL else False}
 
 
 @app.post("/api/auth/login")
@@ -1493,16 +1515,17 @@ def auth_login(request: LoginRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not district:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
-    return {"access_token": access_token, **session_tokens(auth_result), "user": to_jsonable(user), "district": _district_to_dict(district)}
+    return {"access_token": access_token, **session_tokens(auth_result), "user": to_jsonable(user), "district": _district_to_dict(district), "mfa_required": security.mfa_required(user, access_token, district.role) if normalize_email(user.get("email", "")) != DEMO_AUTH_EMAIL else False}
 
 
 @app.post("/api/auth/restore")
 def auth_restore(request: SessionRequest) -> dict[str, Any]:
+    access_token = request.access_token
     user = get_supabase_user(request.access_token)
     district = build_district_context(user, request.access_token)
     if not district:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
-    return {"access_token": request.access_token, "user": to_jsonable(user), "district": _district_to_dict(district)}
+    return {"access_token": request.access_token, "user": to_jsonable(user), "district": _district_to_dict(district), "mfa_required": security.mfa_required(user, access_token, district.role) if normalize_email(user.get("email", "")) != DEMO_AUTH_EMAIL else False}
 
 
 @app.post("/api/auth/signup")
@@ -1546,12 +1569,14 @@ def auth_signup(request: SignupRequest) -> dict[str, Any]:
         district = build_district_context(user or {"email": email}, access_token)
         if not district:
             raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
-        return {"access_token": access_token, **session_tokens(signup_result), "user": to_jsonable(user), "district": _district_to_dict(district)}
+        return {"access_token": access_token, **session_tokens(signup_result), "user": to_jsonable(user), "district": _district_to_dict(district), "mfa_required": security.mfa_required(user, access_token, district.role) if normalize_email(user.get("email", "")) != DEMO_AUTH_EMAIL else False}
     return {"message": "Login created. Confirm the email if Supabase requires confirmation, then sign in."}
 
 
 @app.post("/api/arb/auth/login")
 def arb_auth_login(request: LoginRequest) -> dict[str, Any]:
+    if resolve_login_identifier(request.email) == DEMO_AUTH_EMAIL:
+        raise HTTPException(403, 'Open the demonstration account from the Rendition Pilot sign-in page.')
     auth_result = sign_in_with_supabase(resolve_login_identifier(request.email), request.password)
     access_token = auth_result.get("access_token")
     if not access_token:
@@ -1611,7 +1636,9 @@ def arb_auth_signup(request: SignupRequest) -> dict[str, Any]:
 
 
 @app.post("/api/auth/district-setup")
-def auth_district_setup(request: DistrictSetupRequest) -> dict[str, Any]:
+def auth_district_setup(request: DistrictSetupRequest, http_request: Request) -> dict[str, Any]:
+    from app.super_admin import require_super_admin
+    require_super_admin(get_supabase_user, http_request.headers.get('authorization','').removeprefix('Bearer ').strip())
     service_role_key = get_supabase_service_role_key()
     supabase_url, _anon_key = get_supabase_config()
     if not service_role_key:
@@ -1653,7 +1680,9 @@ def auth_district_setup(request: DistrictSetupRequest) -> dict[str, Any]:
 
 
 @app.post("/api/cad-onboarding")
-def cad_onboarding(request: CadOnboardingRequest) -> dict[str, Any]:
+def cad_onboarding(request: CadOnboardingRequest, http_request: Request) -> dict[str, Any]:
+    from app.super_admin import require_super_admin
+    require_super_admin(get_supabase_user, http_request.headers.get('authorization','').removeprefix('Bearer ').strip())
     validate_cad_onboarding_payload(request)
     service_role_key = get_supabase_service_role_key()
     supabase_url, _anon_key = get_supabase_config()
@@ -1879,11 +1908,28 @@ def district_user_list(request: SessionRequest) -> dict[str, Any]:
 
 
 @app.middleware("http")
-async def prevent_credential_caching(request, call_next):
+async def protect_session_credentials(request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/auth/", "/api/district/users")):
-        response.headers["Cache-Control"] = "no-store"
+    if request.url.path.startswith('/api/auth/') and response.status_code == 200 and 'application/json' in response.headers.get('content-type',''):
+        from fastapi.responses import JSONResponse
+        body = b''.join([chunk async for chunk in response.body_iterator])
+        data = json.loads(body)
+        refresh = data.pop('refresh_token', None)
+        if refresh or security.refresh_cookie(request):
+            data['cookie_session'] = True
+        headers = {key:value for key,value in response.headers.items() if key.lower() not in ('content-length','set-cookie')}
+        response = JSONResponse(data, headers=headers)
+        if refresh:
+            security.set_refresh_cookie(response, request, refresh)
+        if request.url.path == '/api/auth/logout':
+            security.clear_refresh_cookie(response, request)
     return response
+
+
+@app.post('/api/auth/logout')
+def auth_logout():
+    # Clearing this origin's HttpOnly credential also signs out every browser tab.
+    return {'signed_out': True}
 
 
 def admin_auth_request(method, path, payload):
@@ -2754,3 +2800,7 @@ def appraiser_activity_report(request: ActivityReportRequest):
             media_type='text/csv', headers={'Content-Disposition': f'attachment; filename="rendition-pilot-{request.export}-activity.csv"', 'Cache-Control': 'no-store'})
     from fastapi.responses import JSONResponse
     return JSONResponse(data, headers={'Cache-Control': 'no-store'})
+
+
+# Outermost middleware: enforce body/rate limits before JSON parsing and add browser headers even on rejected requests.
+app.add_middleware(security.SecurityMiddleware, frontend=FRONTEND_DIR)

@@ -150,10 +150,11 @@
     </div>
   </main>
 
-  <script src="/frontend/auth-session.js?v=20261029"></script>
+  <script src="/frontend/auth-session.js?v=20261029-security1"></script>
   <script>
     const API_BASE = window.location.protocol.startsWith("http") ? window.location.origin : "http://127.0.0.1:8000";
     const AUTH_KEY = "appraisalpilot_auth";
+    const esc=value=>String(value??" ").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
     let step = 0;
     let editingScheduleIndex = null;
     const users = [];
@@ -231,8 +232,8 @@
     function renderUsers() {
       $("users-list").innerHTML = users.map((user, index) => `
         <div class="item">
-          <div class="item-title">${user.first_name || ""} ${user.last_name || ""} ${user.email}</div>
-          <div class="muted">${user.role_title || "CAD User"}</div>
+          <div class="item-title">${esc(user.first_name || "")} ${esc(user.last_name || "")} ${esc(user.email)}</div>
+          <div class="muted">${esc(user.role_title || "CAD User")}</div>
           <div class="button-row" style="margin-top:8px;"><button class="danger" type="button" data-delete-user="${index}">Delete</button></div>
         </div>
       `).join("");
@@ -300,8 +301,8 @@
     function renderSchedules() {
       $("schedules-list").innerHTML = schedules.map((schedule, index) => `
         <div class="item">
-          <div class="item-title">${schedule.schedule_name}</div>
-          <div class="muted">${schedule.schedule_type || "Custom Schedule"} | ${schedule.schedule_years} years | ${schedule.rows.length} rows</div>
+          <div class="item-title">${esc(schedule.schedule_name)}</div>
+          <div class="muted">${esc(schedule.schedule_type || "Custom Schedule")} | ${schedule.schedule_years} years | ${schedule.rows.length} rows</div>
           <div class="button-row" style="margin-top:8px;">
             <button class="secondary" type="button" data-edit-schedule="${index}">Edit</button>
             <button class="danger" type="button" data-delete-schedule="${index}">Delete</button>
@@ -318,9 +319,9 @@
     function renderReview() {
       const payload = collectPayload();
       $("review-list").innerHTML = `
-        <div class="review-line"><strong>CAD</strong><span>${payload.district.cad_name}</span></div>
-        <div class="review-line"><strong>Display Name</strong><span>${payload.district.display_name || payload.district.cad_name}</span></div>
-        <div class="review-line"><strong>Admin</strong><span>${payload.admin.first_name} ${payload.admin.last_name} ${payload.admin.email}</span></div>
+        <div class="review-line"><strong>CAD</strong><span>${esc(payload.district.cad_name)}</span></div>
+        <div class="review-line"><strong>Display Name</strong><span>${esc(payload.district.display_name || payload.district.cad_name)}</span></div>
+        <div class="review-line"><strong>Admin</strong><span>${esc(payload.admin.first_name)} ${esc(payload.admin.last_name)} ${esc(payload.admin.email)}</span></div>
         <div class="review-line"><strong>Additional Users</strong><span>${users.length}</span></div>
         <div class="review-line"><strong>Depreciation Schedules</strong><span>${schedules.length}</span></div>
       `;

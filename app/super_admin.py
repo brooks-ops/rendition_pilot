@@ -22,6 +22,8 @@ def require_super_admin(get_user,token):
     metadata=user.get('app_metadata') or {}
     if metadata.get(CLAIM) is not True:raise HTTPException(403,'Super Admin access is required.')
     if metadata.get('must_change_password'):raise HTTPException(403,'Change your temporary password before continuing.')
+    from app.security import enforce_mfa
+    enforce_mfa(user,token,'admin')
     return user
 
 def read(table,**params):

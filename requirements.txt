@@ -18,3 +18,5 @@ Pillow
 shapely>=2.0,<3
 
 beautifulsoup4>=4.12,<5
+
+cryptography>=44,<49

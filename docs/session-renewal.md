@@ -35,3 +35,6 @@ concurrent/cross-tab rotation, stale requests, failed refresh, logout races,
 account switching, legacy sessions, and binary responses.
 `pytest tests/test_auth_refresh.py` covers renewal metadata, no-store responses,
 provider errors, and removed district membership.
+
+
+Security update (2026-10-29): refresh credentials now use an HttpOnly cookie and access tokens remain in tab memory. See [security-hardening.md](security-hardening.md) for migration, MFA, cross-tab behavior and current limits. Earlier descriptions of localStorage token persistence are superseded.

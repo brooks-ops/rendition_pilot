@@ -13,7 +13,7 @@ def auth(monkeypatch):
 def test_login_keeps_refresh_credentials_and_expiry(auth,monkeypatch):
     monkeypatch.setattr(main,'sign_in_with_supabase',lambda *a:dict(access_token='access',refresh_token='refresh',expires_in=3600,expires_at=123,user={'id':'u'}))
     response=auth.post('/api/auth/login',json={'email':'member@example.invalid','password':'test-only'})
-    assert response.status_code==200 and response.json()['refresh_token']=='refresh'
+    assert response.status_code==200 and 'refresh_token' not in response.json() and response.cookies['rp-refresh-local']=='refresh'
     assert response.json()['expires_at']==123 and response.headers['cache-control']=='no-store'
 
 def test_refresh_rotates_tokens_and_rechecks_district(auth,monkeypatch):
@@ -22,7 +22,7 @@ def test_refresh_rotates_tokens_and_rechecks_district(auth,monkeypatch):
         return dict(access_token='new-access',refresh_token='new-refresh',expires_in=3600,user={'id':'u'})
     monkeypatch.setattr(main,'supabase_auth_request',renew)
     response=auth.post('/api/auth/refresh',json={'refresh_token':'old-refresh'})
-    assert response.status_code==200 and response.json()['refresh_token']=='new-refresh'
+    assert response.status_code==200 and 'refresh_token' not in response.json() and response.cookies['rp-refresh-local']=='new-refresh'
     assert response.json()['district']['role']=='member' and response.headers['cache-control']=='no-store'
 
 def test_invalid_refresh_is_auth_error_and_does_not_resolve_access(auth,monkeypatch):

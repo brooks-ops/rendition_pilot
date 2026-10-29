@@ -93,6 +93,7 @@ def test_sync_command_reports_failure_with_nonzero_exit(monkeypatch, capsys):
 
     monkeypatch.setattr(service, "sync_county", fail_sync)
 
+    monkeypatch.setattr("app.security_backup.backup", lambda: None)
     exit_code = cli.main(["sync", "--county", "Lubbock"])
 
     assert exit_code == 1

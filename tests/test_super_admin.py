@@ -3,6 +3,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 from app import super_admin as sa
+import base64,json
+OWNER_TOKEN="header."+base64.urlsafe_b64encode(json.dumps({"sub":"owner","aal":"aal2"}).encode()).decode().rstrip("=")+".signature"
 D='7f219b49-3da0-41c4-801f-7b2867810286'
 
 @pytest.fixture
@@ -23,7 +25,7 @@ def client(monkeypatch):
     monkeypatch.setattr(sa,'count',lambda table,**kw:454 if table=='comptroller_permit_locations' else 0)
     monkeypatch.setattr(sa,'get_supabase_config',lambda:('https://db.test','key'))
     monkeypatch.setattr(sa,'_paginated_get',lambda *a,**k:read('districts'))
-    app=FastAPI();app.include_router(sa.router(lambda token:users[token]));return TestClient(app),calls
+    app=FastAPI();app.include_router(sa.router(lambda token:users['owner' if token==OWNER_TOKEN else token]));return TestClient(app),calls
 
 @pytest.mark.parametrize('token',['admin','spoof','string','temporary'])
 def test_county_admin_or_client_edit_cannot_read_other_districts(client,token):
@@ -34,8 +36,8 @@ def test_county_admin_or_client_edit_cannot_read_other_districts(client,token):
 
 def test_owner_can_review_dallam_without_changing_tenant_identity(client):
     c,calls=client
-    assert c.post('/api/super-admin/districts',json={'access_token':'owner'}).status_code==200
-    r=c.post('/api/super-admin/review',json={'access_token':'owner','district_id':D})
+    assert c.post('/api/super-admin/districts',json={'access_token':OWNER_TOKEN}).status_code==200
+    r=c.post('/api/super-admin/review',json={'access_token':OWNER_TOKEN,'district_id':D})
     assert r.status_code==200,r.text
     data=r.json();assert not data['ready']
     assert data['district']['id']==D and data['permit_count']==454
@@ -49,5 +51,5 @@ def test_owner_can_review_dallam_without_changing_tenant_identity(client):
 
 def test_invalid_district_and_mutating_routes_are_not_supported(client):
     c,_=client
-    assert c.post('/api/super-admin/review',json={'access_token':'owner','district_id':'not-a-uuid'}).status_code==422
-    assert c.post('/api/super-admin/users/remove',json={'access_token':'owner'}).status_code==404
+    assert c.post('/api/super-admin/review',json={'access_token':OWNER_TOKEN,'district_id':'not-a-uuid'}).status_code==422
+    assert c.post('/api/super-admin/users/remove',json={'access_token':OWNER_TOKEN}).status_code==404

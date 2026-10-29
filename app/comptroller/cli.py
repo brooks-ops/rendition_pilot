@@ -562,7 +562,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    result = args.func(args)
+    if args.command == "sync":
+        # Reuse the existing daily scheduler; backup runs even when county sync
+        # reports a handled failure. A backup error makes the cron run fail.
+        try:
+            from app.security_backup import backup
+            backup()
+        except Exception as exc:
+            print(f"[security-backup] FAILED ({type(exc).__name__}); investigate the backup job.", file=sys.stderr)
+            return 1
+    return result
 
 
 if __name__ == "__main__":

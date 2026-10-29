@@ -6,7 +6,7 @@ const source=fs.readFileSync('frontend/bpp-account-card.js','utf8').replace('ret
 function fixture(fail=false,completeFail=false){
   const status={},reserve={},note={},fields=[{dataset:{cardField:'business_name'},value:'Business <One>'}];
   const root={addEventListener(){},querySelectorAll:s=>s==='[data-card-field]'?fields:[],querySelector:s=>s==='[data-card-status]'?status:s==='[data-card-reserve]'?reserve:note};
-  const popup={closed:false,document:{body:{},write(html){this.html=html;},close(){}},close(){this.closed=true;}};
+  const popup={closed:false,document:{querySelectorAll:()=>[],body:{},write(html){this.html=html;},close(){}},close(){this.closed=true;}};
   const context={document:{getElementById:()=>root},window:{open:()=>popup},console};
   vm.createContext(context);vm.runInContext(source+';globalThis.api=BppAccountCard;',context);
   const item={id:'1',source_table:'bpp_intelligence_items',work_claim:{mine:true},status:'NEW'};
@@ -37,7 +37,7 @@ test('batch output contains every selected saved card with page breaks',()=>{
 
 test('print confirmation requires an explicit successful acknowledgement',async()=>{
  const f=fixture();let calls=0;let box;
- const win={document:{createElement:()=>({setAttribute(){},append(...children){this.children=children;}}),body:{prepend(el){box=el;}}}};
+ const win={document:{querySelectorAll:()=>[],createElement:()=>({setAttribute(){},append(...children){this.children=children;}}),body:{prepend(el){box=el;}}}};
  f.api.attachPrintConfirmation(win,async()=>{calls++;if(calls===1)throw Error('Offline');});
  assert.equal(calls,0);const [button,status]=box.children;
  await button.onclick();assert.equal(button.disabled,false);assert.equal(status.textContent,'Offline');

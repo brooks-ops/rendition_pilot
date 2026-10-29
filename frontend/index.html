@@ -286,6 +286,15 @@
         <div id="invitation-status" class="status hidden" role="status"></div>
       </div>
 
+      <div id="auth-mfa" class="auth-view login-grid hidden">
+        <h3>Protect your administrator account</h3>
+        <p id="mfa-help">Use an authenticator app such as Microsoft Authenticator or Google Authenticator.</p>
+        <div id="mfa-setup" class="hidden"><img id="mfa-qr" alt="Scan with your authenticator" width="200" height="200"><p>Or enter this setup key in your authenticator:</p><code id="mfa-secret" style="overflow-wrap:anywhere"></code><p>Keep access to your authenticator. If you lose it, an authorized operator must verify your identity and reset the factor through Supabase.</p></div>
+        <div class="field"><label for="mfa-code">Six-digit authenticator code</label><input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></div>
+        <button id="mfa-verify" type="button">Verify &amp; continue</button><button id="mfa-cancel" class="secondary" type="button">Sign out</button>
+        <div id="mfa-status" role="status"></div>
+      </div>
+
       <div id="auth-signup" class="auth-view login-grid hidden">
         <div class="field">
           <label for="signup-email">Email</label>
@@ -964,7 +973,7 @@
     </main>
   </div>
 
-  <script src="/frontend/auth-session.js?v=20261029"></script>
+  <script src="/frontend/auth-session.js?v=20261029-security1"></script>
   <script src="/frontend/bpp-account-card.js"></script>
   <script>
     const API_BASE = (() => {
@@ -1028,14 +1037,14 @@
     function formatMoney(value) {
       if (value === null || value === undefined || value === "") return "-";
       const amount = Number(value);
-      if (Number.isNaN(amount)) return String(value);
+      if (!Number.isFinite(amount)) return "-";
       return amount.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
     function formatPercent(value) {
       if (value === null || value === undefined || value === "") return "-";
       const amount = Number(value);
-      if (Number.isNaN(amount)) return String(value);
+      if (!Number.isFinite(amount)) return "-";
       return `${(amount * 100).toFixed(2)}%`;
     }
 
@@ -1115,9 +1124,9 @@
       session=RenditionSession.save(session);
       appState.auth = session;
       renderAuthState();
-      if (!session.district?.must_change_password) refreshCadSchedules().catch(() => {});
+      if (!session.district?.must_change_password && !session.mfa_required) refreshCadSchedules().catch(() => {});
       const params = new URLSearchParams(location.search);
-      if (!session.district?.must_change_password && session.district?.role==='admin' && params.get('activity')==='commercial') {
+      if (!session.district?.must_change_password && !session.mfa_required && session.district?.role==='admin' && params.get('activity')==='commercial') {
         $('activity-workspace').value='commercial';
         $('admin-tab').click();
         params.delete('activity');
@@ -1152,20 +1161,55 @@
       }
     }
     RenditionSession.subscribe(session=>{
-      if(!session||!appState.auth)return;
+      if(!session){appState.auth=null;renderAuthState();return;}
+      if(!appState.auth)return;
       if(session.user?.id!==appState.auth.user?.id){showFlash('The signed-in account changed in another tab. Reload before continuing.','warn');return;}
-      const changed=JSON.stringify(session.district)!==JSON.stringify(appState.auth.district);
+      const changed=JSON.stringify(session.district)!==JSON.stringify(appState.auth.district)||session.mfa_required!==appState.auth.mfa_required;
       appState.auth=session;if(changed)renderAuthState();
     });
 
     function canUseBpp() {
-      return !!appState.auth?.access_token && !appState.auth?.district?.must_change_password &&
+      return !!appState.auth?.access_token && !appState.auth?.district?.must_change_password && !appState.auth?.mfa_required &&
         (appState.auth?.district?.role === "admin" || appState.auth?.district?.workspace_access?.bpp === true);
     }
 
+    let mfaLoading=false,mfaFactor=null,mfaOwner=null;
+    async function startAdminMfa(){
+      const owner=appState.auth?.user?.id;
+      if(mfaLoading||mfaOwner===owner&&mfaFactor)return;
+      mfaLoading=true;mfaOwner=owner;$('mfa-status').textContent='Checking your authenticator…';
+      try{
+        const data=await fetchJson('/api/auth/mfa/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token})});
+        if(owner!==appState.auth?.user?.id)return;
+        if(data.factors.length){mfaFactor=data.factors[0].id;$('mfa-setup').classList.add('hidden');$('mfa-help').textContent='Enter the current code from your authenticator app.';}
+        else{
+          const enrolled=await fetchJson('/api/auth/mfa/enroll',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token})});
+          if(owner!==appState.auth?.user?.id)return;
+          mfaFactor=enrolled.factor_id;$('mfa-secret').textContent=enrolled.secret;
+          const qr=enrolled.qr_code;$('mfa-qr').src=qr.startsWith('data:image/')?qr:'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(qr);
+          $('mfa-setup').classList.remove('hidden');
+        }
+        $('mfa-status').textContent='';$('mfa-code').focus();
+      }catch(error){$('mfa-status').textContent=error.message;}
+      finally{mfaLoading=false;}
+    }
+    $('mfa-verify').addEventListener('click',async()=>{
+      if(!mfaFactor){await startAdminMfa();return;}
+      $('mfa-verify').disabled=true;
+      try{
+        const data=await fetchJson('/api/auth/mfa/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,factor_id:mfaFactor,code:$('mfa-code').value.trim()})});
+        $('mfa-code').value='';$('mfa-secret').textContent='';$('mfa-qr').removeAttribute('src');mfaFactor=null;mfaOwner=null;
+        setAuthSession(data);
+      }catch(error){$('mfa-status').textContent=error.message;}
+      finally{$('mfa-verify').disabled=false;}
+    });
+    $('mfa-cancel').addEventListener('click',()=>{mfaFactor=null;mfaOwner=null;$('mfa-secret').textContent='';$('mfa-qr').removeAttribute('src');clearAuthSession();});
+
     function renderAuthState() {
       const mustChange = !!appState.auth?.district?.must_change_password;
-      const authed = !!(appState.auth && appState.auth.access_token && appState.auth.district) && !mustChange;
+      const mustVerify = !!appState.auth?.mfa_required;
+      const authed = !!(appState.auth && appState.auth.access_token && appState.auth.district) && !mustChange && !mustVerify;
+      if(mustVerify&&!mustChange){document.querySelectorAll(".auth-view").forEach(view=>view.classList.toggle("hidden",view.id!=="auth-mfa"));startAdminMfa();}
       $("auth-invitation").classList.toggle("hidden", !mustChange);
       if (!appState.auth) {
         document.querySelectorAll(".auth-view").forEach(view => view.classList.toggle("hidden", view.id !== "auth-login"));
@@ -1198,7 +1242,7 @@
           $("bpp-breadcrumb").textContent = "BPP";
         }
         $("signed-in-email").textContent = `Signed in as ${appState.auth.district.email || appState.auth.user?.email || ""}`;
-        $("signed-in-district").textContent = `District: ${appState.auth.district.district_name} | Role: ${appState.auth.district.role || "member"}`;
+        $("signed-in-district").textContent = `District: ${appState.auth.district.district_name} | Role: ${appState.auth.district.role || "member"}${appState.auth.district.email==='yc-demo@login.renditionpilot.com'?' | Read-only demo · Fictional businesses':''}`;
         $("app-subtitle").textContent = `${appState.auth.district.district_name} | Intelligent BPP rendition review with side-by-side document verification.`;
         $("admin-tab").classList.toggle("hidden", !isAdmin);
         $("super-admin-link").classList.toggle("hidden",appState.auth.user?.app_metadata?.rendition_super_admin!==true);
@@ -1797,12 +1841,12 @@
       } else {
         wrap.innerHTML = appState.single.savedCalculators.map((item) => `
           <div class="saved-section">
-            <div class="saved-title">${item.name} | ${formatMoney(item.section_total)}</div>
-            <div class="subtle">${formatSavedCalculatorMeta(item)}</div>
+            <div class="saved-title">${cadHtml(item.name)} | ${formatMoney(item.section_total)}</div>
+            <div class="subtle">${cadHtml(formatSavedCalculatorMeta(item))}</div>
             <div class="subtle">${formatSavedCalculatorBreakdown(item)}</div>
             <div class="button-row" style="margin-top:10px;">
-              <button class="secondary" type="button" data-edit-calc="${item.id}">Edit</button>
-              <button class="secondary" type="button" data-delete-calc="${item.id}">Delete</button>
+              <button class="secondary" type="button" data-edit-calc="${cadHtml(item.id)}">Edit</button>
+              <button class="secondary" type="button" data-delete-calc="${cadHtml(item.id)}">Delete</button>
             </div>
           </div>
         `).join("");
@@ -1981,7 +2025,7 @@
     }
 
     function renderKvRows(items) {
-      return `<div class="kv-table">${items.map(([label, value]) => `<div class="kv-row"><div class="kv-label">${label}</div><div class="kv-value">${value}</div></div>`).join("")}</div>`;
+      return `<div class="kv-table">${items.map(([label, value]) => `<div class="kv-row"><div class="kv-label">${cadHtml(label)}</div><div class="kv-value">${cadHtml(value)}</div></div>`).join("")}</div>`;
     }
 
     function renderDetails(result) {
@@ -2002,8 +2046,8 @@
       const providerSummaries = ocrReconciliation.provider_summaries || {};
       const providerSummaryRows = Object.entries(providerSummaries).map(([provider, summary]) => `
         <tr>
-          <td>${provider}</td>
-          <td>${formatText(summary.text_chars)}</td>
+          <td>${cadHtml(provider)}</td>
+          <td>${cadHtml(summary.text_chars)}</td>
           <td>${formatMoney(summary.attachment_total)}</td>
           <td>${formatMoney(summary.schedule_e_total)}</td>
           <td>${formatMoney(summary.good_faith_total)}</td>
@@ -2011,9 +2055,9 @@
       `).join("");
       const breakdownRows = Object.entries(scheduleBreakdown).map(([key, section]) => `
         <tr>
-          <td>${key.replaceAll("_", " ")}</td>
+          <td>${cadHtml(key.replaceAll("_", " "))}</td>
           <td>${formatMoney(section.total)}</td>
-          <td>${formatText(section.confidence)}</td>
+          <td>${cadHtml(section.confidence)}</td>
           <td>${(section.raw_rows || []).length}</td>
         </tr>
       `).join("");
@@ -2129,7 +2173,7 @@
           ["Flags", formatText(agentReview.review_flags)],
         ])}
         <h4 style="margin-top:16px;">Review Reasoning</h4>
-        <div class="reason-box">${formatText(agentReview.reasoning || agentReview.reason)}</div>
+        <div class="reason-box">${cadHtml(agentReview.reasoning || agentReview.reason)}</div>
       `;
     }
 
@@ -2140,10 +2184,10 @@
         <div class="mini-card" style="margin-bottom:12px;">
           <div class="label">Selected Candidate</div>
           <div class="subtle">
-            <strong>Label:</strong> ${formatText(selected.label)}<br>
+            <strong>Label:</strong> ${cadHtml(selected.label)}<br>
             <strong>Value:</strong> ${formatMoney(selected.value)}<br>
-            <strong>Page:</strong> ${formatText(selected.page_number)}<br>
-            <strong>Score:</strong> ${formatText(selected.score)}
+            <strong>Page:</strong> ${cadHtml(selected.page_number)}<br>
+            <strong>Score:</strong> ${cadHtml(selected.score)}
           </div>
         </div>
         <table>
@@ -2151,13 +2195,13 @@
           <tbody>
             ${candidates.length ? candidates.map((c) => `
               <tr>
-                <td>${formatText(c.page_number)}</td>
-                <td>${formatText(c.field || c.label)}</td>
-                <td>${formatText(c.label || c.rule)}</td>
+                <td>${cadHtml(c.page_number)}</td>
+                <td>${cadHtml(c.field || c.label)}</td>
+                <td>${cadHtml(c.label || c.rule)}</td>
                 <td>${formatMoney(c.value)}</td>
-                <td>${formatText(c.score || c.confidence)}</td>
-                <td>${formatText(c.source)}</td>
-                <td>${formatText(c.evidence_text || c.context || c.source_text)}</td>
+                <td>${cadHtml(c.score || c.confidence)}</td>
+                <td>${cadHtml(c.source)}</td>
+                <td>${cadHtml(c.evidence_text || c.context || c.source_text)}</td>
               </tr>
             `).join("") : `<tr><td colspan="7">No value candidates found.</td></tr>`}
           </tbody>
@@ -2881,25 +2925,25 @@
       const alternatives = result.alternatives || [];
       const matchBlock = matched
         ? `
-          <div>Matched PropertyID: <strong>${formatText(matched.property_id)}</strong></div>
-          <div>Real Account: ${formatText(matched.real_account_number)}</div>
-          <div>Situs Address: ${formatText(matched.situs_address)}</div>
-          <div>TUG: ${formatText(matched.tug)}</div>
-          <div>Neighborhood: ${formatText(matched.neighborhood)}</div>
-          <div>Map: ${formatText(matched.map_id)}</div>`
+          <div>Matched PropertyID: <strong>${cadHtml(matched.property_id)}</strong></div>
+          <div>Real Account: ${cadHtml(matched.real_account_number)}</div>
+          <div>Situs Address: ${cadHtml(matched.situs_address)}</div>
+          <div>TUG: ${cadHtml(matched.tug)}</div>
+          <div>Neighborhood: ${cadHtml(matched.neighborhood)}</div>
+          <div>Map: ${cadHtml(matched.map_id)}</div>`
         : `<div class="subtle">No matching property record.</div>`;
       const alternativesBlock = alternatives.length
         ? `<div style="margin-top:8px;"><strong>Alternative candidates:</strong> ${alternatives.map((a) => formatText(a.property_id)).join(", ")}</div>`
         : "";
       return `
         <div class="card">
-          <div>Normalized Address: ${formatText(result.normalized_address)}</div>
-          <div>Candidates Evaluated: ${formatText(result.candidate_count)}</div>
-          <div style="margin-top:8px;">Classification: <strong>${formatText(result.classification)}</strong></div>
-          <div>Confidence: ${formatText(result.confidence)} (${formatText(result.score)})</div>
+          <div>Normalized Address: ${cadHtml(result.normalized_address)}</div>
+          <div>Candidates Evaluated: ${cadHtml(result.candidate_count)}</div>
+          <div style="margin-top:8px;">Classification: <strong>${cadHtml(result.classification)}</strong></div>
+          <div>Confidence: ${cadHtml(result.confidence)} (${cadHtml(result.score)})</div>
           <div style="margin-top:8px;">${matchBlock}</div>
           ${alternativesBlock}
-          <div class="subtle" style="margin-top:8px;">${formatText((result.reasons || []).join("; "))}</div>
+          <div class="subtle" style="margin-top:8px;">${cadHtml((result.reasons || []).join("; "))}</div>
         </div>`;
     }
 
@@ -2959,10 +3003,10 @@
       return `
         <div class="card" style="margin-bottom:8px;">
           <div style="display:flex;justify-content:space-between;align-items:center;">
-            <strong>${formatText(check.name)}</strong>
-            <span class="status ${statusClass}" style="display:inline-block;">${formatText(check.status)}</span>
+            <strong>${cadHtml(check.name)}</strong>
+            <span class="status ${statusClass}" style="display:inline-block;">${cadHtml(check.status)}</span>
           </div>
-          <div class="subtle">${formatText(check.detail)}</div>
+          <div class="subtle">${cadHtml(check.detail)}</div>
         </div>`;
     }
 
@@ -2975,7 +3019,7 @@
           body: JSON.stringify({ access_token: appState.auth.access_token })
         });
         statusEl.classList.add("hidden");
-        $("readiness-list").innerHTML = `<div class="subtle" style="margin-bottom:10px;">${formatText(data.jurisdiction_name)}</div>` + (data.checks || []).map(readinessCheckHtml).join("");
+        $("readiness-list").innerHTML = `<div class="subtle" style="margin-bottom:10px;">${cadHtml(data.jurisdiction_name)}</div>` + (data.checks || []).map(readinessCheckHtml).join("");
       } catch (error) {
         statusEl.textContent = error.message;
         statusEl.className = "status error";
@@ -2993,8 +3037,8 @@
         return;
       }
       const columns = Object.keys(rows[0]);
-      head.innerHTML = `<tr>${columns.map((column) => `<th>${column.replaceAll("_", " ")}</th>`).join("")}</tr>`;
-      body.innerHTML = rows.map((row) => `<tr>${columns.map((column) => `<td>${formatText(row[column])}</td>`).join("")}</tr>`).join("");
+      head.innerHTML = `<tr>${columns.map((column) => `<th>${cadHtml(column.replaceAll("_", " "))}</th>`).join("")}</tr>`;
+      body.innerHTML = rows.map((row) => `<tr>${columns.map((column) => `<td>${cadHtml(row[column])}</td>`).join("")}</tr>`).join("");
     }
 
     function buildFinalLockPayload() {
