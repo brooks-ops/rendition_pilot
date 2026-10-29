@@ -48,3 +48,14 @@ def test_save_endpoint_uses_authenticated_district_and_blocks_stale_edits(monkey
     monkeypatch.setattr(main.comptroller_cad_review,'_request',save)
     with pytest.raises(HTTPException) as exc:main.intelligence_account_card_save(main.AccountCardSaveRequest(access_token='test',source_table='bpp_intelligence_items',item_id='intel-1',version=1,data={}))
     assert exc.value.status_code==409
+
+
+def test_single_permit_date_preserves_legacy_drafts():
+    item=make_item(raw={'account_card_draft':{'permit_issued':'2026-08-01','additional_permit_date':'2026-09-01'}})
+    card=form(item,make_jurisdiction(),SUMMARY)
+    assert card['data']['permit_issued']=='2026-08-01'
+    assert 'additional_permit_date' not in card['data']
+    permit_fields=[f['name'] for section in card['sections'] for f in section['fields'] if 'permit' in f['name'] and f['type']=='date']
+    assert permit_fields==['permit_issued']
+    with pytest.raises(NewAccountEnrichmentError):
+        validate({'additional_permit_date':'2026-09-01'})

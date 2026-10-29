@@ -3,9 +3,7 @@
 The supplied LCAD workbook defines the field groups: account identity, mailing,
 situs, contacts, geography/property codes, permits, new-value indicators and
 valuation segments. Its populated sample business, CBB/BP1 appraisers, account
-link, codes and $15,000 value are examples, never app defaults. The duplicate
-"Permit Issued" label is represented as an additional permit date pending
-clarification. The source workbook is read-only and remains outside Git.
+link, codes and $15,000 value are examples, never app defaults. The card uses one "Permit issued" date, as requested. The source workbook is read-only and remains outside Git.
 
 Cards open automatically on new-business leads, potential-new-business DBA
 filings, or saved NEW_ACCOUNT_NEEDED outcomes. Other assumed-name leads offer an

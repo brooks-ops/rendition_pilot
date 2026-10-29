@@ -10,7 +10,7 @@ SECTIONS=[
  ('Business location',[('business_name','Location / DBA name','text'),('situs_address','Situs address','text'),('situs_city','Situs city','text'),('situs_state','Situs state','text'),('situs_zip','Situs ZIP','text')]),
  ('Contacts',[('owner_contact','Owner contact','text'),('contact_name','Contact name','text'),('contact_phone','Contact phone','tel'),('contact_email','Contact email','email')]),
  ('Property and codes',[('map_id','Map #','text'),('neighborhood','Neighborhood','text'),('legal_description','Legal description','text'),('property_link','Property link','text'),('link_reason','Link reason','text'),('tug','TUG','text'),('appraiser_code','Appraiser code','text'),('stpb_code','STPB code','text'),('last_inspected','Last inspected','date'),('section','Section','text'),('sic','SIC','text')]),
- ('Permit and valuation',[('sales_tax_id','Sales tax ID','text'),('permit_id','Permit ID','text'),('permit_issued','Permit issued','date'),('additional_permit_date','Additional permit date','date'),('new_value','New value (Y / N)','text'),('new_value_year','New valuation year','number'),('comments','Comments','textarea')]),
+ ('Permit and valuation',[('sales_tax_id','Sales tax ID','text'),('permit_id','Permit ID','text'),('permit_issued','Permit issued','date'),('new_value','New value (Y / N)','text'),('new_value_year','New valuation year','number'),('comments','Comments','textarea')]),
 ]
 FIELDS={name:kind for _,fields in SECTIONS for name,_,kind in fields}
 SEGMENT_FIELDS=('valuation_method','type_code','flat_value','appraisal_method')
@@ -67,7 +67,10 @@ def form(item,jurisdiction,summary):
         sales_tax_id=item.raw.get('source_taxpayer_id') or '',permit_issued=item.permit_start_date or '',new_value_year=year)
     data['segments']=[{key:'' for key in SEGMENT_FIELDS} for _ in range(4)]
     saved=item.raw.get('account_card_draft')
-    if saved:data.update({k:v for k,v in validate(saved).items() if k in saved})
+    if saved:
+        # Older drafts may contain the retired duplicate permit date.
+        saved={k:v for k,v in saved.items() if k!='additional_permit_date'}
+        data.update({k:v for k,v in validate(saved).items() if k in saved})
     return {'profile':'lcad' if jurisdiction.slug=='lubbock' else 'county','district_name':jurisdiction.name,
             'title':'Personal property field review worksheet','sections':[{'title':title,'fields':[{'name':n,'label':label,'type':kind} for n,label,kind in fields]} for title,fields in SECTIONS],
             'data':data,'total_value':total(data),'version':item.raw.get('account_card_version',0),
