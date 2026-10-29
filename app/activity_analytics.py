@@ -9,7 +9,7 @@ from datetime import date
 from app.comptroller.service import _request_json, get_supabase_config, postgrest_headers
 
 ACTIONS = {
-    'review_started', 'review_released', 'review_completed', 'review_dismissed', 'cad_match_decided',
+    'review_reopened', 'review_started', 'review_released', 'review_completed', 'review_dismissed', 'cad_match_decided',
     'account_summary_generated', 'account_card_saved', 'rendition_locked', 'rendition_report_generated',
     'commercial_update_applied', 'commercial_update_undone', 'commercial_account_created',
     'commercial_report_generated', 'commercial_equity_generated',

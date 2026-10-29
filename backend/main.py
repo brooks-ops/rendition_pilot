@@ -2256,8 +2256,11 @@ def intelligence_queue(request: IntelligenceQueueRequest) -> dict[str, Any]:
     except ComptrollerServiceError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     summary={"new":sum(i.status=="NEW" for i in items),"high_priority":sum(i.priority=="HIGH" and i.status in ("NEW","IN_REVIEW") for i in items),"needs_review":sum(i.status=="IN_REVIEW" for i in items),"resolved":sum(i.status in ("RESOLVED","DISMISSED") for i in items)}
+    counts={"active":sum(i.status not in ("RESOLVED","DISMISSED") for i in items),"resolved":summary['resolved']}
     items=comptroller_intelligence.queue_folder(items,request.folder)
-    return {"items": to_jsonable(bpp_work_claims.attach([asdict(item) for item in items],district)),"summary":summary}
+    labels=comptroller_intelligence.reviewer_labels(district.district_id,items)
+    rows=[{**asdict(item),'reviewer_label':labels.get(item.reviewed_by)} for item in items]
+    return {"items": to_jsonable(bpp_work_claims.attach(rows,district)),"summary":summary,"folder_counts":counts}
 
 
 def _require_own_district_item(district, source_table: str, item_id: str) -> comptroller_intelligence.UnifiedIntelligenceItem:
@@ -2461,6 +2464,19 @@ def intelligence_cad_import(request: CadImportRequest, background_tasks: Backgro
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@app.post("/api/admin/intelligence/reopen")
+def intelligence_reopen(request: IntelligenceItemRequest):
+    district=require_bpp_access(request.access_token)
+    original=_require_own_district_item(district,request.source_table,request.item_id)
+    active=bpp_work_claims.claims(district.district_id)
+    if active.get(bpp_work_claims.work_key(original)) or active.get(f'item:{original.source_table}:{original.id}'):
+        raise HTTPException(409,'This account has an active review reservation. Release it before reopening.')
+    try:item=comptroller_intelligence.reopen_item(original,district.email)
+    except comptroller_intelligence.IntelligenceQueueError as exc:raise HTTPException(409,str(exc)) from exc
+    activity_analytics.record_activity(district,'review_reopened','mailing_changes' if item.signal_type=='mailing_address_change' else 'business_intelligence',request.source_table,item.id,outcome=original.resolution)
+    return {'item':to_jsonable(asdict(item))}
+
+
 @app.post("/api/admin/intelligence/investigate")
 def intelligence_investigate(request: IntelligenceInvestigateRequest) -> dict[str, Any]:
     district = require_bpp_access(request.access_token)
@@ -2492,7 +2508,7 @@ def intelligence_resolve(request: IntelligenceResolveRequest) -> dict[str, Any]:
             request.source_table,
             request.item_id,
             resolution=request.resolution,
-            resolution_notes=request.resolution_notes,
+            resolution_notes=comptroller_intelligence.retain_review_history(original,request.resolution_notes),
             reviewed_by=str(user.get("id") or "").strip() or None,
         )
     except comptroller_intelligence.IntelligenceQueueError as exc:
@@ -2699,7 +2715,7 @@ def intelligence_dismiss(request: IntelligenceDismissRequest) -> dict[str, Any]:
         item = comptroller_intelligence.dismiss_item(
             request.source_table,
             request.item_id,
-            resolution_notes=request.resolution_notes,
+            resolution_notes=comptroller_intelligence.retain_review_history(original,request.resolution_notes),
             reviewed_by=str(user.get("id") or "").strip() or None,
         )
     except comptroller_intelligence.IntelligenceQueueError as exc:

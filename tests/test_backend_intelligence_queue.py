@@ -270,3 +270,28 @@ def test_queue_folders_preserve_completed_history_and_summary(monkeypatch,folder
 def test_invalid_queue_folder_rejected():
     from pydantic import ValidationError
     with pytest.raises(ValidationError):IntelligenceQueueRequest(access_token='fake',folder='deleted')
+
+
+def test_reopen_blocks_cross_district_and_active_claims(monkeypatch):
+    from backend.main import intelligence_reopen
+    monkeypatch.setattr(comptroller_intelligence,'get_intelligence_item',lambda *a:make_item(district_id='other',status='RESOLVED'))
+    request=IntelligenceItemRequest(access_token='fake',source_table='bpp_intelligence_items',item_id='intel-1')
+    with pytest.raises(HTTPException) as exc:intelligence_reopen(request)
+    assert exc.value.status_code==403
+    item=make_item(status='RESOLVED');monkeypatch.setattr(comptroller_intelligence,'get_intelligence_item',lambda *a:item)
+    monkeypatch.setattr('backend.main.bpp_work_claims.claims',lambda *a:{'item:bpp_intelligence_items:intel-1':{'actor_id':'other'}})
+    with pytest.raises(HTTPException) as exc:intelligence_reopen(request)
+    assert exc.value.status_code==409
+
+
+def test_reopen_records_actor_after_success(monkeypatch):
+    from backend.main import intelligence_reopen
+    from dataclasses import replace
+    original=make_item(status='RESOLVED',resolution='ACCOUNT_EXISTS',reviewed_by='prior-reviewer',reviewed_at='2026-10-28')
+    monkeypatch.setattr(comptroller_intelligence,'get_intelligence_item',lambda *a:original)
+    actors=[]
+    monkeypatch.setattr(comptroller_intelligence,'reopen_item',lambda item,actor:actors.append(actor) or replace(item,status='NEW'))
+    events=[];monkeypatch.setattr('backend.main.activity_analytics.record_activity',lambda *a,**kw:events.append((a,kw)))
+    result=intelligence_reopen(IntelligenceItemRequest(access_token='fake',source_table='bpp_intelligence_items',item_id='intel-1'))
+    assert result['item']['status']=='NEW' and result['item']['reviewed_by']=='prior-reviewer'
+    assert actors==['admin@lubbockcad.org'] and events[0][0][1]=='review_reopened'

@@ -295,6 +295,16 @@ def _fetch_closure_reviews(district_id: str) -> list[dict[str, Any]]:
     return _fetch_queue_rows("comptroller_closure_reviews", district_id)
 
 
+def reviewer_labels(district_id, items):
+    ids={i.reviewed_by for i in items if i.reviewed_by}
+    if not ids:return {}
+    try:
+        url,key=get_supabase_config()
+        rows=_request_json('GET',f'{url}/rest/v1/district_users',postgrest_headers(key),params={'select':'user_id,full_name,email','district_id':f'eq.{district_id}','limit':1000})
+        return {r['user_id']:r.get('full_name') or r.get('email') or r['user_id'] for r in rows if r['user_id'] in ids}
+    except Exception:return {}
+
+
 def queue_folder(items, folder):
     """Resolved and dismissed reviews remain in history, outside active work."""
     if folder == 'active':return [i for i in items if i.status not in ('RESOLVED','DISMISSED')]
@@ -407,6 +417,27 @@ def _update_intelligence_item(item_id: str, payload: dict[str, Any]) -> dict[str
     return rows[0]
 
 
+def reopen_item(original, actor):
+    if original.status not in ('RESOLVED','DISMISSED'):raise IntelligenceQueueError('This review is already active. Refresh the queue.')
+    stamp=datetime.now(timezone.utc).isoformat()
+    notes=(original.resolution_notes or '')+f"\n\n[Reopened review] {stamp} by {actor}\nPrevious outcome: {original.resolution or original.status}; completed {original.reviewed_at or 'unknown'} by {original.reviewed_by or 'unknown'}."
+    table=original.source_table
+    payload={'status':'NEW','resolution_notes':notes,'assigned_to':None} if table==SOURCE_TABLE_INTELLIGENCE else {'workflow_status':'PENDING_REVIEW','reviewer_notes':notes}
+    params={'id':f'eq.{original.id}','district_id':f'eq.{original.district_id}'}
+    params['status' if table==SOURCE_TABLE_INTELLIGENCE else 'workflow_status']='eq.'+(original.status if table==SOURCE_TABLE_INTELLIGENCE else original.raw['workflow_status'])
+    url,key=get_supabase_config()
+    rows=_request_json('PATCH',f'{url}/rest/v1/{table}',postgrest_headers(key,prefer='return=representation'),params=params,json_payload=payload)
+    if not rows:raise IntelligenceQueueError('This review changed in another session. Refresh before reopening.')
+    return _from_intelligence_row(rows[0]) if table==SOURCE_TABLE_INTELLIGENCE else _from_closure_review_row(rows[0])
+
+
+def retain_review_history(original, notes):
+    prior=original.resolution_notes or ''
+    if '[Reopened review]' in prior and prior not in (notes or ''):
+        return prior+'\n\n[Follow-up review]\n'+(notes or '')
+    return notes
+
+
 def investigate_item(source_table: str, item_id: str, *, assigned_to: str | None = None) -> UnifiedIntelligenceItem:
     """Marks an item IN_REVIEW. Never touches official CAD/appraisal data --
     only this queue's own status/assignment fields."""
@@ -416,7 +447,7 @@ def investigate_item(source_table: str, item_id: str, *, assigned_to: str | None
         return _from_intelligence_row(row)
     if source_table == SOURCE_TABLE_CLOSURE_REVIEW:
         row = comptroller_admin.update_review_workflow(
-            item_id, workflow_status="OTHER_NEEDS_RESEARCH", reviewer_notes=None, reviewed_by=assigned_to,
+            item_id, workflow_status="OTHER_NEEDS_RESEARCH", reviewer_notes=(get_intelligence_item(source_table,item_id).resolution_notes or None), reviewed_by=assigned_to,
         )
         return _from_closure_review_row(row)
     raise IntelligenceQueueError(f"Unknown source_table '{source_table}'.")

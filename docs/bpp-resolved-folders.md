@@ -7,3 +7,12 @@ Each screen has independent folder selection and resets its status filter when c
 `/api/admin/intelligence/queue` accepts folder `active`, `resolved`, or `all`. Omission retains `all` for existing consumers. Folder filtering runs server-side after source normalization and district authorization, including sales-tax closure workflows. The response includes summary counts before folder selection. Existing review writes and official CAD data are unchanged.
 
 Validation: 68 intelligence, mailing and linked-account tests pass, including folder membership, retained history/counts and invalid-folder rejection. Inline JavaScript syntax checked with Node.
+
+## Daily workflow conveniences
+
+- Save & Next completes the selected review and opens the next available account from that screen's current filtered order, wrapping when necessary. Other appraisers' claimed accounts and completed rows are skipped. It does not claim the next account until Start review. The normal verified outcome/account-card checks still apply; failed saves do not advance.
+- Filter and folder preferences persist in local browser storage under the signed-in user/district identity. No credentials or account data are stored in these preferences. Unavailable storage does not block work.
+- Folder buttons show counts for the current query filters, before folder selection. Resolved rows show outcome, completion date and reviewer name/email (falling back to the saved reviewer identifier).
+- Reopen review returns completed/dismissed items to Active. Authorization is district/BPP scoped, active claims block reopening, and a conditional status update prevents two sessions from reopening the same completed version. The former outcome/date/reviewer and notes remain in the review notes with a reopening entry. Follow-up reviews retain that history; a review_reopened activity event records the signed-in actor. No official CAD fields change and no schema migration is needed.
+
+Validation: 83 Python intelligence/mailing/access/activity checks and two frontend workflow checks; inline script syntax checked.
