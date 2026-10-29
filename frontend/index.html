@@ -701,6 +701,7 @@
             <div class="field"><label>Needs Review</label><div id="intel-summary-review" class="bpp-stat-value">-</div></div>
             <div class="field"><label>Resolved</label><div id="intel-summary-resolved" class="bpp-stat-value">-</div></div>
           </div>
+          <div class="button-row" role="group" aria-label="BPP Intelligence folders" style="margin-bottom:14px"><button type="button" data-queue="intel" data-folder="active" aria-pressed="true">Active</button><button type="button" data-queue="intel" data-folder="resolved" aria-pressed="false" class="secondary">Resolved folder</button></div><p id="intel-folder-note" class="subtle">Active accounts awaiting review. Completed and dismissed reviews are in the Resolved folder.</p>
           <div class="bpp-filters" style="margin-bottom:8px;">
             <div class="field">
               <label for="intel-filter-signal">Signal Type</label>
@@ -774,6 +775,7 @@
             <div class="field"><label>Needs Review</label><div id="mailing-summary-review" class="bpp-stat-value">-</div></div>
             <div class="field"><label>Resolved</label><div id="mailing-summary-resolved" class="bpp-stat-value">-</div></div>
           </div>
+          <div class="button-row" role="group" aria-label="Mailing Address folders" style="margin-bottom:14px"><button type="button" data-queue="mailing" data-folder="active" aria-pressed="true">Active</button><button type="button" data-queue="mailing" data-folder="resolved" aria-pressed="false" class="secondary">Resolved folder</button></div><p id="mailing-folder-note" class="subtle">Active accounts awaiting review. Completed and dismissed reviews are in the Resolved folder.</p>
           <div class="layout-3" style="margin-bottom:12px;">
             <div class="field">
               <label for="mailing-filter-status">Status</label>
@@ -2529,9 +2531,19 @@
       finally{completedCards.loading=false;['card-batch-appraiser','card-batch-print-status'].forEach(id=>$(id).disabled=false);renderCompletedCards();}
     }
 
+    const queueFolders={intel:'active',mailing:'active'};
+    const queueRequests={intel:0,mailing:0};
+    function setQueueFolder(prefix,folder){
+      queueFolders[prefix]=folder;queueRequests[prefix]++;
+      $(prefix+'-list').textContent='Loading '+(folder==='active'?'active accounts':'resolved reviews')+'…';
+      document.querySelectorAll(`[data-queue="${prefix}"]`).forEach(button=>{const selected=button.dataset.folder===folder;button.setAttribute('aria-pressed',String(selected));button.classList.toggle('secondary',!selected);});
+      const status=$(prefix+'-filter-status');status.innerHTML=folder==='active'?'<option value="">All active</option><option value="NEW">New</option><option value="IN_REVIEW">In Review</option>':'<option value="">All completed</option><option value="RESOLVED">Resolved</option><option value="DISMISSED">Dismissed</option>';
+      $(prefix+'-folder-note').textContent=folder==='active'?'Active accounts awaiting review. Completed and dismissed reviews are in the Resolved folder.':'Resolved folder · completed and dismissed reviews retained for reference.';
+    }
     async function refreshIntelligenceQueue() {
       if (!canUseBpp()) return;
-      const payload = { access_token: appState.auth.access_token };
+      const request=++queueRequests.intel;
+      const payload = { access_token: appState.auth.access_token, folder:queueFolders.intel };
       const signal = $("intel-filter-signal").value;
       const status = $("intel-filter-status").value;
       const confidence = $("intel-filter-confidence").value;
@@ -2545,6 +2557,7 @@
         fetchJson("/api/admin/intelligence/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ access_token: appState.auth.access_token }) }),
         fetchJson("/api/admin/intelligence/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
       ]);
+      if(request!==queueRequests.intel)return;
       $("intel-summary-new").textContent = summary.new;
       $("intel-summary-high").textContent = summary.high_priority;
       $("intel-summary-review").textContent = summary.needs_review;
@@ -2560,20 +2573,22 @@
 
     async function refreshMailingQueue() {
       if (!canUseBpp()) return;
-      const payload = { access_token: appState.auth.access_token, signal_type: "mailing_address_change" };
+      const request=++queueRequests.mailing;
+      const payload = { access_token: appState.auth.access_token, signal_type: "mailing_address_change", folder:queueFolders.mailing };
       const status = $("mailing-filter-status").value;
       const confidence = $("mailing-filter-confidence").value;
       if (status) payload.status = status;
       if (confidence) payload.confidence = confidence;
 
       const queue = await fetchJson("/api/admin/intelligence/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if(request!==queueRequests.mailing)return;
       const items = queue.items || [];
       appState.mailingIntelligence.items = items;
 
-      $("mailing-summary-new").textContent = items.filter((i) => i.status === "NEW").length;
-      $("mailing-summary-high").textContent = items.filter((i) => i.priority === "HIGH" && ["NEW", "IN_REVIEW"].includes(i.status)).length;
-      $("mailing-summary-review").textContent = items.filter((i) => i.status === "IN_REVIEW").length;
-      $("mailing-summary-resolved").textContent = items.filter((i) => ["RESOLVED", "DISMISSED"].includes(i.status)).length;
+      $("mailing-summary-new").textContent = queue.summary?.new ?? 0;
+      $("mailing-summary-high").textContent = queue.summary?.high_priority ?? 0;
+      $("mailing-summary-review").textContent = queue.summary?.needs_review ?? 0;
+      $("mailing-summary-resolved").textContent = queue.summary?.resolved ?? 0;
 
       const list = $("mailing-list");
       if (!items.length) {
@@ -2800,7 +2815,7 @@
           const sourceLine=$("intel-detail-body").querySelector(".intel-source-line");
           if (sourceLine) sourceLine.textContent=`${item.source_label || item.source || ""} · Detected ${cadDate(item.first_detected_at)} · ${(appState.intelligence.selected.status || "").replaceAll("_"," ")}`;
           statusEl.textContent=path.endsWith("/release")?"Account released for another appraiser.":"Account reserved for you. Choose an outcome when finished."; statusEl.className="status success";
-        } else { closeIntelligenceDetail(); showFlash(data.warning || (path.endsWith("/dismiss") ? "Item dismissed." : "Account review marked complete."),data.warning?"warn":"success"); }
+        } else { closeIntelligenceDetail(); showFlash(data.warning || (path.endsWith("/dismiss") ? "Item moved to the Resolved folder as dismissed." : "Account moved to the Resolved folder."),data.warning?"warn":"success"); }
         try { await Promise.all([refreshIntelligenceQueue(),refreshMailingQueue()]); }
         catch { showFlash("Your review was saved. Refresh the queue to see the latest status.","warn"); }
       } catch(error) { statusEl.textContent=error.message; statusEl.className="status error"; }
@@ -3195,6 +3210,8 @@
       });
       $("comptroller-export-download").addEventListener("click", downloadComptrollerExport);
 
+      ['intel','mailing'].forEach(prefix=>setQueueFolder(prefix,'active'));
+      document.querySelectorAll('[data-queue][data-folder]').forEach(button=>button.addEventListener('click',()=>{setQueueFolder(button.dataset.queue,button.dataset.folder);(button.dataset.queue==='intel'?refreshIntelligenceQueue():refreshMailingQueue()).catch(error=>showFlash(error.message,'error'));}));
       $("intel-refresh").addEventListener("click", () => { refreshIntelligenceQueue().catch((error) => showFlash(error.message, "error")); });
       ["intel-filter-signal", "intel-filter-status", "intel-filter-confidence"].forEach((id) => {
         $(id).addEventListener("change", () => { refreshIntelligenceQueue().catch((error) => showFlash(error.message, "error")); });

@@ -340,6 +340,7 @@ class ComptrollerReviewExportRequest(BaseModel):
 
 class IntelligenceQueueRequest(BaseModel):
     access_token: str
+    folder: Literal["active", "resolved", "all"] = "all"
     signal_type: str | None = None
     status: str | None = None
     confidence: str | None = None
@@ -2254,7 +2255,9 @@ def intelligence_queue(request: IntelligenceQueueRequest) -> dict[str, Any]:
         )
     except ComptrollerServiceError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"items": to_jsonable(bpp_work_claims.attach([asdict(item) for item in items],district))}
+    summary={"new":sum(i.status=="NEW" for i in items),"high_priority":sum(i.priority=="HIGH" and i.status in ("NEW","IN_REVIEW") for i in items),"needs_review":sum(i.status=="IN_REVIEW" for i in items),"resolved":sum(i.status in ("RESOLVED","DISMISSED") for i in items)}
+    items=comptroller_intelligence.queue_folder(items,request.folder)
+    return {"items": to_jsonable(bpp_work_claims.attach([asdict(item) for item in items],district)),"summary":summary}
 
 
 def _require_own_district_item(district, source_table: str, item_id: str) -> comptroller_intelligence.UnifiedIntelligenceItem:

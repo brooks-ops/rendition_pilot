@@ -295,6 +295,13 @@ def _fetch_closure_reviews(district_id: str) -> list[dict[str, Any]]:
     return _fetch_queue_rows("comptroller_closure_reviews", district_id)
 
 
+def queue_folder(items, folder):
+    """Resolved and dismissed reviews remain in history, outside active work."""
+    if folder == 'active':return [i for i in items if i.status not in ('RESOLVED','DISMISSED')]
+    if folder == 'resolved':return [i for i in items if i.status in ('RESOLVED','DISMISSED')]
+    return items
+
+
 def list_intelligence_queue(
     district_id: str,
     *,
