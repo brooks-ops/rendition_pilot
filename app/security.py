@@ -29,19 +29,6 @@ def token_claims(token):
         return {}
 
 
-def mfa_required(user, token, role=None):
-    privileged = role == 'admin' or (user.get('app_metadata') or {}).get('rendition_super_admin') is True
-    if not privileged:
-        return False
-    claims = token_claims(token)
-    return claims.get('sub') != user.get('id') or claims.get('aal') != 'aal2'
-
-
-def enforce_mfa(user, token, role=None):
-    if mfa_required(user, token, role):
-        raise HTTPException(403, 'Verify your authenticator in Rendition Pilot before using administrator tools.')
-
-
 def external_scheme(scope):
     # Render terminates TLS upstream. Its server-provided URL is trusted;
     # arbitrary client Forwarded/X-Forwarded-Proto headers are not.

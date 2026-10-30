@@ -1,3 +1,13 @@
+# Current login policy — October 30, 2026
+
+At the user's explicit request, Rendition Pilot uses username/email and password only, including district admins and the owner. There is no authenticator enrollment, QR code, setup key, or second-factor prompt. The MFA router is no longer mounted; existing district, owner-claim, temporary-password, and workspace checks remain enforced. Browser/session protection, demo isolation, request limits and encrypted daily backups remain enabled.
+
+New and changed passwords must contain at least eight ASCII letters, one digit, and one non-whitespace special character (at least ten characters total). Existing passwords continue to work. Temporary passwords meet the same rule and still require a personal password at first login. Passwords are validated by the server on signup, first-login password change and district onboarding, not merely by HTML controls.
+
+The earlier administrator-MFA requirements below are historical and superseded by this policy.
+
+---
+
 # Security hardening — October 29, 2026
 
 ## Authentication and authorization

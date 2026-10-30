@@ -56,23 +56,26 @@ def test_cross_site_refresh_and_signout_rejected(headers):
         assert c.post('/api/auth/'+path,headers=headers,json={}).status_code==403
 
 
-def test_mfa_cannot_be_bypassed_by_a_district_admin_or_spoofed_subject(monkeypatch):
+def test_password_only_session_allows_admin_and_preserves_membership_checks(monkeypatch):
     user={'id':'u','email':'admin@example.invalid','app_metadata':{}}
     monkeypatch.setattr(main,'get_supabase_user',lambda _:user)
     monkeypatch.setattr(main,'build_district_context',lambda *a:make_district(role='admin'))
-    with pytest.raises(HTTPException) as e:main.get_authenticated_district_context(token())
-    assert e.value.status_code==403 and 'authenticator' in e.value.detail
-    with pytest.raises(HTTPException):main.get_authenticated_district_context(token(sub='other',aal='aal2'))
-    assert main.get_authenticated_district_context(token(aal='aal2')).role=='admin'
-    monkeypatch.setattr(main,'build_district_context',lambda *a:make_district(role='member'))
-    assert main.get_authenticated_district_context(token()).role=='member'
+    assert main.get_authenticated_district_context(token()).role=='admin'
+    monkeypatch.setattr(main,'build_district_context',lambda *a:None)
+    with pytest.raises(HTTPException):main.get_authenticated_district_context(token())
 
 
-def test_super_admin_needs_real_verified_claim_and_second_factor():
+def test_owner_password_session_still_requires_server_owned_super_admin_claim():
     from app.super_admin import require_super_admin
     user={'id':'u','app_metadata':{'rendition_super_admin':True}}
-    with pytest.raises(HTTPException):require_super_admin(lambda _:user,token())
-    assert require_super_admin(lambda _:user,token(aal='aal2'))==user
+    assert require_super_admin(lambda _:user,token())==user
+    with pytest.raises(HTTPException):require_super_admin(lambda _:{'id':'u','app_metadata':{},'user_metadata':{'rendition_super_admin':True}},token())
+
+
+def test_authenticator_routes_are_disabled():
+    c=TestClient(main.app)
+    for path in ('status','enroll','verify'):
+        assert c.post('/api/auth/mfa/'+path,json={}).status_code==404
 
 
 def test_legacy_profile_reads_and_schedule_writes_are_tenant_scoped(monkeypatch):

@@ -279,26 +279,11 @@
         <h3>Set your Rendition Pilot password</h3>
         <p id="invitation-account" class="subtle"></p>
         <div class="login-grid">
-          <div class="field"><label for="invitation-password">Password (at least 8 characters)</label><input id="invitation-password" type="password" autocomplete="new-password"></div>
+          <div class="field"><label for="invitation-password">Password (at least 8 characters)</label><input id="invitation-password" type="password" autocomplete="new-password" minlength="10" aria-describedby="invitation-password-help"><small id="invitation-password-help">At least 8 letters, 1 number, and 1 special character.</small></div>
           <div class="field"><label for="invitation-confirm">Confirm password</label><input id="invitation-confirm" type="password" autocomplete="new-password"></div>
           <div><button id="invitation-accept" type="button">Set Password &amp; Sign In</button></div>
         </div>
         <div id="invitation-status" class="status hidden" role="status"></div>
-      </div>
-
-      <div id="auth-mfa" class="auth-view login-grid hidden">
-        <h3>Protect your administrator account</h3>
-        <p id="mfa-help">Use an authenticator app such as Microsoft Authenticator or Google Authenticator.</p>
-        <div id="mfa-setup" class="hidden">
-          <p><strong>1. Enter the setup key in your authenticator app.</strong><br>Choose the manual setup option. Name the account <strong>Rendition Pilot</strong>, enter the key below, and choose <strong>time-based</strong> if asked.</p>
-          <code id="mfa-secret" style="display:block;overflow-wrap:anywhere;user-select:all;font-size:16px;line-height:1.6;padding:12px;background:var(--surface,#fff);border:1px solid var(--line,#ccc);border-radius:8px"></code>
-          <button id="mfa-copy-key" class="secondary" type="button" style="margin-top:8px">Copy setup key</button>
-          <p id="mfa-copy-status" role="status"></p>
-          <p><strong>2. Enter the six-digit code below.</strong><br>Your authenticator will start showing a code after you add the account. Keep the setup key private.</p>
-        </div>
-        <div class="field"><label for="mfa-code">Six-digit authenticator code</label><input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></div>
-        <button id="mfa-verify" type="button">Verify &amp; continue</button><button id="mfa-cancel" class="secondary" type="button">Sign out</button>
-        <div id="mfa-status" role="status"></div>
       </div>
 
       <div id="auth-signup" class="auth-view login-grid hidden">
@@ -308,7 +293,7 @@
         </div>
         <div class="field">
           <label for="signup-password">Password</label>
-          <input id="signup-password" type="password">
+          <input id="signup-password" type="password" minlength="10" aria-describedby="signup-password-help"><small id="signup-password-help">At least 8 letters, 1 number, and 1 special character.</small>
         </div>
         <div class="field">
           <label for="signup-confirm">Confirm Password</label>
@@ -334,7 +319,7 @@
         </div>
         <div class="field">
           <label for="cad-password">Password</label>
-          <input id="cad-password" type="password">
+          <input id="cad-password" type="password" minlength="10" aria-describedby="cad-password-help"><small id="cad-password-help">At least 8 letters, 1 number, and 1 special character.</small>
         </div>
         <div class="field">
           <label for="cad-confirm">Confirm Password</label>
@@ -1130,9 +1115,9 @@
       session=RenditionSession.save(session);
       appState.auth = session;
       renderAuthState();
-      if (!session.district?.must_change_password && !session.mfa_required) refreshCadSchedules().catch(() => {});
+      if (!session.district?.must_change_password) refreshCadSchedules().catch(() => {});
       const params = new URLSearchParams(location.search);
-      if (!session.district?.must_change_password && !session.mfa_required && session.district?.role==='admin' && params.get('activity')==='commercial') {
+      if (!session.district?.must_change_password && session.district?.role==='admin' && params.get('activity')==='commercial') {
         $('activity-workspace').value='commercial';
         $('admin-tab').click();
         params.delete('activity');
@@ -1170,63 +1155,18 @@
       if(!session){appState.auth=null;renderAuthState();return;}
       if(!appState.auth)return;
       if(session.user?.id!==appState.auth.user?.id){showFlash('The signed-in account changed in another tab. Reload before continuing.','warn');return;}
-      const changed=JSON.stringify(session.district)!==JSON.stringify(appState.auth.district)||session.mfa_required!==appState.auth.mfa_required;
+      const changed=JSON.stringify(session.district)!==JSON.stringify(appState.auth.district);
       appState.auth=session;if(changed)renderAuthState();
     });
 
     function canUseBpp() {
-      return !!appState.auth?.access_token && !appState.auth?.district?.must_change_password && !appState.auth?.mfa_required &&
+      return !!appState.auth?.access_token && !appState.auth?.district?.must_change_password &&
         (appState.auth?.district?.role === "admin" || appState.auth?.district?.workspace_access?.bpp === true);
     }
 
-    let mfaLoading=false,mfaFactor=null,mfaOwner=null;
-    async function startAdminMfa(){
-      const owner=appState.auth?.user?.id;
-      if(mfaLoading||mfaOwner===owner&&mfaFactor)return;
-      mfaLoading=true;mfaOwner=owner;$('mfa-status').textContent='Checking your authenticator…';
-      try{
-        const data=await fetchJson('/api/auth/mfa/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token})});
-        if(owner!==appState.auth?.user?.id)return;
-        if(data.factors.length){mfaFactor=data.factors[0].id;$('mfa-setup').classList.add('hidden');$('mfa-help').textContent='Enter the current code from your authenticator app.';}
-        else{
-          const enrolled=await fetchJson('/api/auth/mfa/enroll',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token})});
-          if(owner!==appState.auth?.user?.id)return;
-          mfaFactor=enrolled.factor_id;$('mfa-secret').textContent=enrolled.secret;$('mfa-copy-status').textContent='';
-          $('mfa-setup').classList.remove('hidden');
-        }
-        $('mfa-status').textContent='';$('mfa-code').focus();
-      }catch(error){$('mfa-status').textContent=error.message;}
-      finally{mfaLoading=false;}
-    }
-    $('mfa-copy-key').addEventListener('click',async()=>{
-      const key=$('mfa-secret').textContent;
-      if(!key)return;
-      try{
-        await navigator.clipboard.writeText(key);
-        $('mfa-copy-status').textContent='Setup key copied. Paste it into your authenticator app.';
-      }catch{
-        const selection=window.getSelection(),range=document.createRange();
-        range.selectNodeContents($('mfa-secret'));selection.removeAllRanges();selection.addRange(range);
-        $('mfa-copy-status').textContent='The setup key is selected. Copy it, or enter it manually in your authenticator app.';
-      }
-    });
-    $('mfa-verify').addEventListener('click',async()=>{
-      if(!mfaFactor){await startAdminMfa();return;}
-      $('mfa-verify').disabled=true;
-      try{
-        const data=await fetchJson('/api/auth/mfa/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,factor_id:mfaFactor,code:$('mfa-code').value.trim()})});
-        $('mfa-code').value='';$('mfa-copy-status').textContent='';$('mfa-secret').textContent='';mfaFactor=null;mfaOwner=null;
-        setAuthSession(data);
-      }catch(error){$('mfa-status').textContent=error.message;}
-      finally{$('mfa-verify').disabled=false;}
-    });
-    $('mfa-cancel').addEventListener('click',()=>{mfaFactor=null;mfaOwner=null;$('mfa-secret').textContent='';clearAuthSession();});
-
     function renderAuthState() {
       const mustChange = !!appState.auth?.district?.must_change_password;
-      const mustVerify = !!appState.auth?.mfa_required;
-      const authed = !!(appState.auth && appState.auth.access_token && appState.auth.district) && !mustChange && !mustVerify;
-      if(mustVerify&&!mustChange){document.querySelectorAll(".auth-view").forEach(view=>view.classList.toggle("hidden",view.id!=="auth-mfa"));startAdminMfa();}
+      const authed = !!(appState.auth && appState.auth.access_token && appState.auth.district) && !mustChange;
       $("auth-invitation").classList.toggle("hidden", !mustChange);
       if (!appState.auth) {
         document.querySelectorAll(".auth-view").forEach(view => view.classList.toggle("hidden", view.id !== "auth-login"));

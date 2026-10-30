@@ -56,13 +56,13 @@ def test_password_change_authorizes_before_mutation(setup,monkeypatch):
     def deny(*a):raise HTTPException(status_code=403)
     monkeypatch.setattr(backend,'auth_restore',deny)
     put=Mock();monkeypatch.setattr(backend.requests,'put',put)
-    with pytest.raises(HTTPException):backend.auth_accept_invitation(backend.AcceptInvitationRequest(access_token='t',password='new-password',confirm_password='new-password'))
+    with pytest.raises(HTTPException):backend.auth_accept_invitation(backend.AcceptInvitationRequest(access_token='t',password='NewPassword1!',confirm_password='NewPassword1!'))
     put.assert_not_called();setup[0].assert_not_called()
 
 def test_failed_password_change_keeps_forced_flag(setup,monkeypatch):
     monkeypatch.setattr(backend,'auth_restore',lambda *a:{})
     monkeypatch.setattr(backend.requests,'put',lambda *a,**k:Mock(status_code=422))
-    with pytest.raises(HTTPException):backend.auth_accept_invitation(backend.AcceptInvitationRequest(access_token='t',password='new-password',confirm_password='new-password'))
+    with pytest.raises(HTTPException):backend.auth_accept_invitation(backend.AcceptInvitationRequest(access_token='t',password='NewPassword1!',confirm_password='NewPassword1!'))
     setup[0].assert_not_called()
 
 def test_remove_uses_verified_actor(setup,monkeypatch):
@@ -76,6 +76,6 @@ def test_successful_password_change_clears_server_owned_flag(setup,monkeypatch):
     monkeypatch.setattr(backend,'auth_restore',lambda *a:{'district':{'must_change_password':False}})
     monkeypatch.setattr(backend.requests,'put',lambda *a,**k:Mock(status_code=200))
     monkeypatch.setattr(backend,'get_supabase_user',lambda _:{'id':'new-user','app_metadata':{'must_change_password':True,'other':'retained'}})
-    result=backend.auth_accept_invitation(backend.AcceptInvitationRequest(access_token='t',password='new-password',confirm_password='new-password'))
+    result=backend.auth_accept_invitation(backend.AcceptInvitationRequest(access_token='t',password='NewPassword1!',confirm_password='NewPassword1!'))
     assert result['district']['must_change_password'] is False
     assert setup[0].call_args.args[2]['app_metadata']=={'must_change_password':False,'other':'retained'}

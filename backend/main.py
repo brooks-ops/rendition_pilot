@@ -2,6 +2,7 @@ from __future__ import annotations
 from app import bpp_work_claims
 from app.login_aliases import resolve_login_identifier, DEMO_AUTH_EMAIL, DEMO_DISTRICT_ID
 from app import security
+from app.password_policy import validate_password
 
 import base64
 import gc
@@ -603,8 +604,6 @@ def get_authenticated_district_context(access_token: str) -> DistrictContext:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
     if getattr(district, "must_change_password", False):
         raise HTTPException(status_code=403, detail="Change your temporary password before continuing.")
-    if normalize_email(user.get('email', '')) != DEMO_AUTH_EMAIL:
-        security.enforce_mfa(user, access_token, district.role)
     return district
 
 
@@ -894,8 +893,7 @@ def validate_cad_onboarding_payload(request: CadOnboardingRequest) -> None:
     for schedule in request.schedules:
         validate_cad_schedule_payload(schedule)
     if request.admin_password or request.admin_confirm_password:
-        if len(request.admin_password) < 8:
-            raise HTTPException(status_code=400, detail="Admin password must be at least 8 characters.")
+        validate_password(request.admin_password)
         if request.admin_password != request.admin_confirm_password:
             raise HTTPException(status_code=400, detail="Admin passwords do not match.")
 
@@ -1466,8 +1464,6 @@ def info() -> dict[str, str]:
 
 from app.super_admin import router as super_admin_router
 app.include_router(super_admin_router(get_supabase_user))
-from app.mfa import router as mfa_router
-app.include_router(mfa_router(get_supabase_user, build_district_context, get_supabase_config, _district_to_dict))
 from app.county_clerk.api import router as county_clerk_router
 app.include_router(county_clerk_router(require_bpp_access))
 
@@ -1499,7 +1495,7 @@ def auth_refresh(request: RefreshSessionRequest, http_request: Request) -> dict[
     user=result.get('user') or get_supabase_user(token)
     district=build_district_context(user,token)
     if not district:raise HTTPException(403,UNLINKED_DISTRICT_MESSAGE)
-    return {'access_token':token,**session_tokens(result),'user':to_jsonable(user),'district':_district_to_dict(district),'mfa_required':security.mfa_required(user,token,district.role) if normalize_email(user.get('email',''))!=DEMO_AUTH_EMAIL else False}
+    return {'access_token':token,**session_tokens(result),'user':to_jsonable(user),'district':_district_to_dict(district),'mfa_required':False}
 
 
 @app.post("/api/auth/login")
@@ -1515,7 +1511,7 @@ def auth_login(request: LoginRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not district:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
-    return {"access_token": access_token, **session_tokens(auth_result), "user": to_jsonable(user), "district": _district_to_dict(district), "mfa_required": security.mfa_required(user, access_token, district.role) if normalize_email(user.get("email", "")) != DEMO_AUTH_EMAIL else False}
+    return {"access_token": access_token, **session_tokens(auth_result), "user": to_jsonable(user), "district": _district_to_dict(district), "mfa_required": False}
 
 
 @app.post("/api/auth/restore")
@@ -1525,18 +1521,17 @@ def auth_restore(request: SessionRequest) -> dict[str, Any]:
     district = build_district_context(user, request.access_token)
     if not district:
         raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
-    return {"access_token": request.access_token, "user": to_jsonable(user), "district": _district_to_dict(district), "mfa_required": security.mfa_required(user, access_token, district.role) if normalize_email(user.get("email", "")) != DEMO_AUTH_EMAIL else False}
+    return {"access_token": request.access_token, "user": to_jsonable(user), "district": _district_to_dict(district), "mfa_required": False}
 
 
 @app.post("/api/auth/signup")
 def auth_signup(request: SignupRequest) -> dict[str, Any]:
     email = request.email.strip().lower()
+    validate_password(request.password)
     service_role_key = get_supabase_service_role_key()
     supabase_url, _anon_key = get_supabase_config()
     if not service_role_key:
         raise HTTPException(status_code=500, detail="SUPABASE_SERVICE_ROLE_KEY is required for account invitations.")
-    if len(request.password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
     if request.password != request.confirm_password:
         raise HTTPException(status_code=400, detail="Passwords do not match.")
     try:
@@ -1569,7 +1564,7 @@ def auth_signup(request: SignupRequest) -> dict[str, Any]:
         district = build_district_context(user or {"email": email}, access_token)
         if not district:
             raise HTTPException(status_code=403, detail=UNLINKED_DISTRICT_MESSAGE)
-        return {"access_token": access_token, **session_tokens(signup_result), "user": to_jsonable(user), "district": _district_to_dict(district), "mfa_required": security.mfa_required(user, access_token, district.role) if normalize_email(user.get("email", "")) != DEMO_AUTH_EMAIL else False}
+        return {"access_token": access_token, **session_tokens(signup_result), "user": to_jsonable(user), "district": _district_to_dict(district), "mfa_required": False}
     return {"message": "Login created. Confirm the email if Supabase requires confirmation, then sign in."}
 
 
@@ -1614,8 +1609,7 @@ def arb_auth_restore(request: ARBAuthRequest) -> dict[str, Any]:
 @app.post("/api/arb/auth/signup")
 def arb_auth_signup(request: SignupRequest) -> dict[str, Any]:
     email = request.email.strip().lower()
-    if len(request.password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    validate_password(request.password)
     if request.password != request.confirm_password:
         raise HTTPException(status_code=400, detail="Passwords do not match.")
     access = get_app_access(email, "arb_pilot")
@@ -1644,8 +1638,7 @@ def auth_district_setup(request: DistrictSetupRequest, http_request: Request) ->
     if not service_role_key:
         raise HTTPException(status_code=400, detail="SUPABASE_SERVICE_ROLE_KEY is required for CAD onboarding.")
     verify_supabase_district_setup(supabase_url=supabase_url, service_role_key=service_role_key)
-    if len(request.password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    validate_password(request.password)
     if request.password != request.confirm_password:
         raise HTTPException(status_code=400, detail="Passwords do not match.")
     district_slug = slugify_district_slug(request.district_slug) or slugify_district_name(request.district_name)
@@ -1981,7 +1974,8 @@ def district_user_invite(request: DistrictInviteRequest):
         if existing and existing.user_id:
             return {"users":users_with_access(list_district_users(supabase_url=url,service_role_key=key,district_id=district.district_id),district.district_id),"already_authorized":True}
         save_access(district.district_id,email,True if request.role=="admin" else request.bpp_access,True if request.role=="admin" else request.commercial_access,district.email)
-        password = secrets.token_urlsafe(18) + "aA1!"
+        password = "".join(secrets.choice("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") for _ in range(12)) + secrets.token_urlsafe(12) + "1!"
+        validate_password(password)
         user = admin_auth_request("POST", "users", {"email":email,"password":password,"email_confirm":True,"app_metadata":{"must_change_password":True}})
         link_user_to_district(supabase_url=url,service_role_key=key,district_id=district.district_id,email=email,
             user_id=user["id"],role=existing.role if existing else request.role)
@@ -2006,8 +2000,7 @@ def district_user_remove(request: DistrictUserActionRequest):
 
 @app.post("/api/auth/change-password")
 def auth_accept_invitation(request: AcceptInvitationRequest):
-    if len(request.password) < 8:
-        raise HTTPException(status_code=400,detail="Password must be at least 8 characters.")
+    validate_password(request.password)
     if request.password != request.confirm_password:
         raise HTTPException(status_code=400,detail="Passwords do not match.")
     # Restore checks current district authorization before changing a password.
