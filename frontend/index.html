@@ -229,7 +229,7 @@
     }
   </style>
   <link rel="stylesheet" href="/frontend/rendition-theme.css?v=20261024-beige">
-  <link rel="stylesheet" href="/frontend/bpp-workspace.css?v=20261109-returned-mail">
+  <link rel="stylesheet" href="/frontend/bpp-workspace.css?v=20261109-returned-mail-source">
 </head>
 <body>
   <div id="bpp-shell" class="bpp-shell">
@@ -2649,15 +2649,24 @@
         || (appState.mailingIntelligence.items || []).find((candidate) => candidate.id === itemId && candidate.source_table === sourceTable);
     }
 
+    function isReturnedMailItem(item) {
+      return (item.raw?.source || item.source) === 'returned_mail_scan' || item.raw?.evidence?.returned_mail === true;
+    }
+
+    function returnedMailBadgeHtml(item) {
+      return isReturnedMailItem(item) ? '<span class="returned-mail-source-badge">Returned mail</span>' : '';
+    }
+
     function intelligenceTableHtml(items) {
       return `<div class="bpp-register"><table><thead><tr><th>Business / owner</th><th>Sales tax ID</th><th>Address</th><th>CAD account</th><th>Priority</th><th>Status / appraiser</th></tr></thead><tbody>${items.map(item => {
         const mailing = item.signal_type === "mailing_address_change";
-        const mailingLabel = ({DISCREPANCY:'Mailing discrepancy',MISSING_CRS_MAILING:'CRS mailing missing',INCOMPLETE_DATA:'Incomplete mailing data',NO_CURRENT_DISCREPANCY:'Sources agree; review pending',ACCOUNT_MATCH_NEEDS_REVIEW:'Account match needs review'})[item.raw?.evidence?.comparison_status] || 'Legacy mailing history';
-        const address = mailing ? item.mailing_address_observed : [item.source_address,item.source_city,item.source_state,item.source_zip].filter(Boolean).join(", ");
+        const returnedMail = isReturnedMailItem(item);
+        const mailingLabel = returnedMail ? 'Scanned returned envelope' : ({DISCREPANCY:'Mailing discrepancy',MISSING_CRS_MAILING:'CRS mailing missing',INCOMPLETE_DATA:'Incomplete mailing data',NO_CURRENT_DISCREPANCY:'Sources agree; review pending',ACCOUNT_MATCH_NEEDS_REVIEW:'Account match needs review'})[item.raw?.evidence?.comparison_status] || 'Legacy mailing history';
+        const address = mailing ? (returnedMail ? item.mailing_address_current : item.mailing_address_observed) : [item.source_address,item.source_city,item.source_state,item.source_zip].filter(Boolean).join(", ");
         return `<tr data-intel-id="${cadHtml(item.id)}" data-intel-table="${cadHtml(item.source_table)}" tabindex="0">
-          <td><button type="button" class="bpp-account-link">${cadHtml(item.business_name || item.legal_name || "Unnamed business")}</button><div class="subtle">${cadHtml(mailing ? mailingLabel : item.signal_type === "new_business" ? "New business" : item.signal_type === "county_clerk_dba" ? "County Clerk DBA" : "Sales tax inactive")} · ${cadHtml(item.source_label)} · ${cadHtml(item.first_detected_at || "")}</div></td>
+          <td><button type="button" class="bpp-account-link">${cadHtml(item.business_name || item.legal_name || "Unnamed business")}</button> ${returnedMailBadgeHtml(item)}<div class="subtle">${cadHtml(mailing ? mailingLabel : item.signal_type === "new_business" ? "New business" : item.signal_type === "county_clerk_dba" ? "County Clerk DBA" : "Sales tax inactive")} · ${cadHtml(item.source_label)} · ${cadHtml(item.first_detected_at || "")}</div></td>
           <td><span class="bpp-tax-id">${cadHtml(item.sales_tax_id || "Not provided")}</span>${item.sales_tax_location_number ? `<div class="subtle">Location ${cadHtml(item.sales_tax_location_number)}</div>` : ""}</td>
-          <td>${cadHtml(address || "Address unavailable")}${mailing ? `<div class="subtle">${item.raw?.evidence?.comparison_version === 2 ? "Imported CRS" : "Legacy source observation"}: ${cadHtml(item.mailing_address_current || "No CRS mailing data")}</div>` : ""}</td>
+          <td>${cadHtml(address || "Address unavailable")}${mailing ? (returnedMail ? '<div class="subtle">Imported CRS mailing · See original scan in review</div>' : `<div class="subtle">${item.raw?.evidence?.comparison_version === 2 ? "Imported CRS" : "Legacy source observation"}: ${cadHtml(item.mailing_address_current || "No CRS mailing data")}</div>`) : ""}</td>
           <td><strong>${cadHtml(item.matched_account_number || (item.is_ambiguous ? "Multiple possible accounts" : "No account identified"))}</strong><div class="subtle">${cadHtml(item.matched_owner_name || "")} ${item.confidence ? `· ${cadHtml(item.confidence)}` : ""}</div></td>
           <td><span class="bpp-priority ${item.priority === "HIGH" ? "high" : item.priority === "MEDIUM" ? "medium" : "low"}">${cadHtml(item.priority)}</span><div class="subtle">${cadHtml(item.priority_reason || item.match_reason || "")}</div></td>
           <td><span class="bpp-status">${cadHtml(item.status)}</span>${["RESOLVED","DISMISSED"].includes(item.status)?`<div class="subtle">${cadHtml(intelResolutionLabel(item.resolution||item.status))}<br>Completed ${cadHtml(cadDate(item.reviewed_at))}<br>By ${cadHtml(item.reviewer_label||item.reviewed_by||"Not recorded")}</div>`:""}<div class="bpp-work-badge" data-work-key="${cadHtml(intelWorkKey(item))}" data-work-item="${cadHtml(`item:${item.source_table}:${item.id}`)}">${cadHtml(intelWorkLabel(item.work_claim))}</div></td></tr>`;
@@ -2706,7 +2715,7 @@
 
     function mailingComparisonHtml(item) {
       const e=item.raw?.evidence || {};
-      if(item.raw?.source === 'returned_mail_scan')return `<p><strong>Returned-mail review</strong> · Account folder: ${cadHtml(item.matched_account_number)}</p><p>Imported CRS recipient: ${cadHtml(e.crs_recipient || 'Not supplied')}<br>CRS mailing when this review opened: ${cadHtml(item.mailing_address_current || 'Not supplied')}</p><p class="subtle">CRS mailing fields imported ${cadHtml(cadDate(e.crs_imported_at))}; export as of ${cadHtml(e.crs_as_of_date || 'unknown')}. The folder identifies an account, not proof of the envelope’s intended recipient. Review each scan below. No forwarding lead is postal-validated.</p>`;
+      if(isReturnedMailItem(item))return `<p><strong>Returned-mail review</strong> · CAD account: ${cadHtml(item.matched_account_number)}</p><p>Imported CRS recipient: ${cadHtml(e.crs_recipient || 'Not supplied')}<br>CRS mailing when this review opened: ${cadHtml(item.mailing_address_current || 'Not supplied')}</p><p class="subtle">CRS mailing fields imported ${cadHtml(cadDate(e.crs_imported_at))}; export as of ${cadHtml(e.crs_as_of_date || 'unknown')}. The account number identifies an imported account; verify the envelope’s intended recipient. Review each scan below. No forwarding lead is postal-validated.</p>`;
       if(e.comparison_version !== 2) return `<section class="intel-address-change"><div><div class="small-label">Legacy Comptroller observation</div><p>${cadHtml(item.mailing_address_current || 'Not available')}</p></div><div><div class="small-label">Later Comptroller observation</div><p>${cadHtml(item.mailing_address_observed || 'Not available')}</p></div></section><p class="subtle">Legacy history flag: these are two Comptroller observations, not the current CRS address. A new scan can compare CRS after mailing data is imported. Postal validation has not been performed.</p>`;
       const address = (a,title) => `<div><div class="small-label">${title}</div><p><strong>${cadHtml(a.recipient || 'Recipient not supplied')}</strong><br>${[a.line1,a.line2,a.unit ? 'Unit '+a.unit : '',[a.city,a.state,a.zip].filter(Boolean).join(' ')].filter(Boolean).map(cadHtml).join('<br>') || 'No address supplied'}</p><p class="subtle">${cadHtml(({imported_crs_export:'Imported CRS export',tx_comptroller_open_data:'Texas Comptroller'})[a.source] || a.source || 'Source unavailable')}<br>${a.imported_at ? 'Latest mailing fields imported: '+cadHtml(cadDate(a.imported_at))+'<br>' : ''}${a.source_as_of_date ? 'Export as of: '+cadHtml(a.source_as_of_date) : a.retrieved_at ? 'Retrieved: '+cadHtml(cadDate(a.retrieved_at))+'; source effective date unknown' : 'Source as-of date unknown'}${!a.complete ? '<br>Incomplete: '+cadHtml((a.incomplete_reasons || []).join('; ')) : ''}</p>${a.conflicting_observations?.length ? '<details><summary>Conflicting source observations</summary>'+a.conflicting_observations.map(v=>'<p>'+[v.legal_name,v.mailing_address,[v.mailing_city,v.mailing_state,v.mailing_zip].filter(Boolean).join(' ')].filter(Boolean).map(cadHtml).join('<br>')+'</p>').join('')+'</details>' : ''}${a.field_sources && Object.keys(a.field_sources).length ? '<details><summary>Field source dates</summary>'+Object.entries(a.field_sources).map(([field,meta])=>'<div>'+cadHtml(field.replaceAll('_',' '))+': imported '+cadHtml(cadDate(meta.imported_at))+'; source as of '+cadHtml(meta.source_as_of_date || 'unknown')+'</div>').join('')+'</details>' : ''}</div>`;
       const match=e.account_match || {};
@@ -2721,7 +2730,7 @@
       const account = item.matched_account_number || (item.is_ambiguous ? "Match needs review" : "No matched account");
       const address = [item.source_address,item.source_city,item.source_state,item.source_zip].filter(Boolean).join(", ");
       const signals = item.match_signals || {};
-      return `<section class="intel-account-summary"><div><div class="small-label">CAD account</div><strong class="intel-account-number">${cadHtml(account)}</strong><div>${cadHtml(item.matched_owner_name || item.legal_name || "Owner not provided")}</div></div>
+      return `${returnedMailBadgeHtml(item)}<section class="intel-account-summary"><div><div class="small-label">CAD account</div><strong class="intel-account-number">${cadHtml(account)}</strong><div>${cadHtml(item.matched_owner_name || item.legal_name || "Owner not provided")}</div></div>
         <div><div class="small-label">Sales tax ID</div><strong>${cadHtml(item.sales_tax_id || "Not provided")}</strong>${item.sales_tax_location_number ? `<div class="subtle">Location ${cadHtml(item.sales_tax_location_number)}</div>` : ""}</div>
         ${item.matched_account_number ? '<button id="intel-copy-account" type="button" class="secondary">Copy account #</button>' : ""}</section>
         ${mailing ? mailingComparisonHtml(item) : `<div class="intel-business-address"><div class="small-label">Business address</div>${cadHtml(address || "Not provided")}</div>`}

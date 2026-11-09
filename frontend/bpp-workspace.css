@@ -132,3 +132,5 @@ body { font-size:14px; }
 .returned-mail-scan fieldset { margin-top:14px; padding:14px; border:1px solid var(--line); border-radius:6px; min-width:0; }
 .returned-mail-scan label { display:block; margin:8px 0; }
 .returned-mail-scan textarea { display:block; width:100%; }
+
+.returned-mail-source-badge { display:inline-block; padding:3px 9px; margin:4px 0; border:1px solid #b78b49; border-radius:999px; background:#f5e8ce; color:#644217; font-size:12px; font-weight:700; white-space:nowrap; }
