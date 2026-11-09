@@ -170,7 +170,7 @@ def test_bpp_only_district_admin_retains_admin_but_cannot_enter_commercial(api,g
     assert admin['workspace_access']=={'bpp':True,'commercial':False}
 
 
-@pytest.mark.parametrize('role',['member','appraiser'])
+@pytest.mark.parametrize('role',['member','appraiser','district_admin'])
 def test_regular_bpp_appraiser_can_complete_and_print_account_card_flow(api,monkeypatch,role):
     """Exercise real HTTP authorization; mock storage/enrichment, never BPP guards."""
     from dataclasses import replace
