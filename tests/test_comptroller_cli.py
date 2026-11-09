@@ -161,8 +161,8 @@ def test_mailing_address_scan_command_reports_summary(monkeypatch, capsys):
 
     assert exit_code == 0
     out = capsys.readouterr().out
-    assert "Accounts evaluated: 10" in out
-    assert "Likely changes: 2" in out
+    assert "Taxpayers examined: 10" in out
+    assert "CRS/source discrepancies: 2" in out
     assert "Intelligence items created: 2" in out
 
 

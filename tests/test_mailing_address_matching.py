@@ -156,3 +156,8 @@ def test_full_normalized_includes_unit_so_a_suite_addition_is_never_invisible():
     a = normalize_mailing_address("123 Main St", city="Lubbock", state="TX", zip_code="79401")
     b = normalize_mailing_address("123 Main St Ste 200", city="Lubbock", state="TX", zip_code="79401")
     assert a.full_normalized != b.full_normalized
+
+
+def test_missing_street_with_city_state_zip_is_insufficient_not_high_change():
+    r=compare('100 Main St','Lubbock','TX','79401',None,'Lubbock','TX','79401')
+    assert r.classification==INSUFFICIENT_DATA and r.change_confidence=='NONE'

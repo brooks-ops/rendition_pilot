@@ -90,22 +90,15 @@ def compare_mailing_addresses(
     # A source column can be blank even when a raw line exists (a plain
     # street address with no city on file, say) -- only treat the address
     # as genuinely absent when there's no usable text anywhere.
-    current_present = bool((current_raw or "").strip() or (current_city or "").strip())
-    observed_present = bool((observed_raw or "").strip() or (observed_city or "").strip())
-
-    if not observed_present:
-        return MailingAddressComparison(
-            classification=INSUFFICIENT_DATA, change_confidence="NONE", current=None, observed=None,
-            reasons=["No new address observation to compare -- a blank observation is never interpreted as a change."],
-        )
-    if not current_present:
-        return MailingAddressComparison(
-            classification=INSUFFICIENT_DATA, change_confidence="NONE", current=None, observed=None,
-            reasons=["No current mailing address on file to compare against."],
-        )
-
     current = normalize_mailing_address(current_raw, city=current_city, state=current_state, zip_code=current_zip)
     observed = normalize_mailing_address(observed_raw, city=observed_city, state=observed_state, zip_code=observed_zip)
+    # A city or ZIP alone is not an address. Preserve the parsed sides for
+    # review, but never turn missing street/PO-box data into a correction.
+    if not current.normalized_line or not observed.normalized_line:
+        return MailingAddressComparison(
+            classification=INSUFFICIENT_DATA, change_confidence="NONE", current=current, observed=observed,
+            reasons=["Missing street or PO box on one side; no supported address correction."],
+        )
 
     if current.full_normalized == observed.full_normalized:
         return MailingAddressComparison(

@@ -295,3 +295,22 @@ def test_reopen_records_actor_after_success(monkeypatch):
     result=intelligence_reopen(IntelligenceItemRequest(access_token='fake',source_table='bpp_intelligence_items',item_id='intel-1'))
     assert result['item']['status']=='NEW' and result['item']['reviewed_by']=='prior-reviewer'
     assert actors==['admin@lubbockcad.org'] and events[0][0][1]=='review_reopened'
+
+
+def test_mailing_run_status_scoped_to_authenticated_district_for_regular_bpp_staff(monkeypatch):
+    from app.comptroller import mailing_comparisons
+    captured=[]
+    monkeypatch.setattr('backend.main.require_bpp_access',lambda token:make_district(role='member'))
+    monkeypatch.setattr(comptroller_intelligence,'list_intelligence_queue',lambda district_id,**kw:[])
+    monkeypatch.setattr(mailing_comparisons,'latest_run',lambda district_id:captured.append(district_id) or {'status':'SUCCESS','records_examined':0})
+    result=intelligence_queue(IntelligenceQueueRequest(access_token='fake',signal_type='mailing_address_change'))
+    assert captured==['district-1'] and result['mailing_run']['status']=='SUCCESS'
+
+
+def test_mailing_run_status_failure_does_not_break_queue(monkeypatch):
+    from app.comptroller import mailing_comparisons
+    from app.comptroller.service import ComptrollerServiceError
+    monkeypatch.setattr(comptroller_intelligence,'list_intelligence_queue',lambda district_id,**kw:[])
+    monkeypatch.setattr(mailing_comparisons,'latest_run',lambda district_id:(_ for _ in ()).throw(ComptrollerServiceError('unavailable')))
+    result=intelligence_queue(IntelligenceQueueRequest(access_token='fake',signal_type='mailing_address_change'))
+    assert result['items']==[] and 'could not be loaded' in result['mailing_run_error']

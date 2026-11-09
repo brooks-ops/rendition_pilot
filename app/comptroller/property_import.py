@@ -21,7 +21,7 @@ from io import BytesIO, StringIO
 import requests
 
 from app.comptroller.jurisdictions import Jurisdiction, validate_capability
-from app.comptroller.property_adapter import normalize_source_record
+from app.comptroller.property_adapter import MAILING_FIELDS, normalize_source_record
 from app.comptroller.property_enrichment import CAPABILITY
 from app.comptroller.service import ComptrollerServiceError, _request_json, get_supabase_config, postgrest_headers
 
@@ -191,6 +191,13 @@ def import_property_csv(
             groups = {}
             for row in rows:
                 row["source_import_id"] = import_id
+                if any(key in row for key in MAILING_FIELDS):
+                    mailing_stamp=datetime.now(timezone.utc).isoformat()
+                    row.update(mailing_import_id=import_id, mailing_source="imported_crs_export",
+                               mailing_imported_at=mailing_stamp, mailing_source_as_of_date=source_as_of_date,
+                               mailing_field_sources={key: {"import_id":import_id,"imported_at":mailing_stamp,
+                                   "source_as_of_date":source_as_of_date,"source":"imported_crs_export"}
+                                   for key in MAILING_FIELDS if key in row})
                 groups.setdefault(tuple(sorted(row)), []).append(row)
             for group in groups.values():
                 for offset in range(0, len(group), batch_size):
@@ -227,8 +234,20 @@ def excel_bytes_to_csv_text(file_bytes: bytes, *, sheet_name: str | int = 0) -> 
             sheet = workbook.worksheets[sheet_name] if isinstance(sheet_name, int) else workbook[sheet_name]
             output = StringIO()
             writer = csv.writer(output)
-            for values in sheet.iter_rows(values_only=True):
-                writer.writerow([int(v) if isinstance(v, float) and v.is_integer() else v for v in values])
+            def cell_text(cell):
+                value=cell.value
+                if isinstance(value,float) and value.is_integer():value=int(value)
+                # Preserve explicit Excel zero masks (ZIPs/account codes),
+                # without inventing zeroes for a General-formatted number.
+                if isinstance(value,int) and not isinstance(value,bool) and value>=0 and re.fullmatch(r'0+(?:-0+)?',cell.number_format):
+                    digits=str(value).zfill(cell.number_format.count('0'))
+                    if '-' in cell.number_format:
+                        split=cell.number_format.index('-')
+                        return digits[:split]+'-'+digits[split:]
+                    return digits
+                return value
+            for cells in sheet.iter_rows():
+                writer.writerow([cell_text(cell) for cell in cells])
             return output.getvalue()
         finally:
             workbook.close()
@@ -272,6 +291,12 @@ IMPORT_FIELDS = {
     'owner_name': ['OwnerName','Owner','LegalName'], 'business_name': ['BusinessName'],
     'dba_name': ['DBA','DBAName','DoingBusinessAs'], 'situs_unit': ['SitusUnit','Suite','Unit'],
     'account_status': ['AccountStatus','PropertyStatus'], 'source_updated_at': ['SourceUpdatedAt'],
+    'mailing_recipient': ['MailingRecipient','MailName','MailingName','MailToName'],
+    'mailing_address_line1': ['MailingAddress','MailingAddress1','MailAddress1','MailingAddressLine1'],
+    'mailing_address_line2': ['MailingAddress2','MailAddress2','MailingAddressLine2'],
+    'mailing_unit': ['MailingUnit','MailSuite'],
+    'mailing_city': ['MailingCity','MailCity'], 'mailing_state': ['MailingState','MailState'],
+    'mailing_zip': ['MailingZip','MailZip','MailingZipCode'],
     'tug': ['TaxingUnitGroupCode','TUG','TaxingUnitGroupID'],
     'neighborhood': ['NeighborhoodCode','NBHD'], 'map_id': ['MapNumber','MapID'],
 }
@@ -299,6 +324,8 @@ def validate_mapping(columns, mapping):
     for field_name, column in mapping.items():
         if field_name not in IMPORT_FIELDS and field_name not in ('latitude','longitude'):
             raise PropertyImportError(f'Unsupported field: {field_name}.')
+        if column not in columns and field_name in MAILING_FIELDS:
+            continue  # Optional mailing columns may be absent in an older export.
         if column not in columns:
             raise PropertyImportError(f'Mapped column "{column}" is missing from this file.')
 
@@ -308,9 +335,12 @@ def import_quality(rows, jurisdiction):
     personal = [r for r in rows if classify_account_type(r.get('real_account_number'), prefixes=jurisdiction.account_type_prefixes) == 'PERSONAL']
     named = sum(bool(r.get('owner_name') or r.get('business_name') or r.get('dba_name')) for r in personal)
     warnings = []
+    if any(any(key in row for key in MAILING_FIELDS) for row in rows):
+        warnings.append('Blank cells in mapped mailing columns clear those fields. Unmapped or absent mailing columns preserve previous values.')
     if personal and named < len(personal):warnings.append(f'{len(personal)-named:,} of {len(personal):,} BPP account records have no owner, business, or DBA name; those matches need manual verification.')
     if any(not r.get('tax_year') for r in rows):warnings.append('Some records have no tax year; the importer cannot distinguish annual versions for those records.')
     return {'record_count': len(rows), 'bpp_record_count': len(personal), 'named_bpp_record_count': named,
+            'mailing_records_supplied': sum(bool(r.get('mailing_address_line1')) for r in rows),
             'missing_address_count': sum(not r.get('situs_address_normalized') for r in rows),
             'tax_years': sorted({r['tax_year'] for r in rows if r.get('tax_year')}), 'warnings': warnings}
 

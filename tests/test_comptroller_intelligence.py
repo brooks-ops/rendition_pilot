@@ -353,3 +353,27 @@ def test_reopen_preserves_previous_completion_and_followup_notes(fake_supabase,c
     followup=intelligence.retain_review_history(reopened,'Corrected the outcome')
     assert original.resolution_notes in followup and 'Corrected the outcome' in followup
     with pytest.raises(intelligence.IntelligenceQueueError):intelligence.reopen_item(reopened,'appraiser@cad.org')
+
+
+def test_crs_missing_mailing_remains_visible_as_medium_review_gap(fake_supabase):
+    add_intelligence_item(fake_supabase,signal_type='mailing_address_change',matched_account_number='P1',
+        matched_record_id='cad1',confidence='HIGH',classification='POSSIBLE_MAILING_ADDRESS_CHANGE',
+        mailing_address_current=None,mailing_address_observed='PO BOX 500',
+        evidence={'comparison_version':2,'comparison_status':'MISSING_CRS_MAILING'})
+    items=intelligence.list_intelligence_queue('district-1',signal_type='mailing_address_change')
+    assert len(items)==1 and items[0].priority=='MEDIUM'
+    assert 'no supported correction' in items[0].priority_reason
+
+
+def test_open_review_not_hidden_when_current_sources_now_agree(fake_supabase):
+    add_intelligence_item(fake_supabase,signal_type='mailing_address_change',matched_account_number='P1',
+        matched_record_id='cad1',confidence='HIGH',mailing_address_current='PO BOX 500',mailing_address_observed='PO BOX 500',
+        evidence={'comparison_version':2,'comparison_status':'NO_CURRENT_DISCREPANCY'})
+    assert len(intelligence.list_intelligence_queue('district-1',signal_type='mailing_address_change'))==1
+
+
+def test_returned_mail_without_address_difference_is_visible_for_review(fake_supabase):
+    add_intelligence_item(fake_supabase,signal_type='mailing_address_change',source='returned_mail_scan',matched_account_number='P123456',
+        matched_record_id='record',classification='POSSIBLE_MAILING_ADDRESS_CHANGE',confidence='HIGH',mailing_address_current=None,mailing_address_observed=None)
+    rows=intelligence.list_intelligence_queue('district-1',signal_type='mailing_address_change')
+    assert len(rows)==1 and rows[0].priority=='HIGH' and rows[0].source_label=='Returned-mail scan'

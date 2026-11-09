@@ -38,3 +38,32 @@ def test_no_cad_capability_never_creates_a_match(setup):
     j,query,_=setup;j.has_capability=lambda _:False
     assert links.account_link(j,'taxpayer')['matched_record_id'] is None
     query.assert_not_called()
+
+
+def test_diagnostic_retains_identity_evidence_and_excludes_inactive_locations(setup):
+    j,query,_=setup
+    diagnostic=links.diagnose_account_link(j,'taxpayer')
+    assert query.call_args.kwargs['params']['current_status']=='eq.ACTIVE'
+    assert diagnostic['identity_confidence']=='HIGH'
+    assert diagnostic['locations'][0]['confidence']=='HIGH'
+    assert diagnostic['locations'][0]['account']=='P1'
+
+
+def test_refresh_never_overwrites_completed_or_comparison_links(setup,monkeypatch):
+    j,query,_=setup
+    monkeypatch.setattr(links,'_paginated_get',lambda *a,**kw:[
+        {'id':'resolved','status':'RESOLVED'},
+        {'id':'dismissed','status':'DISMISSED'},
+        {'id':'comparison','status':'NEW','mailing_comparison_key':'T:P1'},
+    ])
+    result=links.refresh_mailing_account_links(j)
+    assert result['evaluated']==0
+    query.assert_not_called()
+
+
+def test_returned_mail_folder_links_are_not_cleared_by_comptroller_refresh(setup,monkeypatch):
+    j,query,_=setup
+    monkeypatch.setattr(links,'_paginated_get',lambda *a,**kw:[{'id':'return','status':'NEW','source':'returned_mail_scan',
+        'matched_account_number':'P123456','matched_record_id':'record'}])
+    assert links.refresh_mailing_account_links(j)['evaluated']==0
+    query.assert_not_called()

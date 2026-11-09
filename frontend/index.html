@@ -229,7 +229,7 @@
     }
   </style>
   <link rel="stylesheet" href="/frontend/rendition-theme.css?v=20261024-beige">
-  <link rel="stylesheet" href="/frontend/bpp-workspace.css?v=20261028-beige">
+  <link rel="stylesheet" href="/frontend/bpp-workspace.css?v=20261109-returned-mail">
 </head>
 <body>
   <div id="bpp-shell" class="bpp-shell">
@@ -768,7 +768,14 @@
       <div id="view-mailing" class="view">
         <section class="card">
           <h3>Mailing Address Intelligence</h3>
-          <div class="subtle" style="margin-bottom:12px;">Existing CAD accounts whose Comptroller-reported mailing address may have changed. Only reliably matched accounts are shown. Every item here is a review recommendation -- resolving one never changes the official CAD mailing address.</div>
+          <div class="subtle" style="margin-bottom:12px;">Compare imported CRS mailing data with Comptroller records for reliably matched accounts. Discrepancies require research; neither source is presumed correct. Completing a review never changes CRS.</div>
+          <details class="intel-support"><summary>Import returned-mail folders</summary><div>
+            <p>Choose your Returned Mail folder, or an individual account-number folder. Each PDF should contain both sides of one envelope; JPEG and PNG scans are also accepted. Original files stay in your folders.</p>
+            <input id="returned-folder" type="file" webkitdirectory directory multiple accept=".pdf,.png,.jpg,.jpeg" aria-label="Returned-mail account folders">
+            <button id="returned-import" type="button">Import scanned folders</button>
+            <p id="returned-import-status" role="status" class="subtle">Folder names must match imported BPP account numbers. Select the folder again to import newly added scans; duplicates are skipped.</p>
+            <ul id="returned-import-errors"></ul>
+          </div></details>
           <div class="bpp-stats" style="margin-bottom:25px;">
             <div class="field"><label>New</label><div id="mailing-summary-new" class="bpp-stat-value">-</div></div>
             <div class="field"><label>High Priority</label><div id="mailing-summary-high" class="bpp-stat-value">-</div></div>
@@ -802,6 +809,7 @@
               <button id="mailing-refresh" class="secondary" type="button">Refresh Queue</button>
             </div>
           </div>
+          <p id="mailing-run-status" class="subtle" role="status">Mailing scan status has not been loaded.</p>
           <div id="mailing-list"></div>
         </section>
       </div>
@@ -925,6 +933,7 @@
         <section class="card modal-panel hidden intel-review-drawer" id="intel-detail-card" role="dialog" aria-modal="true" aria-labelledby="intel-detail-title">
           <header class="intel-review-header"><div><div id="intel-detail-kind" class="subtle"></div><h2 id="intel-detail-title">Account review</h2></div><button id="intel-action-account-card" class="secondary hidden" type="button">Account card</button><button id="intel-detail-close" class="secondary" type="button" aria-label="Close review">✕</button></header>
           <div id="intel-work-status" class="status" role="status"></div><button id="intel-release-work" type="button" class="secondary hidden">Release account</button><div id="intel-detail-body"></div>
+          <section id="returned-evidence" class="intel-support hidden"><h3>Returned-mail scans</h3><p id="returned-evidence-status" role="status"></p><div id="returned-evidence-list"></div><button id="returned-evidence-more" type="button" class="secondary hidden">Load older scans</button></section>
           <details id="cad-review-panel" class="hidden intel-support"><summary>Check or change the CAD account match</summary><div>
             <div class="subtle">Compare each account with the Comptroller details above. Confirming or rejecting a match saves an advisory decision and leaves the alert open.</div>
             <div class="button-row"><input id="cad-account-search" aria-label="Search CAD P account" placeholder="Find a P account by number"><button id="cad-account-find" class="secondary" type="button">Find account</button><button id="cad-account-address" class="secondary" type="button">Accounts at this address</button></div>
@@ -966,6 +975,7 @@
 
   <script src="/frontend/auth-session.js?v=20261029-security1"></script>
   <script src="/frontend/bpp-account-card.js"></script>
+  <script src="/frontend/returned-mail.js?v=20261109"></script>
   <script>
     const API_BASE = (() => {
       const params = new URLSearchParams(window.location.search);
@@ -2359,6 +2369,12 @@
     function cadHtml(value) { return formatText(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;"); }
     const cadUi = { offset: 0, search: null, upload: null, mapping: null, validMapping: null, busy: false, healthLoading: false };
     const cadApi = (path, payload = {}) => fetchJson(`/api/admin/intelligence/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ access_token: appState.auth.access_token, ...payload }) });
+    ReturnedMail.configure({api:cadApi,identity:()=>RenditionSession.identity(),selected:()=>appState.intelligence.selected,
+      read:toBase64,refresh:()=>refreshMailingQueue(),download:async id=>{
+        const response=await RenditionSession.fetch(`${API_BASE}/api/admin/intelligence/returned-mail/download`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,document_id:id})});
+        if(!response.ok){const error=await response.json().catch(()=>({}));throw Error(error.detail||'Could not download the scan.');}
+        const blob=await response.blob();downloadBlob(blob,`returned-mail-${id}.${blob.type==='application/pdf'?'pdf':blob.type==='image/png'?'png':'jpg'}`);
+      }});
     function cadDate(value) { return value ? new Date(value.includes("T") ? value : value + "T12:00:00").toLocaleDateString() : "Unknown"; }
     async function refreshCadHealth() {
       if (cadUi.healthLoading) return;
@@ -2603,6 +2619,10 @@
 
       const queue = await fetchJson("/api/admin/intelligence/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if(request!==queueRequests.mailing)return;
+      const run = queue.mailing_run;
+      $("mailing-run-status").textContent = queue.mailing_run_error || (run
+        ? `Latest scan: ${run.status} · Started ${cadDate(run.started_at)}${run.finished_at ? ' · Finished '+cadDate(run.finished_at) : ''} · ${run.records_examined} taxpayers examined · ${run.observations_added} observations added · ${run.flags_created} flags created · ${run.flags_updated} refreshed · ${run.unlinked} unlinked · ${run.missing_crs} missing CRS mailing · ${run.incomplete_source} incomplete source records${run.errors?.length ? ' · '+run.errors.length+' errors; administrator should inspect the run ledger.' : ''}`
+        : 'No mailing scan has been recorded. Import CRS mailing data, then run the mailing scan.');
       const items = queue.items || [];
       renderFolderCounts('mailing',queue.folder_counts);
       appState.mailingIntelligence.items = items;
@@ -2614,7 +2634,7 @@
 
       const list = $("mailing-list");
       if (!items.length) {
-        list.innerHTML = `<div class="subtle">No matched CAD accounts with mailing address changes match these filters.</div>`;
+        list.innerHTML = `<div class="subtle">No matched accounts with mailing discrepancies or data gaps match these filters.</div>`;
         return;
       }
       list.innerHTML = intelligenceTableHtml(items);
@@ -2632,11 +2652,12 @@
     function intelligenceTableHtml(items) {
       return `<div class="bpp-register"><table><thead><tr><th>Business / owner</th><th>Sales tax ID</th><th>Address</th><th>CAD account</th><th>Priority</th><th>Status / appraiser</th></tr></thead><tbody>${items.map(item => {
         const mailing = item.signal_type === "mailing_address_change";
+        const mailingLabel = ({DISCREPANCY:'Mailing discrepancy',MISSING_CRS_MAILING:'CRS mailing missing',INCOMPLETE_DATA:'Incomplete mailing data',NO_CURRENT_DISCREPANCY:'Sources agree; review pending',ACCOUNT_MATCH_NEEDS_REVIEW:'Account match needs review'})[item.raw?.evidence?.comparison_status] || 'Legacy mailing history';
         const address = mailing ? item.mailing_address_observed : [item.source_address,item.source_city,item.source_state,item.source_zip].filter(Boolean).join(", ");
         return `<tr data-intel-id="${cadHtml(item.id)}" data-intel-table="${cadHtml(item.source_table)}" tabindex="0">
-          <td><button type="button" class="bpp-account-link">${cadHtml(item.business_name || item.legal_name || "Unnamed business")}</button><div class="subtle">${cadHtml(mailing ? "Mailing change" : item.signal_type === "new_business" ? "New business" : item.signal_type === "county_clerk_dba" ? "County Clerk DBA" : "Sales tax inactive")} · ${cadHtml(item.source_label)} · ${cadHtml(item.first_detected_at || "")}</div></td>
+          <td><button type="button" class="bpp-account-link">${cadHtml(item.business_name || item.legal_name || "Unnamed business")}</button><div class="subtle">${cadHtml(mailing ? mailingLabel : item.signal_type === "new_business" ? "New business" : item.signal_type === "county_clerk_dba" ? "County Clerk DBA" : "Sales tax inactive")} · ${cadHtml(item.source_label)} · ${cadHtml(item.first_detected_at || "")}</div></td>
           <td><span class="bpp-tax-id">${cadHtml(item.sales_tax_id || "Not provided")}</span>${item.sales_tax_location_number ? `<div class="subtle">Location ${cadHtml(item.sales_tax_location_number)}</div>` : ""}</td>
-          <td>${cadHtml(address || "Address unavailable")}${mailing ? `<div class="subtle">On file: ${cadHtml(item.mailing_address_current || "Unknown")}</div>` : ""}</td>
+          <td>${cadHtml(address || "Address unavailable")}${mailing ? `<div class="subtle">${item.raw?.evidence?.comparison_version === 2 ? "Imported CRS" : "Legacy source observation"}: ${cadHtml(item.mailing_address_current || "No CRS mailing data")}</div>` : ""}</td>
           <td><strong>${cadHtml(item.matched_account_number || (item.is_ambiguous ? "Multiple possible accounts" : "No account identified"))}</strong><div class="subtle">${cadHtml(item.matched_owner_name || "")} ${item.confidence ? `· ${cadHtml(item.confidence)}` : ""}</div></td>
           <td><span class="bpp-priority ${item.priority === "HIGH" ? "high" : item.priority === "MEDIUM" ? "medium" : "low"}">${cadHtml(item.priority)}</span><div class="subtle">${cadHtml(item.priority_reason || item.match_reason || "")}</div></td>
           <td><span class="bpp-status">${cadHtml(item.status)}</span>${["RESOLVED","DISMISSED"].includes(item.status)?`<div class="subtle">${cadHtml(intelResolutionLabel(item.resolution||item.status))}<br>Completed ${cadHtml(cadDate(item.reviewed_at))}<br>By ${cadHtml(item.reviewer_label||item.reviewed_by||"Not recorded")}</div>`:""}<div class="bpp-work-badge" data-work-key="${cadHtml(intelWorkKey(item))}" data-work-item="${cadHtml(`item:${item.source_table}:${item.id}`)}">${cadHtml(intelWorkLabel(item.work_claim))}</div></td></tr>`;
@@ -2683,6 +2704,18 @@
       return `<section class="intel-business-address"><strong>${cadHtml(f.filing_type || item.raw?.filing_type || "DBA filing")}</strong><p>Document ${cadHtml(f.document_number || "Not provided")} · Recorded ${cadHtml(f.recording_date || "Not provided")}<br>Owners: ${cadHtml(owners)}<br>Expires: ${cadHtml(f.expiration_date || "Not provided")}</p>${source}<p class="subtle">A filing is a research lead. Verify operations independently before changing a taxable account.</p></section>`;
     }
 
+    function mailingComparisonHtml(item) {
+      const e=item.raw?.evidence || {};
+      if(item.raw?.source === 'returned_mail_scan')return `<p><strong>Returned-mail review</strong> · Account folder: ${cadHtml(item.matched_account_number)}</p><p>Imported CRS recipient: ${cadHtml(e.crs_recipient || 'Not supplied')}<br>CRS mailing when this review opened: ${cadHtml(item.mailing_address_current || 'Not supplied')}</p><p class="subtle">CRS mailing fields imported ${cadHtml(cadDate(e.crs_imported_at))}; export as of ${cadHtml(e.crs_as_of_date || 'unknown')}. The folder identifies an account, not proof of the envelope’s intended recipient. Review each scan below. No forwarding lead is postal-validated.</p>`;
+      if(e.comparison_version !== 2) return `<section class="intel-address-change"><div><div class="small-label">Legacy Comptroller observation</div><p>${cadHtml(item.mailing_address_current || 'Not available')}</p></div><div><div class="small-label">Later Comptroller observation</div><p>${cadHtml(item.mailing_address_observed || 'Not available')}</p></div></section><p class="subtle">Legacy history flag: these are two Comptroller observations, not the current CRS address. A new scan can compare CRS after mailing data is imported. Postal validation has not been performed.</p>`;
+      const address = (a,title) => `<div><div class="small-label">${title}</div><p><strong>${cadHtml(a.recipient || 'Recipient not supplied')}</strong><br>${[a.line1,a.line2,a.unit ? 'Unit '+a.unit : '',[a.city,a.state,a.zip].filter(Boolean).join(' ')].filter(Boolean).map(cadHtml).join('<br>') || 'No address supplied'}</p><p class="subtle">${cadHtml(({imported_crs_export:'Imported CRS export',tx_comptroller_open_data:'Texas Comptroller'})[a.source] || a.source || 'Source unavailable')}<br>${a.imported_at ? 'Latest mailing fields imported: '+cadHtml(cadDate(a.imported_at))+'<br>' : ''}${a.source_as_of_date ? 'Export as of: '+cadHtml(a.source_as_of_date) : a.retrieved_at ? 'Retrieved: '+cadHtml(cadDate(a.retrieved_at))+'; source effective date unknown' : 'Source as-of date unknown'}${!a.complete ? '<br>Incomplete: '+cadHtml((a.incomplete_reasons || []).join('; ')) : ''}</p>${a.conflicting_observations?.length ? '<details><summary>Conflicting source observations</summary>'+a.conflicting_observations.map(v=>'<p>'+[v.legal_name,v.mailing_address,[v.mailing_city,v.mailing_state,v.mailing_zip].filter(Boolean).join(' ')].filter(Boolean).map(cadHtml).join('<br>')+'</p>').join('')+'</details>' : ''}${a.field_sources && Object.keys(a.field_sources).length ? '<details><summary>Field source dates</summary>'+Object.entries(a.field_sources).map(([field,meta])=>'<div>'+cadHtml(field.replaceAll('_',' '))+': imported '+cadHtml(cadDate(meta.imported_at))+'; source as of '+cadHtml(meta.source_as_of_date || 'unknown')+'</div>').join('')+'</details>' : ''}</div>`;
+      const match=e.account_match || {};
+      return `<section class="intel-address-change">${address(e.crs || {},'Current imported CRS mailing')}${address(e.comptroller || {},'Latest Comptroller mailing')}</section>
+        <p><strong>${cadHtml((e.comparison_status || '').replaceAll('_',' '))}</strong>: ${cadHtml((e.discrepancy_reasons || []).join('; '))}</p>
+        <p class="subtle">Account identity confidence: ${cadHtml(e.identity_confidence || 'Unknown')}. Source freshness is shown by the dates above; a retrieval date does not establish an address effective date. Postal validation: not performed. A discrepancy is a research candidate, not an approved correction. Comparison recorded ${cadHtml(cadDate(e.evaluated_at))}; completed reviews retain their recorded evidence.</p>
+        <details class="intel-support"><summary>Account-match evidence</summary>${(match.locations || []).map(l=>`<p>Business situs: ${cadHtml(l.situs || 'Unavailable')} · Account ${cadHtml(l.account || 'Unmatched')} · ${cadHtml(l.confidence)}<br>${cadHtml(l.reason || '')}<br>${Object.entries(l.signals || {}).map(([k,v])=>cadHtml(k.replaceAll('_',' '))+': '+cadHtml(v)).join('<br>')}</p>`).join('') || '<p>No retained account-match evidence for this legacy record.</p>'}</details>`;
+    }
+
     function intelligenceMainDetailsHtml(item) {
       const mailing = item.signal_type === "mailing_address_change";
       const account = item.matched_account_number || (item.is_ambiguous ? "Match needs review" : "No matched account");
@@ -2691,7 +2724,7 @@
       return `<section class="intel-account-summary"><div><div class="small-label">CAD account</div><strong class="intel-account-number">${cadHtml(account)}</strong><div>${cadHtml(item.matched_owner_name || item.legal_name || "Owner not provided")}</div></div>
         <div><div class="small-label">Sales tax ID</div><strong>${cadHtml(item.sales_tax_id || "Not provided")}</strong>${item.sales_tax_location_number ? `<div class="subtle">Location ${cadHtml(item.sales_tax_location_number)}</div>` : ""}</div>
         ${item.matched_account_number ? '<button id="intel-copy-account" type="button" class="secondary">Copy account #</button>' : ""}</section>
-        ${mailing ? `<section class="intel-address-change"><div><div class="small-label">Previously observed mailing</div><p>${cadHtml(item.mailing_address_current || "Not available")}</p></div><div><div class="small-label">New mailing address</div><p>${cadHtml(item.mailing_address_observed || "Not available")}</p></div></section>` : `<div class="intel-business-address"><div class="small-label">Business address</div>${cadHtml(address || "Not provided")}</div>`}
+        ${mailing ? mailingComparisonHtml(item) : `<div class="intel-business-address"><div class="small-label">Business address</div>${cadHtml(address || "Not provided")}</div>`}
         ${item.signal_type === "county_clerk_dba" ? filingDetailsHtml(item) : ""}
         <p class="intel-source-line">${cadHtml(item.source_label || item.source || "Source not provided")} · Detected ${cadHtml(cadDate(item.first_detected_at))} · ${cadHtml(item.status || "NEW")}</p>
         <details class="intel-support"><summary>Supporting evidence</summary><div><p><strong>Why this was flagged:</strong> ${cadHtml(item.match_reason || "Review the source information.")}</p>
@@ -2714,7 +2747,7 @@
       ['intel-save-next','intel-action-resolve','intel-action-dismiss','intel-resolution','intel-resolution-notes'].forEach(id=>$(id).disabled=!mine||closed||appState.intelligence.saving);
       $('intel-reopen').classList.toggle('hidden',!closed);$('intel-reopen').disabled=appState.intelligence.saving;
       $('intel-save-next').classList.toggle('hidden',closed);
-      BppAccountCard.access();
+      BppAccountCard.access();ReturnedMail.access();
       $('cad-review-panel').classList.toggle('intel-readonly',!mine||closed);$('cad-review-panel').inert=!mine||closed;
     }
     async function refreshIntelWork() {
@@ -2733,6 +2766,9 @@
     function openIntelligenceDetail(itemId, sourceTable) {
       const item = findIntelligenceItem(itemId, sourceTable);
       if (!item) return;
+      if(ReturnedMail.isSaving())return;
+      if(ReturnedMail.isDirty()&&!window.confirm('Discard unsaved scan-review changes?'))return;
+      ReturnedMail.reset();
       BppAccountCard.reset();
       appState.intelligence.selected = item;
 
@@ -2740,7 +2776,7 @@
       $("intel-detail-title").textContent = item.business_name || item.legal_name || "Account review";
       $("intel-detail-kind").textContent = mailing ? "Mailing address change" : item.signal_type === "sales_tax_inactive" ? "Sales tax inactive" : item.signal_type === "county_clerk_dba" ? "County Clerk DBA" : "Business intelligence";
       $("intel-detail-body").innerHTML = intelligenceMainDetailsHtml(item);
-      $("intel-next-step").textContent = item.signal_type === "county_clerk_dba" ? "Verify the filing and account match, then mark as complete. A filing or abandonment alone does not prove opening or closure." : mailing ? "Verify the new mailing address, make any needed change in your CAD system, then record the outcome." : item.signal_type === "sales_tax_inactive" ? "Verify whether this business is still operating and record the account review outcome." : "Check the account match and determine whether an existing or new account is needed.";
+      $("intel-next-step").textContent = item.signal_type === "county_clerk_dba" ? "Verify the filing and account match, then mark as complete. A filing or abandonment alone does not prove opening or closure." : mailing ? "Research the discrepancy and verify the intended recipient. If a correction is independently confirmed, make it in CAD and record the outcome here." : item.signal_type === "sales_tax_inactive" ? "Verify whether this business is still operating and record the account review outcome." : "Check the account match and determine whether an existing or new account is needed.";
       const copy = $("intel-copy-account");
       if (copy) copy.addEventListener("click", async () => { try { await navigator.clipboard.writeText(item.matched_account_number); copy.textContent="Copied"; } catch { copy.textContent="Select the account number above to copy"; } });
       const resolutionSelect = $("intel-resolution");
@@ -2753,7 +2789,7 @@
       $("intel-action-account-card").classList.toggle("hidden",!hasCard);
       $("intel-extra-tools").classList.toggle("hidden",!hasCard);
       $("intel-account-card").classList.add("hidden");
-      renderIntelWork();refreshIntelWork();
+      renderIntelWork();refreshIntelWork();ReturnedMail.open(item);
       if(hasCard&&BppAccountCard.auto(item))generateAccountCard();
       $("intel-detail-backdrop").classList.remove("hidden");
       $("intel-detail-card").classList.remove("hidden");
@@ -2771,6 +2807,9 @@
     }
 
     function closeIntelligenceDetail() {
+      if(ReturnedMail.isSaving())return;
+      if(ReturnedMail.isDirty()&&!window.confirm('Discard unsaved scan-review changes?'))return;
+      ReturnedMail.reset();
       if(BppAccountCard.isSaving())return;
       if(BppAccountCard.isDirty()&&!window.confirm('Discard unsaved account-card changes?'))return;
       BppAccountCard.reset();
@@ -2829,6 +2868,7 @@
       if (path.endsWith("/resolve") && !extraPayload.resolution) {
         statusEl.textContent="Choose an outcome before marking complete."; statusEl.className="status warn"; $("intel-resolution").focus(); return;
       }
+      if((path.endsWith('/resolve')||path.endsWith('/dismiss')||path.endsWith('/release'))&&(ReturnedMail.isDirty()||ReturnedMail.isSaving())){statusEl.textContent='Save each scan review before finishing or releasing this account.';statusEl.className='status warn';return;}
       if((path.endsWith('/resolve')||path.endsWith('/dismiss')||path.endsWith('/release'))&&(BppAccountCard.isDirty()||BppAccountCard.isSaving())){statusEl.textContent='Save the account card before finishing or releasing this review.';statusEl.className='status warn';return;}
       appState.intelligence.saving=true;
       const buttons=["intel-action-investigate","intel-action-resolve","intel-save-next","intel-reopen","intel-action-dismiss","intel-release-work"];

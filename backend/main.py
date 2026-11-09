@@ -19,6 +19,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import requests
 from dotenv import load_dotenv
@@ -2283,6 +2284,90 @@ def comptroller_review_queue_export(request: ComptrollerReviewExportRequest) -> 
 # status, ownership, account status, BPP records, or exemption data.
 
 
+class ReturnedMailUploadRequest(BaseModel):
+    access_token: str
+    relative_path: str = Field(min_length=1,max_length=1000)
+    file_base64: str = Field(min_length=1,max_length=16777220)
+
+class ReturnedMailDocumentRequest(BaseModel):
+    access_token: str
+    document_id: UUID
+
+class ReturnedMailReviewRequest(ReturnedMailDocumentRequest):
+    version: int = Field(ge=0)
+    review_status: Literal['REVIEWED','DISMISSED']
+    return_reason: str = Field(max_length=50)
+    return_date: date | None = None
+    forwarding_address: str = Field(default='',max_length=1000)
+    review_notes: str = Field(default='',max_length=4000)
+
+@app.post('/api/admin/intelligence/returned-mail/import')
+def returned_mail_import(request: ReturnedMailUploadRequest):
+    from app import returned_mail
+    context=require_bpp_access(request.access_token)
+    try:
+        return returned_mail.import_scan(context,request.relative_path,request.file_base64)
+    except returned_mail.MailImportError as exc:
+        raise HTTPException(400,str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502,'The scan could not be saved. Retry the file; duplicates are detected automatically.') from exc
+
+class ReturnedMailListRequest(IntelligenceItemRequest):
+    offset: int = Field(default=0,ge=0,le=100000)
+
+@app.post('/api/admin/intelligence/returned-mail/list')
+def returned_mail_list(request: ReturnedMailListRequest):
+    from app import returned_mail
+    context=require_bpp_access(request.access_token)
+    item=_require_own_district_item(context,request.source_table,request.item_id)
+    if not item.matched_account_number:return {'documents':[],'reasons':returned_mail.REASONS}
+    try:return {**returned_mail.documents(context,item.matched_account_number,request.offset),'reasons':returned_mail.REASONS}
+    except ComptrollerServiceError as exc:raise HTTPException(502,'Returned-mail evidence could not be loaded.') from exc
+
+@app.post('/api/admin/intelligence/returned-mail/detail')
+def returned_mail_detail(request: ReturnedMailDocumentRequest):
+    from app import returned_mail
+    context=require_bpp_access(request.access_token)
+    try:
+        doc=returned_mail.document(context,request.document_id)
+        return {"document":{k:v for k,v in doc.items() if k not in ('storage_path','sha256','district_id')}}
+    except returned_mail.MailImportError as exc:raise HTTPException(404,str(exc)) from exc
+
+@app.post('/api/admin/intelligence/returned-mail/download')
+def returned_mail_download(request: ReturnedMailDocumentRequest):
+    from app import returned_mail
+    context=require_bpp_access(request.access_token)
+    try:
+        doc=returned_mail.document(context,request.document_id)
+        data=returned_mail.storage('GET',doc['storage_path']).content
+        suffix={'application/pdf':'pdf','image/jpeg':'jpg','image/png':'png'}[doc['content_type']]
+        return Response(data,media_type=doc['content_type'],headers={'Cache-Control':'no-store',
+            'Content-Disposition':f'attachment; filename="returned-mail-{doc["account_number"]}.{suffix}"'})
+    except returned_mail.MailImportError as exc:raise HTTPException(404,str(exc)) from exc
+    except Exception as exc:raise HTTPException(502,'The original returned-mail scan could not be downloaded.') from exc
+
+@app.post('/api/admin/intelligence/returned-mail/review')
+def returned_mail_review(request: ReturnedMailReviewRequest):
+    from app import returned_mail
+    context=require_bpp_access(request.access_token)
+    try:doc=returned_mail.document(context,request.document_id)
+    except returned_mail.MailImportError as exc:raise HTTPException(404,str(exc)) from exc
+    item=_require_own_district_item(context,'bpp_intelligence_items',doc['intelligence_item_id'])
+    _claim_bpp_work(context,item)
+    if request.return_reason not in returned_mail.REASONS:raise HTTPException(400,'Choose a return reason.')
+    if request.return_date and request.return_date>datetime.now(timezone.utc).astimezone(ZoneInfo('America/Chicago')).date():
+        raise HTTPException(400,'Return date cannot be in the future.')
+    try:
+        saved=returned_mail.request('POST','rpc/returned_mail_review',payload={'p_district_id':context.district_id,
+            'p_actor_id':context.user_id,'p_document_id':str(request.document_id),'p_version':request.version,
+            'p_review':{'review_status':request.review_status,'return_reason':request.return_reason,
+                'return_date':request.return_date.isoformat() if request.return_date else None,
+                'forwarding_address':request.forwarding_address,'review_notes':request.review_notes}})
+        return {'document':saved}
+    except ComptrollerServiceError as exc:
+        raise HTTPException(409,'The review could not be saved. Reload the scans and check your account reservation before retrying.') from exc
+
+
 @app.post("/api/admin/intelligence/summary")
 def intelligence_summary(request: ComptrollerStatusRequest) -> dict[str, Any]:
     district = require_bpp_access(request.access_token)
@@ -2312,7 +2397,14 @@ def intelligence_queue(request: IntelligenceQueueRequest) -> dict[str, Any]:
     items=comptroller_intelligence.queue_folder(items,request.folder)
     labels=comptroller_intelligence.reviewer_labels(district.district_id,items)
     rows=[{**asdict(item),'reviewer_label':labels.get(item.reviewed_by)} for item in items]
-    return {"items": to_jsonable(bpp_work_claims.attach(rows,district)),"summary":summary,"folder_counts":counts}
+    response = {"items": to_jsonable(bpp_work_claims.attach(rows,district)),"summary":summary,"folder_counts":counts}
+    if request.signal_type == "mailing_address_change":
+        from app.comptroller.mailing_comparisons import latest_run
+        try:
+            response["mailing_run"] = latest_run(district.district_id)
+        except ComptrollerServiceError:
+            response["mailing_run_error"] = "Mailing scan status could not be loaded."
+    return response
 
 
 def _require_own_district_item(district, source_table: str, item_id: str) -> comptroller_intelligence.UnifiedIntelligenceItem:
@@ -2556,13 +2648,23 @@ def intelligence_resolve(request: IntelligenceResolveRequest) -> dict[str, Any]:
     _claim_bpp_work(district,original)
     user = get_supabase_user(request.access_token)
     try:
-        item = comptroller_intelligence.resolve_item(
-            request.source_table,
-            request.item_id,
-            resolution=request.resolution,
-            resolution_notes=comptroller_intelligence.retain_review_history(original,request.resolution_notes),
-            reviewed_by=str(user.get("id") or "").strip() or None,
-        )
+        if original.raw.get('source') == 'returned_mail_scan':
+            from app import returned_mail
+            try:
+                row=returned_mail.request('POST','rpc/returned_mail_resolve',payload={'p_district_id':district.district_id,
+                    'p_actor_id':district.user_id,'p_item_id':original.id,'p_resolution':request.resolution,
+                    'p_notes':comptroller_intelligence.retain_review_history(original,request.resolution_notes)})
+                item=comptroller_intelligence._from_intelligence_row(row)
+            except ComptrollerServiceError as exc:
+                raise HTTPException(409,'Review each pending scan, then retry completion. A new scan or another session may have changed this account.') from exc
+        else:
+            item = comptroller_intelligence.resolve_item(
+                request.source_table,
+                request.item_id,
+                resolution=request.resolution,
+                resolution_notes=comptroller_intelligence.retain_review_history(original,request.resolution_notes),
+                reviewed_by=str(user.get("id") or "").strip() or None,
+            )
     except comptroller_intelligence.IntelligenceQueueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     warning = _release_completed_bpp_work(district,original)

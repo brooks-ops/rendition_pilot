@@ -29,6 +29,8 @@ class FakeSupabase:
         self.rendition_jobs: dict[str, dict[str, Any]] = {}
         self.parsed_rendition_results: dict[str, dict[str, Any]] = {}
         self.mailing_address_observations: dict[str, dict[str, Any]] = {}
+        self.mailing_scan_runs = {}
+        self.mailing_comparison_states = {}
         self.cad_match_decisions: dict[str, dict[str, Any]] = {}
         self._next_id = 0
         self.calls: list[dict[str, Any]] = []
@@ -321,6 +323,8 @@ class FakeSupabase:
                 existing = self.real_property_records.get(key)
                 if existing:
                     merged = {**existing, **incoming, "id": existing["id"]}
+                    if 'mailing_field_sources' in incoming:
+                        merged['mailing_field_sources']={**existing.get('mailing_field_sources',{}),**incoming['mailing_field_sources']}
                     self.real_property_records[key] = merged
                     results.append(merged)
                 else:
@@ -482,6 +486,61 @@ class FakeSupabase:
                 results.append(row)
             return results
         raise AssertionError(f"Unhandled method {method} for mailing_address_observations")
+
+    # Mailing SQL RPC orchestration double. SQL locking, constraints and
+    # review preservation are separately exercised in tests/sql/mailing_phase1.sql.
+    def _handle_mailing_assert_run(self, method, params, payload):
+        return None
+
+    def _handle_mailing_start_scan(self, method, params, payload):
+        run_id = self._new_id("mailrun")
+        self.mailing_scan_runs[run_id] = dict(id=run_id,status="RUNNING",jurisdiction_id=payload['p_jurisdiction_id'],
+            district_id=payload['p_district_id'],county=payload['p_county'])
+        return run_id
+
+    def _handle_mailing_scan_runs(self, method, params, payload):
+        rows=self._apply_simple_filters(list(self.mailing_scan_runs.values()), params, skip=set())
+        if method == 'PATCH':
+            for row in rows: row.update(payload)
+        return rows
+
+    def _handle_mailing_record_observation(self, method, params, payload):
+        incoming=payload['p_observation']
+        history=[r for r in self.mailing_address_observations.values() if all(r[k]==incoming[k] for k in
+            ('jurisdiction_id','account_identifier_type','account_identifier','source'))]
+        if history and history[-1]['normalized_full_address']==incoming['normalized_full_address']:
+            return {'added':False,'observation':history[-1]}
+        row={**incoming,'id':self._new_id('mailobs'),'observed_at':f'2000-01-01T00:00:{len(self.mailing_address_observations):02d}Z'}
+        self.mailing_address_observations[row['id']]=row
+        return {'added':True,'observation':row}
+
+    def _handle_mailing_mark_unreliable(self, method, params, payload):
+        count=0
+        for row in self.intelligence_items.values():
+            if row.get('jurisdiction_id')==payload['p_jurisdiction_id'] and row.get('source_taxpayer_id')==payload['p_taxpayer_id'] and row.get('mailing_comparison_key') and row['status'] in ('NEW','IN_REVIEW') and row.get('matched_account_number')!=payload['p_current_account']:
+                row['confidence']='LOW';row['priority']='MEDIUM'
+                row['evidence']={**row['evidence'],'comparison_status':'ACCOUNT_MATCH_NEEDS_REVIEW','identity_confidence':'NONE','account_match':payload['p_diagnostic']}
+                count+=1
+        return count
+
+    def _handle_mailing_save_comparison(self, method, params, payload):
+        key=(payload['p_jurisdiction_id'],payload['p_key'])
+        state=self.mailing_comparison_states.get(key)
+        open_item=next((r for r in self.intelligence_items.values() if r.get('jurisdiction_id')==key[0]
+            and r.get('mailing_comparison_key')==key[1] and r['status'] in ('NEW','IN_REVIEW')),None)
+        if not open_item and state and state['fingerprint']==payload['p_fingerprint'] and state.get('last_item_id'):
+            return {'action':'SUPPRESSED','item_id':state['last_item_id']}
+        result_id=None;action='NONE'
+        if open_item:
+            open_item.update(payload['p_payload'])
+            result_id=open_item['id'];action='UPDATED'
+        elif payload['p_actionable']:
+            row={**payload['p_payload'],'jurisdiction_id':key[0],'mailing_comparison_key':key[1],
+                 'source':'crs_comptroller_mailing_comparison','signal_type':'mailing_address_change','status':'NEW'}
+            row=self._handle_bpp_intelligence_items('POST',{},row)[0]
+            result_id=row['id'];action='CREATED'
+        self.mailing_comparison_states[key]={'fingerprint':payload['p_fingerprint'],'last_item_id':result_id}
+        return {'action':action,'item_id':result_id}
 
     # -- shared helpers ----------------------------------------------------
 

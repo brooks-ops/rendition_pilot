@@ -125,3 +125,10 @@ body { font-size:14px; }
 .card-printed,.card-unprinted { display:block; margin-top:4px; font-size:12px; }
 .card-printed { color:#25644b; }
 .card-unprinted { color:#855717; }
+
+/* Returned envelopes share the existing mailing review drawer. */
+#returned-import-errors, #returned-evidence-list { overflow-wrap:anywhere; }
+.returned-mail-scan { padding:16px; border:1px solid var(--line); border-radius:8px; }
+.returned-mail-scan fieldset { margin-top:14px; padding:14px; border:1px solid var(--line); border-radius:6px; min-width:0; }
+.returned-mail-scan label { display:block; margin:8px 0; }
+.returned-mail-scan textarea { display:block; width:100%; }

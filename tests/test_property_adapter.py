@@ -211,3 +211,21 @@ def test_search_properties_with_explicit_limit_uses_single_fetch(fake_supabase):
     adapter = get_property_adapter(jurisdiction)
     results = adapter.search_properties(jurisdiction, limit=2)
     assert len(results) == 2
+
+
+def test_address_lookup_does_not_hide_candidates_after_capped_annual_rows(fake_supabase,monkeypatch):
+    real=fake_supabase.request_json
+    def capped(method,url,headers,*,params=None,json_payload=None):
+        if method=='GET' and url.endswith('real_property_records'):
+            params={**params,'limit':2}
+        return real(method,url,headers,params=params,json_payload=json_payload)
+    monkeypatch.setattr(property_adapter,'_request_json',capped)
+    # First capped page is two years of the same property; another candidate
+    # must still reach the unchanged ambiguity/name matcher.
+    for i,(pid,year) in enumerate([('P1',2025),('P1',2026),('P2',2026)]):
+        row=_year_row(pid,year,'X',row_id=f'row-{i}')
+        row['situs_address_normalized']='100 MAIN STREET'
+        fake_supabase.real_property_records[str(i)]=row
+    result=get_property_adapter(make_jurisdiction()).find_properties_by_address(make_jurisdiction(),'100 MAIN STREET',limit=500)
+    assert {p.source_property_id for p in result}=={'P1','P2'}
+    assert next(p for p in result if p.source_property_id=='P1').tax_year==2026

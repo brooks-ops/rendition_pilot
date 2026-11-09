@@ -1,40 +1,13 @@
-"""Mailing Address Intelligence: detects and evidences probable mailing-
-address changes for BPP taxpayers, and writes review-ready items into the
-existing BPP Intelligence Queue (signal_type='mailing_address_change').
+"""Mailing scan entry point and shared comparison types.
 
-WHAT RUNS AUTOMATICALLY TODAY: the only real, verified mailing-address
-source is the Texas Comptroller feed's taxpayer address (`tp_address` et
-al -- see client.py's PermitRecord docstring), compared against
-RenditionPilot's OWN previously observed value for that same taxpayer_id
-(never a source-supplied "this changed" flag -- the Comptroller feed has
-none). Identity is trivial and exact for this path: the same `taxpayer_id`
-IS the same taxpayer, no fuzzy name-matching needed for address history.
-Queue visibility separately requires a reliable existing CAD account link
-from that taxpayer's business situs and owner/DBA evidence. Mailing addresses
-are never used as substitute business situs evidence.
-
-WHAT THIS MODULE IS ALSO BUILT FOR, BUT DOES NOT YET RUN AUTOMATICALLY:
-comparing a rendition's own mailing address against a BPP account's prior
-observations (spec item 11's "next rendition season" flow). The rendition
-OCR pipeline (app/pipeline.py::_extract_metadata) does not currently
-extract a mailing address at all -- extending core OCR extraction without
-real rendition PDFs to validate against was deliberately left out of this
-pass rather than shipped unverified. `record_observation()`/
-`compare_against_latest_observation()` below are already identity-type-
-generic (`account_identifier_type="bpp_account"` is a first-class option)
-specifically so wiring this up later is a config/call-site change, not a
-redesign, once that extraction exists.
-
-Reuses, never forks: address_normalizer.py's normalize_mailing_address(),
-mailing_address_matching.py's compare_mailing_addresses(), the existing
-bpp_intelligence_items dedup/lifecycle machinery (intelligence.py), and the
-same jurisdiction/capability pattern every other module here follows.
+Production scans compare imported CRS mailing data against current Comptroller
+observations. Legacy taxpayer-history flags remain review history, not CRS facts.
+See mailing_comparisons.py for the current scan and durable run ledger.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any
 
 from app.comptroller.jurisdictions import Jurisdiction, get_jurisdiction, validate_capability
@@ -94,6 +67,9 @@ class MailingAddressCandidate:
     mailing_state: str | None
     mailing_zip: str | None
     mailing_zip4: str | None
+    retrieved_at: str | None = None
+    conflicting_addresses: bool = False
+    address_variants: tuple[dict[str, Any], ...] = ()
 
     @property
     def source_record_id(self) -> str:
@@ -115,6 +91,10 @@ class MailingAddressIntelligenceResult:
     items_updated: int = 0
     duplicates_suppressed: int = 0
     item_ids: list[str] = field(default_factory=list)
+    observations_added: int = 0
+    unlinked: int = 0
+    missing_crs: int = 0
+    run_id: str | None = None
 
 
 def _combine_confidence(identity_confidence: str, change_confidence: str) -> str:
@@ -169,9 +149,10 @@ def _fetch_all_permit_locations(jurisdiction: Jurisdiction, *, page_size: int = 
 
     headers = _headers()
     base_params = {
-        "select": "taxpayer_id,legal_name,mailing_address,mailing_city,mailing_state,mailing_zip,mailing_zip4",
+        "select": "taxpayer_id,legal_name,mailing_address,mailing_city,mailing_state,mailing_zip,mailing_zip4,last_checked_at",
         "county": f"eq.{jurisdiction.county_name}",
         "current_status": "eq.ACTIVE",
+        "order": "taxpayer_id.asc,id.asc",
     }
     rows: list[dict[str, Any]] = []
     offset = 0
@@ -192,9 +173,21 @@ def _fetch_all_permit_locations(jurisdiction: Jurisdiction, *, page_size: int = 
 def get_mailing_address_candidates(jurisdiction: Jurisdiction) -> list[MailingAddressCandidate]:
     rows = _fetch_all_permit_locations(jurisdiction)
     seen: dict[str, MailingAddressCandidate] = {}
+    def variant(row):
+        return {key:row.get(key) for key in ('legal_name','mailing_address','mailing_city','mailing_state','mailing_zip','mailing_zip4','last_checked_at')}
     for row in rows:
         taxpayer_id = row.get("taxpayer_id")
-        if not taxpayer_id or taxpayer_id in seen:
+        if not taxpayer_id:
+            continue
+        if taxpayer_id in seen:
+            from dataclasses import replace
+            from app.comptroller.address_normalizer import normalize_mailing_address
+            existing = seen[taxpayer_id]
+            def key(line, city, state, zip_code):
+                return normalize_mailing_address(line, city=city, state=state, zip_code=zip_code).full_normalized
+            if key(existing.mailing_address, existing.mailing_city, existing.mailing_state, existing.mailing_zip) != key(
+                    row.get("mailing_address"), row.get("mailing_city"), row.get("mailing_state"), row.get("mailing_zip")) or existing.mailing_zip4 != row.get("mailing_zip4"):
+                seen[taxpayer_id] = replace(existing, conflicting_addresses=True, address_variants=existing.address_variants+(variant(row),))
             continue
         seen[taxpayer_id] = MailingAddressCandidate(
             taxpayer_id=taxpayer_id,
@@ -204,6 +197,8 @@ def get_mailing_address_candidates(jurisdiction: Jurisdiction) -> list[MailingAd
             mailing_state=row.get("mailing_state"),
             mailing_zip=row.get("mailing_zip"),
             mailing_zip4=row.get("mailing_zip4"),
+            retrieved_at=row.get("last_checked_at"),
+            address_variants=(variant(row),),
         )
     return list(seen.values())
 
@@ -238,218 +233,27 @@ def record_observation(
     state: str | None,
     zip_code: str | None,
     dry_run: bool = False,
-) -> None:
-    """Appends one observation to history, IF it's actually a distinct
-    address for this identity+source -- the dedup unique index makes
-    re-observing the same address on a later run a no-op via
-    resolution=ignore-duplicates, so a daily scan of thousands of unchanged
-    taxpayers never floods this table (spec item 21: history, not a daily
-    snapshot log)."""
-
-    from app.comptroller.address_normalizer import normalize_mailing_address
-
-    normalized = normalize_mailing_address(raw_line, city=city, state=state, zip_code=zip_code)
-    if not normalized.full_normalized:
-        return
-    if dry_run:
-        return
-    _request_json(
-        "POST", f"{_base_url()}/rest/v1/mailing_address_observations",
-        _headers(prefer="resolution=ignore-duplicates,return=minimal"),
-        params={"on_conflict": "jurisdiction_id,account_identifier_type,account_identifier,source,normalized_full_address"},
-        json_payload=[{
-            "jurisdiction_id": jurisdiction.id,
-            "account_identifier_type": account_identifier_type,
-            "account_identifier": account_identifier,
-            "source": source,
-            "source_record_id": source_record_id,
-            "source_effective_date": source_effective_date,
-            "raw_address_line": raw_line,
-            "address_type": normalized.address_type,
-            "po_box_number": normalized.po_box_number,
-            "unit": normalized.unit,
-            "city": normalized.city,
-            "state": normalized.state,
-            "zip": normalized.zip5,
-            "zip4": normalized.zip4,
-            "normalized_full_address": normalized.full_normalized,
-        }],
-    )
-
-
-def _find_existing_item(source_record_id: str) -> dict[str, Any] | None:
-    rows = _request_json(
-        "GET", f"{_base_url()}/rest/v1/bpp_intelligence_items", _headers(),
-        params={
-            "select": "id,status", "signal_type": f"eq.{SIGNAL_TYPE}",
-            "source": f"eq.{COMPTROLLER_SOURCE}", "source_record_id": f"eq.{source_record_id}", "limit": "1",
-        },
-    )
-    return rows[0] if rows else None
-
-
-def _create_item(payload: dict[str, Any]) -> dict[str, Any]:
-    rows = _request_json(
-        "POST", f"{_base_url()}/rest/v1/bpp_intelligence_items", _headers(prefer="return=representation"),
-        json_payload=payload,
-    )
-    return rows[0] if isinstance(rows, list) else rows
-
-
-def _update_item_evidence(item_id: str, payload: dict[str, Any]) -> None:
-    _request_json(
-        "PATCH", f"{_base_url()}/rest/v1/bpp_intelligence_items", _headers(),
-        params={"id": f"eq.{item_id}"}, json_payload=payload,
-    )
-
-
-def _build_item_payload(
-    jurisdiction: Jurisdiction, candidate: MailingAddressCandidate, comparison: MailingAddressComparison,
-    classification: str, priority: str, combined_confidence: str,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
-    current = comparison.current.full_normalized if comparison.current else None
-    observed = comparison.observed.full_normalized if comparison.observed else None
-    # A change to the SAME identity can happen more than once over time
-    # (spec item 20) -- the observed address is part of the dedup key so a
-    # later, different change is never suppressed by an earlier one.
-    source_record_id = f"{candidate.taxpayer_id}:{observed}"
-    return {
-        "jurisdiction_id": jurisdiction.id,
-        "district_id": jurisdiction.district_id,
-        "signal_type": SIGNAL_TYPE,
-        "source": COMPTROLLER_SOURCE,
-        "source_record_id": source_record_id,
-        "source_taxpayer_id": candidate.taxpayer_id,
-        "status": "NEW",
-        "classification": classification,
-        "priority": priority,
-        "confidence": combined_confidence,
-        "confidence_score": None,
-        "is_ambiguous": False,
-        "business_name": candidate.legal_name,
-        "legal_name": candidate.legal_name,
-        "mailing_address_current": current,
-        "mailing_address_observed": observed,
-        "first_detected_at": datetime.now(timezone.utc).isoformat(),
-        "match_reason": "; ".join(comparison.reasons),
-        "match_signals": comparison.differences,
-        "recommended_action": RECOMMENDED_ACTIONS.get(classification),
-        "evidence": {
-            "source_effective_date": None,
-            "detection_basis": (
-                "Comptroller-reported taxpayer mailing address differs from RenditionPilot's own "
-                "previously observed value for this taxpayer -- see app/comptroller/mailing_address_intelligence.py."
-            ),
-        },
-    }
-
-
-def run_mailing_address_intelligence(
-    jurisdiction_id: str, *, dry_run: bool = False,
-) -> MailingAddressIntelligenceResult:
-    jurisdiction = get_jurisdiction(jurisdiction_id)
-
-    validation = validate_capability(jurisdiction, CAPABILITY, frozenset({"mailing_address"}))
-    if not validation.ok:
-        raise MailingAddressIntelligenceError(validation.message)
-
-    candidates = get_mailing_address_candidates(jurisdiction)
-
-    counts = {
-        "same_address": 0, "format_only": 0, "possible_change": 0,
-        "likely_change": 0, "insufficient_data": 0, "baseline_established": 0,
-    }
-    items_created = 0
-    items_updated = 0
-    duplicates_suppressed = 0
-    item_ids: list[str] = []
-
+    """Append an address transition atomically; identical consecutive scans are a no-op."""
     from app.comptroller.address_normalizer import normalize_mailing_address
-
-    for candidate in candidates:
-        normalized_candidate = normalize_mailing_address(
-            candidate.mailing_address, city=candidate.mailing_city,
-            state=candidate.mailing_state, zip_code=candidate.mailing_zip,
-        )
-        if not normalized_candidate.full_normalized:
-            # Genuinely nothing to record or compare -- not a baseline, not
-            # a comparison, just unusable data for this candidate.
-            counts["insufficient_data"] += 1
-            continue
-
-        prior = get_latest_observation(
-            jurisdiction, account_identifier_type="comptroller_taxpayer", account_identifier=candidate.taxpayer_id,
-        )
-
-        if prior is None:
-            counts["baseline_established"] += 1
-            record_observation(
-                jurisdiction, account_identifier_type="comptroller_taxpayer", account_identifier=candidate.taxpayer_id,
-                source=COMPTROLLER_SOURCE, source_record_id=candidate.source_record_id, source_effective_date=None,
-                raw_line=candidate.mailing_address, city=candidate.mailing_city, state=candidate.mailing_state,
-                zip_code=candidate.mailing_zip, dry_run=dry_run,
-            )
-            continue
-
-        comparison = compare_mailing_addresses(
-            current_raw=prior.get("raw_address_line"), current_city=prior.get("city"),
-            current_state=prior.get("state"), current_zip=prior.get("zip"),
-            observed_raw=candidate.mailing_address, observed_city=candidate.mailing_city,
-            observed_state=candidate.mailing_state, observed_zip=candidate.mailing_zip,
-        )
-
-        if comparison.classification == SAME_ADDRESS:
-            counts["same_address"] += 1
-        elif comparison.classification == FORMAT_ONLY_DIFFERENCE:
-            counts["format_only"] += 1
-        elif comparison.classification == POSSIBLE_CHANGE:
-            counts["possible_change"] += 1
-        elif comparison.classification == LIKELY_CHANGE:
-            counts["likely_change"] += 1
-        else:
-            counts["insufficient_data"] += 1
-
-        # Same taxpayer_id IS the same taxpayer -- identity is exact for
-        # this comparison, no fuzzy matching involved (unlike the future
-        # rendition-vs-BPP-account path, which would reuse matching.py's
-        # real identity-confidence logic instead of this constant).
-        classification, priority, combined_confidence = classify_mailing_address_change(
-            comparison, identity_confidence="HIGH", source=COMPTROLLER_SOURCE,
-        )
-
-        if classification and not dry_run:
-            payload = _build_item_payload(jurisdiction, candidate, comparison, classification, priority, combined_confidence)
-            from app.comptroller.mailing_account_links import account_link
-            payload.update(account_link(jurisdiction, candidate.taxpayer_id))
-            existing = _find_existing_item(payload["source_record_id"])
-            if existing is None:
-                created = _create_item(payload)
-                items_created += 1
-                item_ids.append(created["id"])
-            elif existing["status"] in ("NEW", "IN_REVIEW"):
-                update_payload = {k: v for k, v in payload.items() if k != "status"}
-                _update_item_evidence(existing["id"], update_payload)
-                items_updated += 1
-                item_ids.append(existing["id"])
-            else:
-                duplicates_suppressed += 1
-
-        # Record the new observation regardless of classification (even
-        # SAME_ADDRESS/FORMAT_ONLY) so history's dedup index sees today's
-        # exact normalized form -- harmless no-op via ignore-duplicates when
-        # it matches what's already on file.
-        record_observation(
-            jurisdiction, account_identifier_type="comptroller_taxpayer", account_identifier=candidate.taxpayer_id,
-            source=COMPTROLLER_SOURCE, source_record_id=candidate.source_record_id, source_effective_date=None,
-            raw_line=candidate.mailing_address, city=candidate.mailing_city, state=candidate.mailing_state,
-            zip_code=candidate.mailing_zip, dry_run=dry_run,
-        )
-
-    return MailingAddressIntelligenceResult(
-        jurisdiction_id=jurisdiction.id, dry_run=dry_run, evaluated=len(candidates),
-        same_address=counts["same_address"], format_only=counts["format_only"],
-        possible_change=counts["possible_change"], likely_change=counts["likely_change"],
-        insufficient_data=counts["insufficient_data"], baseline_established=counts["baseline_established"],
-        items_created=items_created, items_updated=items_updated, duplicates_suppressed=duplicates_suppressed,
-        item_ids=item_ids,
+    normalized = normalize_mailing_address(raw_line, city=city, state=state, zip_code=zip_code)
+    if not normalized.normalized_line or dry_run:
+        return {"added": False, "observation": None}
+    return _request_json(
+        "POST", f"{_base_url()}/rest/v1/rpc/mailing_record_observation", _headers(),
+        json_payload={"p_observation": {
+            "jurisdiction_id": jurisdiction.id, "account_identifier_type": account_identifier_type, "scan_run_id": run_id,
+            "account_identifier": account_identifier, "source": source, "source_record_id": source_record_id,
+            "source_effective_date": source_effective_date, "raw_address_line": raw_line,
+            "address_type": normalized.address_type, "po_box_number": normalized.po_box_number,
+            "unit": normalized.unit, "city": normalized.city, "state": normalized.state,
+            "zip": normalized.zip5, "zip4": normalized.zip4,
+            "normalized_full_address": normalized.full_normalized + ("-"+normalized.zip4 if normalized.zip4 else ""),
+        }},
     )
+
+
+def run_mailing_address_intelligence(jurisdiction_id: str, *, dry_run: bool = False) -> MailingAddressIntelligenceResult:
+    from app.comptroller.mailing_comparisons import run_scan
+    return run_scan(jurisdiction_id, dry_run=dry_run)

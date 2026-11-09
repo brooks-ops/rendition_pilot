@@ -243,3 +243,64 @@ def test_upsert_targets_the_real_non_partial_unique_index(fake_supabase):
     assert upsert_calls, "expected at least one upsert POST to real_property_records"
     for call in upsert_calls:
         assert call["params"]["on_conflict"] == "jurisdiction_id,source_property_id,tax_year"
+
+
+def test_mailing_import_keeps_situs_separate_and_tracks_each_supplied_field(fake_supabase):
+    mapping={**LUBBOCK_MAPPING,'mailing_recipient':'MailTo','mailing_address_line1':'Mail1',
+             'mailing_address_line2':'Mail2','mailing_unit':'MailUnit','mailing_city':'MailCity',
+             'mailing_state':'MailState','mailing_zip':'MailZip'}
+    j=make_jurisdiction(property_field_mapping=mapping)
+    csv='PropertyID,QuickRefID,SitusAddress,SitusZip,TUG,NBHD,MapID,MailTo,Mail1,Mail2,MailUnit,MailCity,MailState,MailZip\n1,P1,100 BUSINESS ST,79401,,,,Acme Treasurer,PO BOX 500,C/O JANE,,Lubbock,TX,79408-0500\n'
+    result=import_property_csv(j,csv,source_as_of_date='2026-10-01')
+    row=fake_supabase.real_property_records['jur-1::1::None']
+    assert row['situs_address_raw']=='100 BUSINESS ST'
+    assert row['mailing_recipient']=='Acme Treasurer' and row['mailing_address_line1']=='PO BOX 500'
+    assert row['mailing_address_line2']=='C/O JANE' and row['mailing_zip']=='79408-0500'
+    assert row['mailing_import_id']==result.import_id and row['mailing_source_as_of_date']=='2026-10-01'
+    assert row['mailing_source']=='imported_crs_export' and row['mailing_imported_at']
+    assert row['mailing_field_sources']['mailing_city']['import_id']==result.import_id
+    # A sparse later file with no mailing columns must retain all mailing facts AND provenance,
+    # even if the saved county mapping still mentions those columns.
+    import_property_csv(j,'PropertyID,QuickRefID,SitusAddress,SitusZip,TUG,NBHD,MapID\n1,P1,200 BUSINESS ST,79401,,,\n')
+    row=fake_supabase.real_property_records['jur-1::1::None']
+    assert row['mailing_address_line1']=='PO BOX 500' and row['mailing_import_id']==result.import_id
+
+
+def test_partial_mailing_import_retains_other_fields_and_their_older_sources(fake_supabase):
+    j=make_jurisdiction(property_field_mapping={**{k:LUBBOCK_MAPPING[k] for k in ('source_property_id','real_account_number','situs_address')},'mailing_address_line1':'Mail1','mailing_city':'MailCity'})
+    first=import_property_csv(j,'PropertyID,QuickRefID,SitusAddress,Mail1,MailCity\n1,P1,100 BUSINESS ST,PO BOX 500,Lubbock\n')
+    second=import_property_csv(j,'PropertyID,QuickRefID,SitusAddress,MailCity\n1,P1,100 BUSINESS ST,Other City\n')
+    row=fake_supabase.real_property_records['jur-1::1::None']
+    assert row['mailing_address_line1']=='PO BOX 500' and row['mailing_city']=='Other City'
+    assert row['mailing_field_sources']['mailing_address_line1']['import_id']==first.import_id
+    assert row['mailing_field_sources']['mailing_city']['import_id']==second.import_id
+
+
+def test_explicit_blank_unit_can_remove_old_unit_without_blank_missing_columns(fake_supabase):
+    j=make_jurisdiction(property_field_mapping={**{k:LUBBOCK_MAPPING[k] for k in ('source_property_id','real_account_number','situs_address')},'mailing_unit':'MailUnit'})
+    import_property_csv(j,'PropertyID,QuickRefID,SitusAddress,MailUnit\n1,P1,100 BUSINESS ST,200\n')
+    result=import_property_csv(j,'PropertyID,QuickRefID,SitusAddress,MailUnit\n1,P1,100 BUSINESS ST,\n')
+    assert fake_supabase.real_property_records['jur-1::1::None']['mailing_unit'] is None
+    assert any('Blank cells' in warning for warning in result.warnings)
+
+
+def test_mailing_headers_suggested_without_reusing_situs_or_owner_columns():
+    suggested=property_import.suggest_mapping(['AccountNumber','SitusAddress','OwnerName','MailingName',
+        'MailingAddress1','MailingAddress2','MailingCity','MailingState','MailingZip','MailingUnit'],{})
+    assert suggested['situs_address']=='SitusAddress'
+    assert suggested['mailing_recipient']=='MailingName'
+    assert suggested['mailing_address_line1']=='MailingAddress1'
+    assert suggested['owner_name']=='OwnerName'
+
+
+def test_excel_mailing_zip_preserves_explicit_leading_zero_format():
+    from io import BytesIO
+    import openpyxl
+    book=openpyxl.Workbook();sheet=book.active
+    sheet.append(['Account','MailingZip','MailingZip4'])
+    sheet.append([123,1234,12345678])
+    sheet['A2'].number_format='000000'
+    sheet['B2'].number_format='00000'
+    sheet['C2'].number_format='00000-0000'
+    out=BytesIO();book.save(out)
+    assert '000123,01234,01234-5678' in property_import.excel_bytes_to_csv_text(out.getvalue())

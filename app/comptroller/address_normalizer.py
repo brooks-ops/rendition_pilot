@@ -48,7 +48,7 @@ _DIRECTION_MAP: dict[str, str] = {
 _UNIT_MARKERS = {"STE", "SUITE", "UNIT", "APT", "BLDG", "BUILDING", "RM", "ROOM", "FL", "FLOOR", "LOT"}
 
 _UNIT_PATTERN = re.compile(
-    r"[,\s]+(?:#\s*|\b(?:" + "|".join(_UNIT_MARKERS) + r")\b\.?\s*)([A-Z0-9-]+)\s*$"
+    r"[,\s]+(?:#\s*|\b(?:" + "|".join(_UNIT_MARKERS) + r")\b\.?\s*#?\s*)([A-Z0-9-]+)\s*$"
 )
 
 
@@ -204,10 +204,8 @@ def normalize_mailing_address(
     intentionally keeps only the text before the first comma. Pass
     city/state explicitly when the source already has them as separate
     fields (e.g. the Comptroller feed's tp_address/tp_city/tp_state) rather
-    than relying on comma-splitting a single combined string, which this
-    function only does as a fallback for `raw_line` itself (anything after
-    the first comma in `raw_line` is ignored -- pass city/state separately
-    instead of relying on that).
+    than inferring city/state from a combined string. Commas within the
+    address line are punctuation; a trailing suite must not be discarded.
 
     Recognizes PO Box variants ("PO BOX 500", "P.O. Box 500", "P O BOX 500")
     as the same `address_type="PO_BOX"` -- confirmed as a real gap in the
@@ -224,7 +222,7 @@ def normalize_mailing_address(
             unit=None, city=normalized_city, state=normalized_state, zip5=zip5, zip4=zip4,
         )
 
-    text = raw_line.upper().split(",")[0]
+    text = raw_line.upper()
     text = re.sub(r"[.,]", " ", text)
     text = re.sub(r"[^A-Z0-9# ]", " ", text)
     text = " ".join(text.split())

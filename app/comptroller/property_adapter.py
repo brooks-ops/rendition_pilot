@@ -27,6 +27,11 @@ from app.comptroller.jurisdictions import Jurisdiction
 from app.comptroller.service import ComptrollerServiceError, _request_json, get_supabase_config, postgrest_headers
 
 
+MAILING_FIELDS = ("mailing_recipient", "mailing_address_line1", "mailing_address_line2",
+                  "mailing_unit", "mailing_city", "mailing_state", "mailing_zip")
+MAILING_PROVENANCE = ("mailing_source", "mailing_import_id", "mailing_imported_at", "mailing_source_as_of_date")
+
+
 class PropertySourceError(RuntimeError):
     pass
 
@@ -56,13 +61,28 @@ class NormalizedRealProperty:
     dba_name: str | None = None
     account_status: str | None = None
     situs_unit: str | None = None
+    mailing_recipient: str | None = None
+    mailing_address_line1: str | None = None
+    mailing_address_line2: str | None = None
+    mailing_unit: str | None = None
+    mailing_city: str | None = None
+    mailing_state: str | None = None
+    mailing_zip: str | None = None
+    mailing_source: str | None = None
+    mailing_import_id: str | None = None
+    mailing_imported_at: str | None = None
+    mailing_source_as_of_date: str | None = None
+    mailing_field_sources: dict | None = None
+
 
 
 _SELECT = (
     "id,jurisdiction_id,source_property_id,tax_year,real_account_number,situs_address_raw,"
     "situs_address_normalized,situs_city,situs_state,situs_zip,owner_name,tug,"
     "neighborhood,map_id,latitude,longitude,source_system,source_import_id,source_updated_at,"
-    "business_name,dba_name,account_status,situs_unit"
+    "business_name,dba_name,account_status,situs_unit,"
+    "mailing_recipient,mailing_address_line1,mailing_address_line2,mailing_unit,mailing_city,"
+    "mailing_state,mailing_zip,mailing_source,mailing_import_id,mailing_imported_at,mailing_source_as_of_date,mailing_field_sources"
 )
 
 
@@ -89,6 +109,8 @@ def _row_to_property(row: dict[str, Any]) -> NormalizedRealProperty:
         source_updated_at=row.get("source_updated_at"),
         business_name=row.get("business_name"), dba_name=row.get("dba_name"),
         account_status=row.get("account_status"), situs_unit=row.get("situs_unit"),
+        **{key: row.get(key) for key in MAILING_FIELDS + MAILING_PROVENANCE},
+        mailing_field_sources=row.get("mailing_field_sources"),
     )
 
 
@@ -147,6 +169,7 @@ def normalize_source_record(
         "map_id": raw("map_id"),
         "latitude": raw("latitude"),
         "longitude": raw("longitude"),
+        **{key: raw(key) for key in MAILING_FIELDS if field_mapping.get(key) in raw_row},
         "source_system": source_system,
         "source_import_id": source_import_id,
     }
@@ -256,18 +279,23 @@ class ImportedPropertyAdapter:
     ) -> list[NormalizedRealProperty]:
         if not normalized_base_address:
             return []
-        # PostgREST ilike wildcard match on the normalized column -- the
-        # unit suffix (if any) lives in the raw address, not this column, so
-        # this intentionally returns every unit at a base address and lets
-        # property_matching.py's suite logic disambiguate. A higher fetch
-        # limit than the caller asked for, since multiple tax-year rows for
-        # the same unit are collapsed to one below -- fetching exactly
-        # `limit` raw rows could under-return distinct properties.
-        rows = self._fetch(
-            jurisdiction,
-            {"situs_address_normalized": f"ilike.{normalized_base_address}*", "limit": str(limit * 4)},
-        )
-        return _select_preferred_year(rows, jurisdiction)[:limit]
+        # A capped raw page can contain many annual rows for only a few
+        # properties. Do not silently present that partial set as unambiguous.
+        # Fetch until complete or enough distinct candidates exist to make
+        # the caller's existing truncation safeguard apply.
+        rows=[];offset=0
+        while True:
+            page=self._fetch(jurisdiction, {
+                "situs_address_normalized":f"ilike.{normalized_base_address}*",
+                "order":"id.asc", "limit":"500", "offset":offset,
+            })
+            if not page:
+                break
+            rows.extend(page);offset+=len(page)
+            selected=_select_preferred_year(rows,jurisdiction)
+            if len(selected)>=limit:
+                return selected[:limit]
+        return _select_preferred_year(rows,jurisdiction)[:limit]
 
     def find_properties_by_real_account(self, jurisdiction: Jurisdiction, account_number: str) -> list[NormalizedRealProperty]:
         if not account_number:

@@ -197,7 +197,7 @@ class SecurityMiddleware:
                         sent = True
                         return {'type':'http.request','body':body,'more_body':False}
                     return await receive()
-                heavy = path in ('/api/review/run','/api/pdf/render','/api/arb/review','/api/arb/evidence-packet','/api/commercial/sketch/generate')
+                heavy = path in ('/api/review/run','/api/pdf/render','/api/arb/review','/api/arb/evidence-packet','/api/commercial/sketch/generate','/api/admin/intelligence/returned-mail/import')
                 if heavy and self.heavy_active >= 2:
                     return await reject(429, 'Two document jobs are already running. Wait for one to finish, then retry.', True)
                 if heavy:self.heavy_active += 1

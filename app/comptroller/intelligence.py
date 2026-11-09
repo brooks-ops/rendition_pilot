@@ -34,7 +34,9 @@ SOURCE_TABLE_CLOSURE_REVIEW = "comptroller_closure_reviews"
 # second source (e.g. a county DBA/assumed-name filing feed) is a one-line
 # addition here, not a UI change.
 SOURCE_LABELS: dict[str, str] = {
+    "returned_mail_scan": "Returned-mail scan",
     "tx_comptroller_open_data": "Texas Comptroller (Sales Tax)",
+    "crs_comptroller_mailing_comparison": "CRS / Texas Comptroller mailing comparison",
     "county_clerk_eagleweb":"County Clerk (EagleWeb DBA filing)",
 }
 
@@ -214,7 +216,7 @@ def _from_intelligence_row(row: dict[str, Any]) -> UnifiedIntelligenceItem:
         neighborhood=row.get("neighborhood"),
         map_id=row.get("map_id"),
         source=row.get("source"),
-        source_label=_source_label(row.get("source")),
+        source_label=(SOURCE_LABELS["crs_comptroller_mailing_comparison"] if (row.get("evidence") or {}).get("comparison_version")==2 else _source_label(row.get("source"))),
         mailing_address_current=row.get("mailing_address_current"),
         mailing_address_observed=row.get("mailing_address_observed"),
         raw=row,
@@ -343,6 +345,21 @@ def list_intelligence_queue(
         elif item.signal_type == 'mailing_address_change':
             linked_pid = (item.matched_account_number or item.property_account_number
                 or item.raw.get('matched_record_id') or item.raw.get('matched_account_id'))
+            if item.raw.get('source') == 'returned_mail_scan':
+                if not linked_pid:continue
+                item=replace(item,priority='MEDIUM' if item.is_ambiguous else 'HIGH',priority_rank=1 if item.is_ambiguous else 0,
+                    priority_reason='Printed account differs from folder; verify scan' if item.is_ambiguous else 'Returned-mail evidence for an existing account')
+                ranked.append(item)
+                continue
+            if (item.raw.get('evidence') or {}).get('comparison_version') == 2:
+                if not linked_pid:
+                    continue
+                discrepant = (item.raw['evidence'].get('comparison_status') == 'DISCREPANCY'
+                    and item.confidence == 'HIGH' and not item.is_ambiguous)
+                item = replace(item, priority='HIGH' if discrepant else 'MEDIUM', priority_rank=0 if discrepant else 1,
+                    priority_reason='Matched account; CRS/source discrepancy requires research' if discrepant else 'Mailing data needs review; no supported correction')
+                ranked.append(item)
+                continue
             changed = (bool(item.mailing_address_current and item.mailing_address_observed)
                 and item.mailing_address_current.strip().upper() != item.mailing_address_observed.strip().upper()
                 and item.classification in ('CONFIRMED_MAILING_ADDRESS_CHANGE','LIKELY_MAILING_ADDRESS_CHANGE','POSSIBLE_MAILING_ADDRESS_CHANGE'))

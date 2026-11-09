@@ -1,261 +1,121 @@
-# Mailing Address Intelligence
+# Mailing address intelligence — CRS comparison phase
 
-Answers, for any jurisdiction: *has this taxpayer's mailing address probably
-changed, what evidence supports that, and does a human need to update the CAD
-record?* Built as a fourth signal type on the existing generalized
-[BPP Intelligence Queue](bpp_intelligence_queue.md) -- not a new review
-system, and not a Lubbock-specific checker.
+Implementation prepared November 2, 2026. **Not deployed; no production migration, import, scan, or review writes were performed for this change.** This document supersedes the earlier taxpayer-history-only design.
 
-RenditionPilot never says "these two address strings are different." It says:
-this account appears to have a new mailing address, here is the old one, here
-is the new one, where the new information came from, what materially changed,
-how confident RenditionPilot is that it belongs to the same account, and why
-it deserves review.
+A subsequent local returned-mail folder import is documented in [returned_mail.md](returned_mail.md). It remains a separate prepared migration and has not been deployed.
 
-## Situs vs. mailing address -- kept architecturally separate
+## Current implementation
 
-Property Enrichment's `NormalizedAddress` (`address_normalizer.py`) matches
-*situs* addresses -- it deliberately drops everything after the first comma,
-which is correct for "is this the same physical parcel" but would silently
-discard a mailing address's load-bearing city/state. Mailing address
-intelligence uses a genuinely separate normalizer,
-`NormalizedMailingAddress`/`normalize_mailing_address()`, in the same file.
-The two are never unified and never substitute for each other -- a business's
-situs address is never treated as evidence about its mailing address.
+The existing CAD CSV/Excel importer, `real_property_records`, BPP queue, permissions, account reservations, completion outcomes, resolved folder, reopening, and Save & Next remain in use. The existing `mailing-address-scan` CLI and scheduled `run-intelligence` command now call `mailing_comparisons.run_scan`.
 
-`NormalizedMailingAddress` understands PO Box variants (`PO Box`, `P.O. Box`,
-`P O BOX #123` all fold to one canonical form), street-suffix/directional
-abbreviations (reusing the same expansion tables as the situs normalizer),
-suite/unit markers, and ZIP vs. ZIP+4 -- and keeps city/state/zip as
-first-class fields rather than folding them into one opaque string, since
-"same street, different state" must never be scored as a formatting
-difference.
+The scan compares a reliably linked account's **imported CRS mailing** with its current cached Comptroller mailing on every run, including the first comparison. It does not require a recent Comptroller change. Neither side is presumed correct, and resolving an item does not update CRS.
 
-## What mailing-address evidence exists today
+Scope is active Comptroller taxpayers in the configured county and their reliably linked BPP accounts. This is not a scan of every CRS recipient: accounts without a corresponding active permit/reliable match are outside this comparison source. The Comptroller sync must run separately, as it already does.
 
-Verified by live query against the Texas Comptroller dataset (`3kx8-uryv`),
-not assumed: a permit record carries **two independently-sourced addresses**
--- `tp_address`/`tp_city`/`tp_state`/`tp_zip`/`tp_zip4` (the taxpayer's
-mailing address, TAXPAYER-level, shared across every outlet/location that
-taxpayer has) and `address_number`+`address_text`/`loc_city`/`loc_state`/
-`loc_zip` (the outlet's SITUS address, already consumed by Property
-Enrichment). These genuinely differ in real data -- e.g. Foot Locker, The
-Buckle, Denny's, and Redbox all show an out-of-state PO Box mailing address
-against a Lubbock street situs address. `client.py::_parse_row()` previously
-discarded `tp_address` entirely; it's now parsed into `PermitRecord.mailing_*`
-fields and threaded through `service.py`'s batch payload.
+### Import fields and preservation
 
-**Rendition OCR does not extract a mailing address today.** The literal
-string "mailing address" is used only as a noise-filter term and a
-page-classification signal in the extraction pipeline -- never captured as a
-value. Adding real extraction was out of scope for this pass: it would touch
-the production OCR path real appraisers depend on today, with no real
-rendition PDFs available to validate a new regex against, and the original
-spec itself frames rendition-driven detection as groundwork for *next*
-season, not this one. The comparison engine and orchestration module are
-built to support it (`account_identifier_type="bpp_account"` is a first-class
-option throughout), but nothing calls that path yet. This is a deliberate,
-flagged scope decision, not an oversight -- see Known Limitations.
+Optional mapped fields:
 
-**No other mailing-address source exists yet** (no returned-mail feed, no
-county-clerk DBA data, no manual import tool).
-
-## Comparison engine (`app/comptroller/mailing_address_matching.py`)
-
-Pure function, no I/O: `compare_mailing_addresses(current_raw, ..., observed_raw, ...) -> MailingAddressComparison`.
-Classifies into:
-
-| Classification | Meaning |
+| Normalized field | Common suggested spreadsheet headers |
 |---|---|
-| `SAME_ADDRESS` | Normalized forms are identical |
-| `FORMAT_ONLY_DIFFERENCE` | Only punctuation/case/suffix spelling/ZIP+4-only differs -- never alert on this alone |
-| `POSSIBLE_CHANGE` | A component differs but only on one side (e.g. a suite present in one observation, absent in the other) |
-| `LIKELY_CHANGE` | A component genuinely differs on both sides (street, city, state, ZIP5, PO Box number, suite number) |
-| `INSUFFICIENT_DATA` | Not enough data on one or both sides to compare at all |
+| `mailing_recipient` | MailingRecipient, MailingName, MailName, MailToName |
+| `mailing_address_line1` | MailingAddress1, MailingAddressLine1, MailAddress1, MailingAddress |
+| `mailing_address_line2` | MailingAddress2, MailingAddressLine2, MailAddress2 |
+| `mailing_unit` | MailingUnit, MailSuite |
+| `mailing_city` | MailingCity, MailCity |
+| `mailing_state` | MailingState, MailState |
+| `mailing_zip` | MailingZip, MailingZipCode, MailZip |
 
-Every result carries a component-level `differences` breakdown (street
-number, name, suffix, directional, unit/suite, PO box, city, state, ZIP,
-ZIP+4) and a plain-English `reasons` list -- never just a similarity score.
+These are separate from owner/business/situs fields. Do not map the owner to the mailing recipient without checking the export's actual meaning. No address is inferred from a name. Line 1 is an address line, not a combined city/state/ZIP field; combined fields require a reviewed source mapping, not guessed parsing.
 
-The unit/suite component has its own dedicated diff helper
-(`_unit_diff`), separate from the generic per-field diff, because "no suite"
-(`None`) is a real, comparable value there -- unlike a missing city or ZIP,
-which means "unknown," a missing suite means "this address has none." A
-generic diff would have reported a newly-added suite as "not available"
-instead of "changed," making the addition invisible to the classifier; this
-was a real bug found and fixed while building this (see git history for
-`mailing_address_matching.py`).
+Existing account-ID/situs import requirements remain. Missing/unmapped mailing columns do not overwrite mailing data or its source metadata, even if an older saved mapping mentions those columns. **Blank cells in a present, mapped mailing column explicitly clear that field** (needed to remove an old unit or second line). Preview/import warnings explain this; omit the mapping to preserve a field. Other import semantics are unchanged.
 
-`full_normalized` (the single-string "are these the same address" check)
-includes the unit -- omitting it was a second real bug found the same way,
-which would have short-circuited every suite-only change to `SAME_ADDRESS`
-before the suite-diff branch ever ran.
+Each supplied mailing field records import ID, import time, source and export as-of date. A merge trigger retains older provenance for omitted fields, so a later partial import does not make all address fields appear newly supplied. The review includes per-field source dates. Missing export as-of dates remain unknown. CSV identifiers/ZIPs remain text; Excel text values and explicit zero-mask number formats are preserved. General-formatted numeric cells cannot recover leading zeroes or precision already lost in Excel; prefer text columns.
 
-## Identity vs. change confidence (spec item 29)
+### Classification and evidence
 
-Kept as two separate questions, combined only at the end via
-`_combine_confidence()`, which takes the **weaker** of the two (by rank
-`HIGH > MEDIUM > LOW > NONE`). A perfect address difference attached to the
-wrong account is useless, so a weak identity match always caps the combined
-result -- it can never be rescued by a strong address signal.
+- `DISCREPANCY`: usable components differ. High queue priority means a reliable account link and a discrepancy worth researching, not confidence in a proposed correction.
+- `MISSING_CRS_MAILING`: linked account has no imported CRS street/PO box. Medium review gap; no inferred current address.
+- `INCOMPLETE_DATA`: missing/malformed street, city, state or ZIP; conflicting units; or conflicting taxpayer mailing values across active locations. Medium review gap, never a supported correction.
+- `NO_CURRENT_DISCREPANCY`: normalized sources agree. No new flag. An already-open review remains open with refreshed evidence for the appraiser to finish.
+- `ACCOUNT_MATCH_NEEDS_REVIEW`: a previously linked open comparison no longer has the same reliable match. Retain its account/reservation and staff notes, downgrade the badge, and require identity research before acting.
 
-For the Comptroller-vs-own-history path (the only one that runs today),
-identity confidence is `HIGH` by construction: the comparison is always
-against RenditionPilot's own prior observation for the *same*
-`taxpayer_id`, so there's no fuzzy account matching involved at all. The
-function is written generically to accept a weaker identity confidence for a
-future path (e.g. rendition-vs-BPP-account, which would need real identity
-evidence from `matching.py` -- exact account number, strong name match plus
-corroboration, etc. -- never bare name similarity, per spec item 14).
+Formatting suppression covers case, punctuation, recognized suffixes/directions, PO-box spelling, suite marker variants and equivalent placement of a suite in line 1, line 2 or a unit column. Street/PO-box number, unit additions/removals, city, state, ZIP5 and meaningful second-line changes are retained. ZIP+4 addition/removal alone is suppressed; two supplied, different ZIP+4 extensions are reviewable. Additional mailing lines remain preserved raw and compared; there is no address inference from care-of names.
 
-## Source trust (`SOURCE_TRUST`, config not code)
+The detail view displays both recipients and raw addresses, source/import/as-of/retrieval dates, discrepancy reasons, and the underlying account matcher reasons/signals. Identity confidence, source dates and postal validation are separate. A retrieval date is not an address effective date. Postal validation is always **NOT_PERFORMED** in this phase. Format completeness checks do not establish USPS deliverability or intended-recipient ownership. Non-US/incomplete formats are sent to review rather than treated as correction evidence.
 
-A lookup table, not hardcoded logic:
+## Correctness, review preservation and legacy coexistence
 
-| Source | Trust |
-|---|---|
-| `RENDITION_SUBMITTED_BY_TAXPAYER` | HIGH -- a taxpayer's own sworn statement |
-| `CAD_CURRENT_RECORD` | baseline |
-| `TEXAS_COMPTROLLER` | MEDIUM -- self-reported registration data |
-| `MANUAL_IMPORT` | configurable |
+`mailing_record_observation` serializes by county, identity and source. Consecutive identical values do not add rows; A → B → A adds three chronological observations. Historical rows are retained. Previously suppressed historical transitions cannot be reconstructed from the old distinct-address table without another source; no historical dates are fabricated.
 
-This is what separates `CONFIRMED_MAILING_ADDRESS_CHANGE` (from a HIGH-trust
-source) from `LIKELY_MAILING_ADDRESS_CHANGE` (from a MEDIUM-trust source) in
-the final classification -- no source is ever assumed universally
-authoritative.
+`mailing_save_comparison` serializes by county and taxpayer/account key. A partial unique index permits only one open version-two comparison per key. Repeated scans refresh evidence without changing status, assignment, notes, reviewer, completion dates or reservations. Review rows are locked while updating evidence to avoid overwriting concurrent completion.
 
-## How detection runs today
+A fingerprint tracks address facts and completeness, excluding import/retrieval timestamps. An unchanged resolved comparison remains resolved. Changed facts after completion create a new event. A → B → A, including an intervening agreement, is tracked through comparison state rather than destination-address deduplication.
 
-`run_mailing_address_intelligence(jurisdiction_id, dry_run=False)`
-(`mailing_address_intelligence.py`) does the only thing there's real data
-for right now: for every Comptroller taxpayer with a mailing address, compare
-it against RenditionPilot's own most recent prior observation for that same
-`taxpayer_id` (mirroring New Business Detection's `first_seen_at`
-snapshot-comparison philosophy, not trusting any source's own "this changed"
-flag, since none exists). A material difference creates or updates a
-`mailing_address_change` item on the existing `bpp_intelligence_items` table;
-a non-material difference or first-ever sighting just records the
-observation and moves on.
+One open, linked legacy flag can be adopted in place, retaining its ID/source key, reservation, assignment and notes. Its original address evidence is copied into `evidence.legacy_snapshot` and retained on subsequent refreshes. Resolved/dismissed legacy flags are never converted or reset. Extra pre-existing legacy flags are not automatically dismissed; they remain explicitly labeled historical Comptroller observations. Unlinked legacy flags remain stored and excluded from the matched-account queue. The old history-only scanner no longer creates new flags.
 
-Candidates are de-duplicated by `taxpayer_id` before comparison, since the
-Comptroller dataset is location-row-granular but the mailing address field is
-taxpayer-level -- one taxpayer with five outlets must never generate five
-redundant comparisons.
+The shared queue unique index now includes jurisdiction. New mailing lookups, comparison state and RPCs are county-scoped. Existing non-mailing source keys and review behavior remain unchanged.
 
-## History (`mailing_address_observations`)
+The account matcher retains its existing confidence/name/ambiguity thresholds. Mailing addresses are never substitute situs evidence. Only active locations supply current account-link evidence. Candidate address lookups now paginate past server row caps and repeated annual rows; incomplete candidate sets must not appear unambiguous. Completed/new-comparison links are excluded from the older bulk legacy-link refresher.
 
-Append-only. A unique index on `(jurisdiction_id, account_identifier_type,
-account_identifier, source, normalized_full_address)` with
-`resolution=ignore-duplicates` upsert semantics means re-observing the same
-address is a cheap no-op, while a genuinely different address always inserts
-a new row -- full sequential history is preserved even though the V1 UI
-doesn't have a dedicated timeline view yet (a lightweight Mailing Address
-Lookup view per account is a possible next increment, not built this pass).
+## Durable run ledger
 
-`observed_at` (when RenditionPilot processed the source) and
-`source_effective_date` (the source's own as-of date, e.g. a rendition's
-signed date) are kept as separate columns -- RenditionPilot never invents an
-effective date a source doesn't actually supply. `source_effective_date` is
-`NULL` for every row today, since the only live source (Comptroller) doesn't
-supply one.
+`mailing_scan_runs` records county/district/source scope, start/heartbeat/end, RUNNING/SUCCESS/FAILED, taxpayers examined, observations added, flags created/refreshed, unlinked count, missing CRS count, incomplete source count and sanitized error categories. Successful zero-change/zero-record scans are recorded. Per-record failures allow remaining records to be examined, then mark the run FAILED and return a nonzero CLI result. Fatal fetch failures also finish the run as FAILED when the database is reachable.
 
-## Deduplication that doesn't suppress real sequential changes (spec items 19/20)
+Heartbeat counts are saved every 25 taxpayers. A two-hour expired heartbeat can be reclaimed on the next run; the prior run is marked FAILED. RPCs fence expired workers so they cannot later overwrite a newer run's evidence. A fresh RUNNING lease rejects another run. A process/database outage can leave RUNNING until the next run reclaims it; this is visible, not a false success. Database unavailability can prevent ledger writes entirely and must still be monitored through worker/cron logs.
 
-Intelligence-item dedup keys on `f"{taxpayer_id}:{observed_full_normalized}"`
--- not just the taxpayer. Re-processing the same source/address updates the
-existing item's evidence rather than creating a duplicate, but a **second,
-different** address change for the same taxpayer is a new dedup key and
-therefore its own new, independently auditable item. An earlier resolved
-alert never suppresses a later, genuinely different one.
+The existing mailing queue response exposes only the authenticated district's latest run. Its status/counters appear above the queue for ordinary BPP staff and admins. Run errors contain exception categories and hashed record keys, not recipient names, addresses or raw provider responses. Full-county runtime and queue volume still need staging/production verification; local fixtures do not establish operating performance.
 
-## Intelligence Queue integration
+## Read-only investigation of the 90 unlinked flags
 
-Routed through the exact same `bpp_intelligence_items` table as
-`new_business` and `sales_tax_inactive` -- no new review system.
-`RESOLUTION_OPTIONS_BY_SIGNAL_TYPE["mailing_address_change"]` is
-`ADDRESS_UPDATED`, `CURRENT_ADDRESS_CORRECT`, `SOURCE_OUTDATED`,
-`DUPLICATE_SIGNAL`, `ACCOUNT_MISMATCH`, `INSUFFICIENT_EVIDENCE`, `OTHER`.
+November 2 read-only inspection found **90 flags for 88 distinct taxpayers**. No links were written, thresholds lowered, or account assignments forced.
 
-**`ADDRESS_UPDATED` means a staff member recorded that outcome in
-RenditionPilot -- it does not mean RenditionPilot changed anything in the
-CAD system.** RenditionPilot never writes to an official CAD mailing
-address, ever, under any resolution.
+| Reason | Flags with original candidate lookup | Flags after local pagination fix, using read-only production inputs |
+|---|---:|---:|
+| No eligible situs/name candidate | 35 | 36 |
+| Strong names but missing required unit evidence | 10 | 10 |
+| Only partial name evidence | 4 | 4 |
+| Situs-only evidence without reliable names | 9 | 9 |
+| Ambiguous location match | 25 | 24 |
+| More than one reliably matched account | 5 | 5 |
+| No active permit location | 2 | 2 |
+| **Total** | **90** | **90** |
 
-The Intelligence detail view (`frontend/index.html`) shows a dedicated
-Mailing Address comparison panel for this signal type (Current on file / New
-Observation + source + detected date / component-level differences /
-classification + confidence / recommended action), rather than reusing the
-generic new-business three-panel layout, which references fields (matched
-owner name, property enrichment) that don't apply here.
+For multi-location taxpayers, the strongest blocker determines this aggregate category; it is not a count of individual locations. No eligible candidate is not proof no CRS account exists: source situs, account eligibility, current-year data and imported names/units can all limit coverage. Only actual matcher evidence was classified; correct recipient ownership was not independently verified.
 
-## Batch CLI
+Defects identified: historical/inactive locations were eligible inputs to the old mailing linker; detailed match reasons were discarded; candidate queries could silently stop at a database cap before collapsing annual rows; the bulk refresher could rewrite completed links. These paths are corrected locally. The five multi-account taxpayers genuinely had more than one distinct account, not merely duplicate property IDs for one account. Ambiguity and missing unit/name evidence remain intentional safeguards. Reconcile source fields or use the existing source-permit account review workflow after independent research; do not remove those safeguards to improve a match-rate metric.
 
-```bash
-python -m app.comptroller.cli mailing-address-scan --jurisdiction lubbock --dry-run
-python -m app.comptroller.cli mailing-address-scan --jurisdiction lubbock
-python -m app.comptroller.cli run-intelligence --jurisdiction lubbock   # dispatches here automatically once the capability is enabled
+The two extra flags beyond distinct taxpayers are pre-existing multiple history events. They are preserved. At most one new open comparison per taxpayer/account/county is allowed; the historical data is not rewritten to manufacture that guarantee retroactively.
+
+## Rollout and backfill — NOT executed
+
+1. Stop/pause the intelligence worker and any manual mailing scans. Confirm no old worker is still running: old code uses the removed destination-only observation conflict target and must not run after this migration. Take the normal backup.
+2. Apply `supabase/migrations/20261102_mailing_crs_comparisons.sql` using the migration owner. It adds mailing/provenance fields, comparison state, run ledger, county-scoped uniqueness, field-provenance trigger and service-only RPCs. No existing observations/reviews are deleted. Check schema/RPC discovery and retain current RLS/permissions. The migration is additive except replacement of the two dedup indexes.
+3. Deploy the prepared backend/frontend/worker code together while the old worker is stopped. Then refresh the client's assets. No new mail provider, postal API key, or external connector is required.
+4. Obtain an actual LCAD account export containing mailing fields. Use the existing preview/mapping screen, keep situs separate, check a sample of recipients/PO boxes/units/ZIPs and blank-clearing warnings, and enter the export's actual as-of date. No specific LCAD mailing column names were verified in this task. Existing configured LCAD mapping currently lacks mailing fields; they must be mapped from the real export.
+5. Import the reviewed export. Existing no-mailing imports remain valid. A new tax-year row is a separate account version: the code does not copy a prior year's mailing into an unsupplied new-year row. Review field-level dates when using partial updates. Wait for the existing match refresh to finish; it does not itself run this new comparison scan.
+6. In staging first, run `python -m app.comptroller.cli mailing-address-scan --jurisdiction lubbock --dry-run` and inspect discrepancy/missing/unlinked counts. Dry runs make **no** ledger, observation, queue or comparison-state writes. They do not predict exact insert counts. Then run the same command without `--dry-run` for the comparison backfill, with a current Comptroller cache. Importing alone does not complete backfill.
+7. Verify the run is SUCCESS (including zero-change success), sample both directions of disagreement, recipient/line-2/unit/ZIP handling, legacy adoption, and a missing-CRS item. Use a staff test account to verify reservation → outcome → Save & Next and admin/member county isolation. Complete one test review, rerun, and verify it is not reopened; refresh a CRS export and verify new facts are detected. Check the expected number of run/flag records and benchmark full-county runtime/memory before restoring the normal worker schedule.
+8. Existing `bpp-intelligence-daily`/`run-intelligence` wiring runs this implementation when `mailing_address_monitoring` is enabled. Do not create another scheduler. The migration, backfill, actual import mapping, full-county scan and deployed browser behavior remain unverified until these steps are performed.
+
+Rollback: stop the new worker first. Do not simply deploy old mailing code against the new chronology schema: the old `on_conflict` target no longer exists, and restoring destination-only uniqueness would destroy recurrent-address history. Prefer a forward fix or temporarily disable mailing monitoring while retaining the additive schema/data. Do not reset staff reviews.
+
+## Local verification
+
+Python regressions cover importer preservation and provenance, first comparison, unchanged source/new CRS, formatting, line 2, unit conflicts, malformed/incomplete data, A → B → A, resolved-review preservation, no forced links, zero-change/failing runs, authenticated-district run status and later loss of match confidence. Frontend tests cover evidence rendering/escaping and preserve the existing Save & Next/reservation suite.
+
+Disposable PostgreSQL tests exercise the actual migration/RPCs: monotonic transition history, county isolation, one open comparison, resolved states, legacy evidence adoption, source-provenance merge, zero-change ledger, expired leases and RPC permissions. Optional concurrent PostgreSQL tests prove simultaneous writes create one flag/observation. These are not a substitute for a Supabase/PostgREST staging test with the actual LCAD mailing export.
+
+To reproduce SQL checks on a **new local disposable database only**, create the Supabase roles locally if absent, then:
+
+```sh
+createdb -h /tmp rp_mailing_phase1_test_local
+psql -h /tmp -d rp_mailing_phase1_test_local -v ON_ERROR_STOP=1 -f tests/sql/mailing_phase1_fixture.sql
+psql -h /tmp -d rp_mailing_phase1_test_local -v ON_ERROR_STOP=1 -f supabase/migrations/20261102_mailing_crs_comparisons.sql
+psql -h /tmp -d rp_mailing_phase1_test_local -v ON_ERROR_STOP=1 -f tests/sql/mailing_phase1.sql
+MAILING_TEST_DATABASE=rp_mailing_phase1_test_local python -m pytest -q tests/test_mailing_sql_concurrency.py
+python -m pytest -q
+node --test tests/frontend/*.test.cjs
 ```
 
-`--dry-run` writes nothing (no observation rows, no intelligence items) and
-reports every bucket: accounts evaluated, same-address, format-only,
-likely-change, insufficient-data, and duplicates suppressed. Scoped by
-jurisdiction and using indexed lookups against already-paginated Comptroller
-data -- no N-by-full-table-scan, so this scales the same way
-`detect-new-business` already does across thousands of permits per county.
-
-## Configuration
-
-New jurisdiction capability: `mailing_address_monitoring` (jsonb key on
-`jurisdictions.capabilities`; already present, seeded `false`, unused until
-this feature). Requires `comptroller_county_code`, same as every other
-Comptroller-dependent capability. **Disabled for every jurisdiction by
-default, including Lubbock** -- turning it on is a deliberate config change,
-not a side effect of this migration.
-
-A county without a reliable external mailing source can still eventually use
-rendition-driven comparison once OCR extraction exists; a county with no
-current CAD mailing address at all correctly reports `NOT_READY`/`BLOCKED` in
-the readiness diagnostic rather than manufacturing intelligence from
-incomplete inputs.
-
-## Safety
-
-May: read Comptroller data, normalize, compare, store observations, create
-`bpp_intelligence_items` rows, store human review outcomes (reviewer,
-timestamp, resolution, notes).
-
-May never: modify an official CAD mailing address, ownership, status, situs
-address, or any other property record; auto-mark any address authoritative;
-auto-resolve conflicting evidence; create an official CAD account. Every
-output is a review recommendation -- enforced architecturally by which
-tables this module ever writes to (`mailing_address_observations` and
-`bpp_intelligence_items` only), not by a runtime check.
-
-## Requires
-
-`supabase/migrations/20260827_mailing_address_intelligence.sql` applied --
-**not yet applied to production as of this writing.**
-
-## Known limitations
-
-- **Rendition-driven comparison has no real data path yet** -- OCR doesn't
-  extract a mailing address. The orchestration module and comparison engine
-  both already support `account_identifier_type="bpp_account"` for this
-  exact future case; nothing calls it automatically today, and no hook was
-  added to `backend/main.py`'s rendition-lock path (deliberately -- adding
-  OCR extraction is a production-pipeline change that deserves its own pass
-  with real rendition PDFs to validate against, not a rider on this one).
-- **No real production data exists for this feature yet.** `mailing_address`
-  and friends on `comptroller_permit_locations` stay `NULL` until a fresh
-  `python -m app.comptroller.cli sync` runs after this migration is applied.
-  The very first `mailing-address-scan` run for any jurisdiction will
-  establish a baseline and report zero changes, by construction -- there is
-  nothing to compare against yet.
-- **Only one external source exists** (Texas Comptroller, MEDIUM trust). No
-  returned-mail/undeliverable feed, no county-clerk DBA/assumed-name data, no
-  manual-import tool -- all listed as `NOT_CONFIGURED` in the readiness
-  diagnostic rather than silently absent.
-- No dedicated Mailing Address Lookup/history UI exists yet -- history is
-  captured in `mailing_address_observations` and preserved, but the only way
-  to see it today is the Intelligence Queue item itself (Current vs.
-  Observed) or a direct query.
+Correction exports, returned envelopes/reasons/forwarding, re-mailing, automatic CRS updates, postal-provider validation and broader government-office generalization are not implemented in this phase.
