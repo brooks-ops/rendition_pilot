@@ -1,0 +1,42 @@
+begin;
+do $$
+declare d uuid:=gen_random_uuid();j uuid:=gen_random_uuid();other_d uuid:=gen_random_uuid();other_j uuid:=gen_random_uuid();
+ admin uuid:=gen_random_uuid();a uuid:=gen_random_uuid();b uuid:=gen_random_uuid();roster jsonb;owner uuid;target uuid;item uuid;claim jsonb;n integer;events integer;
+begin
+ insert into districts(id,name,slug) values(d,'Assignment test','assign-'||d),(other_d,'Other assignment test','assign-'||other_d);
+ insert into jurisdictions(id,district_id,name,slug,county_name) values(j,d,'Assignment test','assign-'||j,'Lubbock'),(other_j,other_d,'Other assignment test','assign-'||other_j,'Dallam');
+ insert into district_users(district_id,user_id,email,role) values(d,admin,'admin@example.invalid','admin'),(d,a,'a@example.invalid','appraiser'),(d,b,'b@example.invalid','appraiser');
+ roster:=jsonb_build_array(jsonb_build_object('id',admin),jsonb_build_object('id',a),jsonb_build_object('id',b));
+ insert into bpp_intelligence_items(jurisdiction_id,district_id,signal_type,source,source_record_id,classification,matched_account_number)
+ select j,d,'new_business','allocation_test',g::text,'TEST','P'||g from generate_series(1,9) g;
+ insert into bpp_intelligence_items(jurisdiction_id,district_id,signal_type,source,source_record_id,classification,matched_account_number) values(other_j,other_d,'new_business','allocation_test','other','TEST','P1');
+ n:=bpp_configure_assignments(d,admin,true,roster);
+ if n<>9 then raise exception 'Expected 9 allocations, got %',n;end if;
+ if exists(select 1 from bpp_intelligence_items where district_id=d group by assigned_to having count(*)<>3) then raise exception 'Uneven initial workload';end if;
+ if not exists(select 1 from bpp_intelligence_items where district_id=d and assigned_to=admin) then raise exception 'Admin excluded';end if;
+ if exists(select 1 from bpp_intelligence_items where district_id=other_d and assigned_to is not null) then raise exception 'Cross district assignment';end if;
+ select count(*) into events from bpp_assignment_events where district_id=d;
+ if bpp_balance_pending(d)<>0 or (select count(*) from bpp_assignment_events where district_id=d)<>events then raise exception 'Rerun changed saved assignments';end if;
+ select id,assigned_to into item,owner from bpp_intelligence_items where district_id=d and matched_account_number='P1';target:=case when owner=a then b else a end;
+ claim:=bpp_claim_work(d,'account:P1',target,'other@example.invalid','bpp_intelligence_items',item::text);
+ if coalesce((claim->>'assignment_only')::boolean,false) is not true then raise exception 'Another assignee can claim work';end if;
+ claim:=bpp_claim_work(d,'account:P1',owner,'owner@example.invalid','bpp_intelligence_items',item::text);
+ if (claim->>'actor_id')::uuid<>owner then raise exception 'Assigned owner cannot claim';end if;
+ insert into comptroller_closure_reviews(district_id,matched_account_number) values(d,'P1');
+ if (select assigned_to from comptroller_closure_reviews where district_id=d and matched_account_number='P1') is distinct from owner then raise exception 'Related signal split across appraisers';end if;
+ begin perform bpp_reassign_account(d,admin,'account:P1',target);raise exception 'Expected reservation guard';exception when raise_exception then if sqlerrm<>'Started work must be finished or released before reassignment' then raise;end if;end;
+ select id,assigned_to into item,owner from bpp_intelligence_items where district_id=d and matched_account_number='P2';
+ update bpp_intelligence_items set status='RESOLVED' where id=item;
+ perform bpp_balance_pending(d);
+ if (select assigned_to from bpp_intelligence_items where id=item) is distinct from owner then raise exception 'Completed history reassigned';end if;
+ select assigned_to into owner from bpp_intelligence_items where district_id=d and matched_account_number='P3';target:=case when owner=a then b else a end;
+ n:=bpp_reassign_account(d,admin,'account:P3',target);
+ if n<>1 or not exists(select 1 from bpp_assignment_events where district_id=d and actor_id=admin and previous_assignee=owner and assigned_to=target) then raise exception 'Admin reassignment audit missing';end if;
+ begin perform bpp_configure_assignments(d,a,true,roster);raise exception 'Expected admin guard';exception when raise_exception then if sqlerrm<>'District admin required' then raise;end if;end;
+ perform bpp_configure_assignments(d,admin,false,roster);
+ insert into bpp_intelligence_items(jurisdiction_id,district_id,signal_type,source,source_record_id,classification,matched_account_number) values(j,d,'new_business','allocation_test','paused','TEST','P999');
+ if exists(select 1 from bpp_intelligence_items where district_id=d and source_record_id='paused' and assigned_to is not null) then raise exception 'Pause ignored';end if;
+ if has_table_privilege('authenticated','bpp_assignment_settings','SELECT') or has_function_privilege('authenticated','bpp_reassign_account(uuid,uuid,text,uuid)','EXECUTE') then raise exception 'Direct browser access allowed';end if;
+ raise notice 'Allocation checks passed: equal loads, admins, account grouping, claims, preserved history, audit, pause, district isolation and permissions';
+end $$;
+rollback;

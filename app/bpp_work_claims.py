@@ -35,6 +35,8 @@ def view(claim, context):
 def claim(context,item):
     row=request('POST','rpc/bpp_claim_work',json_payload={'p_district_id':context.district_id,'p_work_key':work_key(item),
         'p_actor_id':context.user_id,'p_actor_email':context.email,'p_source_table':item.source_table,'p_item_id':item.id})
+    if row and row.get('assignment_only'):
+        raise WorkConflict('This account is assigned to '+str(row.get('actor_email') or 'another appraiser')+'. Choose My work or ask an admin to reassign it.')
     if not row or row['actor_id']!=context.user_id:
         raise WorkConflict('This account is being worked by '+str((row or {}).get('actor_email') or 'another appraiser')+'. Choose another account or ask them to release it.')
     return row

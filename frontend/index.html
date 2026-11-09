@@ -229,7 +229,7 @@
     }
   </style>
   <link rel="stylesheet" href="/frontend/rendition-theme.css?v=20261024-beige">
-  <link rel="stylesheet" href="/frontend/bpp-workspace.css?v=20261109-returned-mail-source">
+  <link rel="stylesheet" href="/frontend/bpp-workspace.css?v=20261109-work-assignments">
 </head>
 <body>
   <div id="bpp-shell" class="bpp-shell">
@@ -694,7 +694,12 @@
             <div class="button-row"><button type="button" id="card-batch-refresh">Load my completed cards</button><button type="button" class="secondary" id="card-batch-all">Select unprinted</button><button type="button" class="secondary" id="card-batch-none">Clear selection</button><button type="button" id="card-batch-print" disabled>Print selected / save PDF (0)</button></div>
             <div class="account-card-grid"><div class="field hidden" id="card-batch-appraiser-field"><label for="card-batch-appraiser">Appraiser</label><select id="card-batch-appraiser"><option value="">All appraisers</option></select></div><div class="field"><label for="card-batch-print-status">Print status</label><select id="card-batch-print-status"><option value="all">All cards</option><option value="unprinted">Not printed</option><option value="printed">Printed / PDF saved</option></select></div></div><div id="card-batch-status" class="status" role="status"></div><div id="card-batch-list"></div><button type="button" class="secondary hidden" id="card-batch-more">Load more</button>
           </details>
-          <div id="intel-county-status" class="subtle hidden" style="margin-bottom:12px;"></div>
+          <details class="intel-support" id="intel-assignment-panel"><summary>Work assignments</summary>
+ <p id="intel-assignment-status" class="subtle">Loading work allocation…</p>
+ <div id="intel-assignment-totals" class="subtle"></div>
+ <button id="intel-assignment-toggle" type="button" class="secondary hidden">Enable automatic assignment</button>
+ <p class="subtle">Balanced by open accounts across BPP Intelligence and Mailing, including admins. Related reviews stay together. Started work and completed reviews are preserved.</p></details>
+ <div id="intel-county-status" class="subtle hidden" style="margin-bottom:12px;"></div>
           <div class="bpp-stats" style="margin-bottom:25px;">
             <div class="field"><label>New</label><div id="intel-summary-new" class="bpp-stat-value">-</div></div>
             <div class="field"><label>High Priority</label><div id="intel-summary-high" class="bpp-stat-value">-</div></div>
@@ -713,7 +718,8 @@
                 <option value="county_clerk_dba">County Clerk DBA</option>
               </select>
             </div>
-            <div class="field">
+            <div class="field"><label for="intel-filter-assignee">Appraiser</label><select id="intel-filter-assignee"><option value="">All appraisers</option><option value="ME">My work</option><option value="UNASSIGNED">Unassigned</option></select></div>
+ <div class="field">
               <label for="intel-filter-status">Status</label>
               <select id="intel-filter-status">
                 <option value="">All</option>
@@ -769,7 +775,12 @@
         <section class="card">
           <h3>Mailing Address Intelligence</h3>
           <div class="subtle" style="margin-bottom:12px;">Compare imported CRS mailing data with Comptroller records for reliably matched accounts. Discrepancies require research; neither source is presumed correct. Completing a review never changes CRS.</div>
-          <details class="intel-support"><summary>Import returned-mail folders</summary><div>
+          <details class="intel-support" id="mailing-assignment-panel"><summary>Work assignments</summary>
+ <p id="mailing-assignment-status" class="subtle">Loading work allocation…</p>
+ <div id="mailing-assignment-totals" class="subtle"></div>
+ <button id="mailing-assignment-toggle" type="button" class="secondary hidden">Enable automatic assignment</button>
+ <p class="subtle">Balanced by open accounts across BPP Intelligence and Mailing, including admins. Related reviews stay together. Started work and completed reviews are preserved.</p></details>
+ <details class="intel-support"><summary>Import returned-mail folders</summary><div>
             <p>Choose your Returned Mail folder, or an individual account-number folder. Each PDF should contain both sides of one envelope; JPEG and PNG scans are also accepted. Original files stay in your folders.</p>
             <input id="returned-folder" type="file" webkitdirectory directory multiple accept=".pdf,.png,.jpg,.jpeg" aria-label="Returned-mail account folders">
             <button id="returned-import" type="button">Import scanned folders</button>
@@ -784,7 +795,8 @@
           </div>
           <div class="button-row" role="group" aria-label="Mailing Address folders" style="margin-bottom:14px"><button type="button" data-queue="mailing" data-folder="active" aria-pressed="true">Active</button><button type="button" data-queue="mailing" data-folder="resolved" aria-pressed="false" class="secondary">Resolved folder</button></div><p id="mailing-folder-note" class="subtle">Active accounts awaiting review. Completed and dismissed reviews are in the Resolved folder.</p>
           <div class="layout-3" style="margin-bottom:12px;">
-            <div class="field">
+            <div class="field"><label for="mailing-filter-assignee">Appraiser</label><select id="mailing-filter-assignee"><option value="">All appraisers</option><option value="ME">My work</option><option value="UNASSIGNED">Unassigned</option></select></div>
+ <div class="field">
               <label for="mailing-filter-status">Status</label>
               <select id="mailing-filter-status">
                 <option value="">All</option>
@@ -2548,8 +2560,51 @@
       finally{completedCards.loading=false;['card-batch-appraiser','card-batch-print-status'].forEach(id=>$(id).disabled=false);renderCompletedCards();}
     }
 
+    const assignmentState={owner:null,data:null,promise:null,at:0};
+    async function loadAssignmentControls(force=false){
+      const owner=RenditionSession.identity();
+      if(assignmentState.owner!==owner){Object.assign(assignmentState,{owner,data:null,promise:null,at:0});}
+      if(!force&&assignmentState.data&&Date.now()-assignmentState.at<60000)return;
+      if(assignmentState.promise)return assignmentState.promise;
+      assignmentState.promise=(async()=>{
+        try{
+          const data=await fetchJson('/api/admin/intelligence/assignments/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token})});
+          if(owner!==RenditionSession.identity())return;
+          assignmentState.data=data;assignmentState.at=Date.now();
+          ['intel','mailing'].forEach(prefix=>{
+            $(prefix+'-assignment-status').textContent=data.enabled?'Automatic assignment is on. '+data.unassigned_accounts+' accounts await assignment.':'Automatic assignment is off. Existing assignments are retained.';
+            $(prefix+'-assignment-totals').textContent=(data.appraisers||[]).map(p=>p.label+': '+p.open_accounts+' open accounts').join(' · ')+(data.unavailable_assignee_accounts?' · '+data.unavailable_assignee_accounts+' accounts assigned to unavailable users; admin review needed.':'');
+            const button=$(prefix+'-assignment-toggle');button.classList.toggle('hidden',appState.auth.district?.role!=='admin');button.textContent=data.enabled?'Pause automatic assignment':'Enable automatic assignment';
+            const select=$(prefix+'-filter-assignee'),value=select.value;
+            select.innerHTML='<option value="">All appraisers</option><option value="ME">My work</option><option value="UNASSIGNED">Unassigned</option>'+(data.appraisers||[]).map(p=>`<option value="${cadHtml(p.id)}">${cadHtml(p.label)}</option>`).join('');select.value=value;
+          });
+        }catch(error){['intel','mailing'].forEach(prefix=>$(prefix+'-assignment-status').textContent='Assignment status unavailable. Existing work is still accessible.');}
+        finally{if(owner===assignmentState.owner)assignmentState.promise=null;}
+      })();
+      return assignmentState.promise;
+    }
+    async function toggleAssignments(){
+      const enabled=!assignmentState.data?.enabled;
+      await fetchJson('/api/admin/intelligence/assignments/configure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,enabled})});
+      await loadAssignmentControls(true);await refreshIntelligenceQueue();await refreshMailingQueue();
+      showFlash(enabled?'Automatic assignment enabled for current and future work.':'Automatic assignment paused. Saved assignments retained.','success');
+    }
+    function renderAssignmentTools(item){
+      const box=$('intel-assignment-tools');if(!box)return;
+      const people=assignmentState.data?.appraisers||[];
+      if(appState.auth.district?.role!=='admin'||['RESOLVED','DISMISSED'].includes(item.status)||item.work_claim||!people.length)return;
+      box.innerHTML='<label for="intel-assign-user">Assign account to</label><select id="intel-assign-user">'+people.map(p=>`<option value="${cadHtml(p.id)}">${cadHtml(p.label)}</option>`).join('')+'</select><button type="button" class="secondary" id="intel-assign-save">Assign</button>';
+      $('intel-assign-user').value=item.assigned_to||item.raw?.assigned_to||people[0].id;
+      $('intel-assign-save').onclick=async()=>{
+        try{
+          await fetchJson('/api/admin/intelligence/assignments/reassign',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:appState.auth.access_token,item_id:item.id,source_table:item.source_table,appraiser_id:$('intel-assign-user').value})});
+          await refreshIntelligenceQueue();await refreshMailingQueue();closeIntelligenceDetail();showFlash('Account assignment saved.','success');
+        }catch(error){showFlash(error.message,'error');}
+      };
+    }
+
     let queuePreferenceOwner=null;
-    const queueFilterIds=['intel-filter-signal','intel-filter-status','intel-filter-confidence','intel-filter-city','mailing-filter-status','mailing-filter-confidence'];
+    const queueFilterIds=['intel-filter-signal','intel-filter-status','intel-filter-confidence','intel-filter-city','mailing-filter-status','mailing-filter-confidence','intel-filter-assignee','mailing-filter-assignee'];
     function ensureQueuePreferences(){
       const owner=RenditionSession.identity();if(owner===queuePreferenceOwner)return;queuePreferenceOwner=owner;
       let saved={};try{saved=JSON.parse(localStorage.getItem('bpp-queue-preferences:'+owner)||'{}');}catch{}
@@ -2565,7 +2620,7 @@
     function nextReview(items,current,previous){
       const index=previous.findIndex(i=>i.id===current.id&&i.source_table===current.source_table);
       const order=[...previous.slice(index+1),...previous.slice(0,index)];
-      return [...order,...items].map(candidate=>items.find(i=>i.id===candidate.id&&i.source_table===candidate.source_table)).find(i=>i&&!(i.id===current.id&&i.source_table===current.source_table)&&!['RESOLVED','DISMISSED'].includes(i.status)&&(!i.work_claim||i.work_claim.mine));
+      return [...order,...items].map(candidate=>items.find(i=>i.id===candidate.id&&i.source_table===candidate.source_table)).find(i=>i&&!(i.id===current.id&&i.source_table===current.source_table)&&!['RESOLVED','DISMISSED'].includes(i.status)&&(!i.work_claim||i.work_claim.mine)&&(!i.raw?.assigned_to||i.raw.assigned_to===(appState.auth?.user?.id||appState.auth?.district?.user_id)));
     }
     const queueFolders={intel:'active',mailing:'active'};
     const queueRequests={intel:0,mailing:0};
@@ -2578,13 +2633,14 @@
     }
     async function refreshIntelligenceQueue() {
       if (!canUseBpp()) return;
-      ensureQueuePreferences();saveQueuePreferences();
+      ensureQueuePreferences();await loadAssignmentControls();saveQueuePreferences();
       const request=++queueRequests.intel;
       const payload = { access_token: appState.auth.access_token, folder:queueFolders.intel };
       const signal = $("intel-filter-signal").value;
       const status = $("intel-filter-status").value;
       const confidence = $("intel-filter-confidence").value;
       const city = $("intel-filter-city").value.trim();
+      if ($("intel-filter-assignee").value) payload.assigned_to=$("intel-filter-assignee").value;
       if (signal) payload.signal_type = signal;
       if (status) payload.status = status;
       if (confidence) payload.confidence = confidence;
@@ -2609,9 +2665,10 @@
 
     async function refreshMailingQueue() {
       if (!canUseBpp()) return;
-      ensureQueuePreferences();saveQueuePreferences();
+      ensureQueuePreferences();await loadAssignmentControls();saveQueuePreferences();
       const request=++queueRequests.mailing;
       const payload = { access_token: appState.auth.access_token, signal_type: "mailing_address_change", folder:queueFolders.mailing };
+      if ($("mailing-filter-assignee").value) payload.assigned_to=$("mailing-filter-assignee").value;
       const status = $("mailing-filter-status").value;
       const confidence = $("mailing-filter-confidence").value;
       if (status) payload.status = status;
@@ -2669,7 +2726,7 @@
           <td>${cadHtml(address || "Address unavailable")}${mailing ? (returnedMail ? '<div class="subtle">Imported CRS mailing · See original scan in review</div>' : `<div class="subtle">${item.raw?.evidence?.comparison_version === 2 ? "Imported CRS" : "Legacy source observation"}: ${cadHtml(item.mailing_address_current || "No CRS mailing data")}</div>`) : ""}</td>
           <td><strong>${cadHtml(item.matched_account_number || (item.is_ambiguous ? "Multiple possible accounts" : "No account identified"))}</strong><div class="subtle">${cadHtml(item.matched_owner_name || "")} ${item.confidence ? `· ${cadHtml(item.confidence)}` : ""}</div></td>
           <td><span class="bpp-priority ${item.priority === "HIGH" ? "high" : item.priority === "MEDIUM" ? "medium" : "low"}">${cadHtml(item.priority)}</span><div class="subtle">${cadHtml(item.priority_reason || item.match_reason || "")}</div></td>
-          <td><span class="bpp-status">${cadHtml(item.status)}</span>${["RESOLVED","DISMISSED"].includes(item.status)?`<div class="subtle">${cadHtml(intelResolutionLabel(item.resolution||item.status))}<br>Completed ${cadHtml(cadDate(item.reviewed_at))}<br>By ${cadHtml(item.reviewer_label||item.reviewed_by||"Not recorded")}</div>`:""}<div class="bpp-work-badge" data-work-key="${cadHtml(intelWorkKey(item))}" data-work-item="${cadHtml(`item:${item.source_table}:${item.id}`)}">${cadHtml(intelWorkLabel(item.work_claim))}</div></td></tr>`;
+          <td><div class="bpp-assignee-label">Assigned: ${cadHtml(item.assignee_label || (item.raw?.assigned_to ? "Unavailable appraiser" : "Unassigned"))}</div><span class="bpp-status">${cadHtml(item.status)}</span>${["RESOLVED","DISMISSED"].includes(item.status)?`<div class="subtle">${cadHtml(intelResolutionLabel(item.resolution||item.status))}<br>Completed ${cadHtml(cadDate(item.reviewed_at))}<br>By ${cadHtml(item.reviewer_label||item.reviewed_by||"Not recorded")}</div>`:""}<div class="bpp-work-badge" data-work-key="${cadHtml(intelWorkKey(item))}" data-work-item="${cadHtml(`item:${item.source_table}:${item.id}`)}">${cadHtml(intelWorkLabel(item.work_claim))}</div></td></tr>`;
       }).join("")}</tbody></table></div>`;
     }
 
@@ -2730,7 +2787,7 @@
       const account = item.matched_account_number || (item.is_ambiguous ? "Match needs review" : "No matched account");
       const address = [item.source_address,item.source_city,item.source_state,item.source_zip].filter(Boolean).join(", ");
       const signals = item.match_signals || {};
-      return `${returnedMailBadgeHtml(item)}<section class="intel-account-summary"><div><div class="small-label">CAD account</div><strong class="intel-account-number">${cadHtml(account)}</strong><div>${cadHtml(item.matched_owner_name || item.legal_name || "Owner not provided")}</div></div>
+      return `${returnedMailBadgeHtml(item)}<p class="bpp-assignee-label">Assigned: ${cadHtml(item.assignee_label || (item.raw?.assigned_to ? "Unavailable appraiser" : "Unassigned"))}</p><div id="intel-assignment-tools"></div><section class="intel-account-summary"><div><div class="small-label">CAD account</div><strong class="intel-account-number">${cadHtml(account)}</strong><div>${cadHtml(item.matched_owner_name || item.legal_name || "Owner not provided")}</div></div>
         <div><div class="small-label">Sales tax ID</div><strong>${cadHtml(item.sales_tax_id || "Not provided")}</strong>${item.sales_tax_location_number ? `<div class="subtle">Location ${cadHtml(item.sales_tax_location_number)}</div>` : ""}</div>
         ${item.matched_account_number ? '<button id="intel-copy-account" type="button" class="secondary">Copy account #</button>' : ""}</section>
         ${mailing ? mailingComparisonHtml(item) : `<div class="intel-business-address"><div class="small-label">Business address</div>${cadHtml(address || "Not provided")}</div>`}
@@ -2756,6 +2813,7 @@
       ['intel-save-next','intel-action-resolve','intel-action-dismiss','intel-resolution','intel-resolution-notes'].forEach(id=>$(id).disabled=!mine||closed||appState.intelligence.saving);
       $('intel-reopen').classList.toggle('hidden',!closed);$('intel-reopen').disabled=appState.intelligence.saving;
       $('intel-save-next').classList.toggle('hidden',closed);
+      const assignmentTools=$('intel-assignment-tools');if(assignmentTools)assignmentTools.inert=!!claim||closed||appState.intelligence.saving;
       BppAccountCard.access();ReturnedMail.access();
       $('cad-review-panel').classList.toggle('intel-readonly',!mine||closed);$('cad-review-panel').inert=!mine||closed;
     }
@@ -2784,7 +2842,7 @@
       const mailing = item.signal_type === "mailing_address_change";
       $("intel-detail-title").textContent = item.business_name || item.legal_name || "Account review";
       $("intel-detail-kind").textContent = mailing ? "Mailing address change" : item.signal_type === "sales_tax_inactive" ? "Sales tax inactive" : item.signal_type === "county_clerk_dba" ? "County Clerk DBA" : "Business intelligence";
-      $("intel-detail-body").innerHTML = intelligenceMainDetailsHtml(item);
+      $("intel-detail-body").innerHTML = intelligenceMainDetailsHtml(item);renderAssignmentTools(item);
       $("intel-next-step").textContent = item.signal_type === "county_clerk_dba" ? "Verify the filing and account match, then mark as complete. A filing or abandonment alone does not prove opening or closure." : mailing ? "Research the discrepancy and verify the intended recipient. If a correction is independently confirmed, make it in CAD and record the outcome here." : item.signal_type === "sales_tax_inactive" ? "Verify whether this business is still operating and record the account review outcome." : "Check the account match and determine whether an existing or new account is needed.";
       const copy = $("intel-copy-account");
       if (copy) copy.addEventListener("click", async () => { try { await navigator.clipboard.writeText(item.matched_account_number); copy.textContent="Copied"; } catch { copy.textContent="Select the account number above to copy"; } });
@@ -3289,12 +3347,13 @@
 
       ['intel','mailing'].forEach(prefix=>setQueueFolder(prefix,'active'));
       document.querySelectorAll('[data-queue][data-folder]').forEach(button=>button.addEventListener('click',()=>{setQueueFolder(button.dataset.queue,button.dataset.folder);(button.dataset.queue==='intel'?refreshIntelligenceQueue():refreshMailingQueue()).catch(error=>showFlash(error.message,'error'));}));
+      ['intel','mailing'].forEach(prefix=>$(prefix+'-assignment-toggle').addEventListener('click',()=>toggleAssignments().catch(error=>showFlash(error.message,'error'))));
       $("intel-refresh").addEventListener("click", () => { refreshIntelligenceQueue().catch((error) => showFlash(error.message, "error")); });
-      ["intel-filter-signal", "intel-filter-status", "intel-filter-confidence"].forEach((id) => {
+      ["intel-filter-signal", "intel-filter-status", "intel-filter-confidence", "intel-filter-assignee"].forEach((id) => {
         $(id).addEventListener("change", () => { refreshIntelligenceQueue().catch((error) => showFlash(error.message, "error")); });
       });
       $("mailing-refresh").addEventListener("click", () => { refreshMailingQueue().catch((error) => showFlash(error.message, "error")); });
-      ["mailing-filter-status", "mailing-filter-confidence"].forEach((id) => {
+      ["mailing-filter-status", "mailing-filter-confidence", "mailing-filter-assignee"].forEach((id) => {
         $(id).addEventListener("change", () => { refreshMailingQueue().catch((error) => showFlash(error.message, "error")); });
       });
       $("intel-detail-close").addEventListener("click", closeIntelligenceDetail);

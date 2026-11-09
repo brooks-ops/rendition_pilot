@@ -178,7 +178,7 @@ class SecurityMiddleware:
                     demo_reads = {
                         '/api/auth/restore','/api/auth/logout','/api/auth/refresh',
                         '/api/district/users','/api/admin/intelligence/summary','/api/admin/intelligence/queue',
-                        '/api/admin/intelligence/item','/api/admin/intelligence/work-status',
+                        '/api/admin/intelligence/item','/api/admin/intelligence/work-status','/api/admin/intelligence/assignments/status',
                         '/api/admin/intelligence/cad-candidates','/api/admin/intelligence/cad-health',
                         '/api/admin/intelligence/account-card','/api/admin/intelligence/account-cards/completed',
                         '/api/admin/property/lookup','/api/admin/activity',

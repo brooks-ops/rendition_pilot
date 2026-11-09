@@ -1,5 +1,5 @@
 from __future__ import annotations
-from app import bpp_work_claims
+from app import bpp_work_claims, bpp_assignments
 from app.login_aliases import resolve_login_identifier, DEMO_AUTH_EMAIL, DEMO_DISTRICT_ID
 from app import security
 from app.password_policy import validate_password
@@ -2368,6 +2368,34 @@ def returned_mail_review(request: ReturnedMailReviewRequest):
         raise HTTPException(409,'The review could not be saved. Reload the scans and check your account reservation before retrying.') from exc
 
 
+class AssignmentConfigureRequest(SessionRequest):
+    enabled: bool
+
+class AssignmentReassignRequest(IntelligenceItemRequest):
+    appraiser_id: UUID
+
+@app.post('/api/admin/intelligence/assignments/status')
+def intelligence_assignment_status(request: SessionRequest):
+    district=require_bpp_access(request.access_token)
+    try:return bpp_assignments.status(district)
+    except (ComptrollerServiceError,requests.RequestException) as exc:raise HTTPException(503,'Workload totals could not be loaded. Existing assignments remain saved.') from exc
+
+@app.post('/api/admin/intelligence/assignments/configure')
+def intelligence_assignment_configure(request: AssignmentConfigureRequest):
+    district=require_district_admin(request.access_token)
+    require_access(district,'bpp')
+    try:return bpp_assignments.configure(district,request.enabled)
+    except (ComptrollerServiceError,ValueError) as exc:raise HTTPException(409,'Automatic assignment could not be configured. Check that current BPP users are available.') from exc
+
+@app.post('/api/admin/intelligence/assignments/reassign')
+def intelligence_assignment_reassign(request: AssignmentReassignRequest):
+    district=require_district_admin(request.access_token)
+    require_access(district,'bpp')
+    item=_require_own_district_item(district,request.source_table,request.item_id)
+    try:return {'updated_items':bpp_assignments.reassign(district,item,str(request.appraiser_id))}
+    except (ComptrollerServiceError,ValueError) as exc:raise HTTPException(409,'Reassignment failed. Started or reserved work must be finished or released first; select a current BPP appraiser.') from exc
+
+
 @app.post("/api/admin/intelligence/summary")
 def intelligence_summary(request: ComptrollerStatusRequest) -> dict[str, Any]:
     district = require_bpp_access(request.access_token)
@@ -2388,7 +2416,7 @@ def intelligence_queue(request: IntelligenceQueueRequest) -> dict[str, Any]:
             status=request.status,
             confidence=request.confidence,
             city=request.city,
-            **{key:value for key,value in {"filing_from":request.filing_from.isoformat() if request.filing_from else None,"filing_to":request.filing_to.isoformat() if request.filing_to else None,"filing_type":request.filing_type,"assigned_to":request.assigned_to}.items() if value},
+            **{key:value for key,value in {"filing_from":request.filing_from.isoformat() if request.filing_from else None,"filing_to":request.filing_to.isoformat() if request.filing_to else None,"filing_type":request.filing_type,"assigned_to":district.user_id if request.assigned_to=="ME" else request.assigned_to}.items() if value},
         )
     except ComptrollerServiceError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -2396,7 +2424,7 @@ def intelligence_queue(request: IntelligenceQueueRequest) -> dict[str, Any]:
     counts={"active":sum(i.status not in ("RESOLVED","DISMISSED") for i in items),"resolved":summary['resolved']}
     items=comptroller_intelligence.queue_folder(items,request.folder)
     labels=comptroller_intelligence.reviewer_labels(district.district_id,items)
-    rows=[{**asdict(item),'reviewer_label':labels.get(item.reviewed_by)} for item in items]
+    rows=[{**asdict(item),'reviewer_label':labels.get(item.reviewed_by),'assigned_to':item.raw.get('assigned_to'),'assignee_label':labels.get(item.raw.get('assigned_to'))} for item in items]
     response = {"items": to_jsonable(bpp_work_claims.attach(rows,district)),"summary":summary,"folder_counts":counts}
     if request.signal_type == "mailing_address_change":
         from app.comptroller.mailing_comparisons import latest_run

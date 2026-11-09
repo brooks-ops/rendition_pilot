@@ -298,7 +298,7 @@ def _fetch_closure_reviews(district_id: str) -> list[dict[str, Any]]:
 
 
 def reviewer_labels(district_id, items):
-    ids={i.reviewed_by for i in items if i.reviewed_by}
+    ids={value for i in items for value in (i.reviewed_by,i.raw.get('assigned_to')) if value}
     if not ids:return {}
     try:
         url,key=get_supabase_config()

@@ -23,11 +23,19 @@ test('filter preferences are scoped per user and district and survive storage fa
 test('intelligence totals follow signal and filters from the same queue response',async()=>{
  const els={};const el=id=>els[id]??=( {value:'',textContent:'',classList:{toggle(){},remove(){}}});
  el('intel-filter-signal').value='sales_tax_inactive';el('intel-filter-confidence').value='HIGH';el('intel-filter-city').value='LUBBOCK';
- const requests=[];const ctx={$:el,canUseBpp:()=>true,ensureQueuePreferences(){},saveQueuePreferences(){},queueRequests:{intel:0},queueFolders:{intel:'active'},appState:{auth:{access_token:'test'},intelligence:{}},renderFolderCounts(){},renderIntelligenceQueue(){},refreshCadHealth(){},fetchJson:async(path,options)=>{requests.push({path,payload:JSON.parse(options.body)});return path.endsWith('/queue')?{items:[],summary:{new:7,high_priority:3,needs_review:1,resolved:9}}:{configured:false};}};
+ const requests=[];const ctx={$:el,canUseBpp:()=>true,ensureQueuePreferences(){},async loadAssignmentControls(){},saveQueuePreferences(){},queueRequests:{intel:0},queueFolders:{intel:'active'},appState:{auth:{access_token:'test'},intelligence:{}},renderFolderCounts(){},renderIntelligenceQueue(){},refreshCadHealth(){},fetchJson:async(path,options)=>{requests.push({path,payload:JSON.parse(options.body)});return path.endsWith('/queue')?{items:[],summary:{new:7,high_priority:3,needs_review:1,resolved:9}}:{configured:false};}};
  vm.createContext(ctx);const start=source.indexOf('    async function refreshIntelligenceQueue(');vm.runInContext(source.slice(start,source.indexOf('\n    }',start)+6),ctx);
  await ctx.refreshIntelligenceQueue();
  assert.equal(el('intel-summary-new').textContent,7);assert.equal(el('intel-summary-resolved').textContent,9);
  assert.equal(requests[0].payload.signal_type,'sales_tax_inactive');assert.equal(requests[0].payload.confidence,'HIGH');assert.equal(requests[0].payload.city,'LUBBOCK');
  assert.equal(requests.some(r=>r.path.endsWith('/summary')),false);
  el('intel-filter-signal').value='new_business';await ctx.refreshIntelligenceQueue();assert.equal(requests.filter(r=>r.path.endsWith('/queue')).at(-1).payload.signal_type,'new_business');
+});
+
+test('Save & Next skips work allocated to someone else even without a reservation',()=>{
+ const ctx={appState:{auth:{user:{id:'me'}}}};vm.createContext(ctx);vm.runInContext(fn('nextReview'),ctx);
+ const current={id:'a',source_table:'bpp_intelligence_items'};
+ const other={id:'b',source_table:'bpp_intelligence_items',status:'NEW',raw:{assigned_to:'other'}};
+ const mine={id:'c',source_table:'bpp_intelligence_items',status:'NEW',raw:{assigned_to:'me'}};
+ assert.equal(ctx.nextReview([other,mine],current,[current,other,mine]).id,'c');
 });

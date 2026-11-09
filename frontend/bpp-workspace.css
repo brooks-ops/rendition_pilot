@@ -134,3 +134,7 @@ body { font-size:14px; }
 .returned-mail-scan textarea { display:block; width:100%; }
 
 .returned-mail-source-badge { display:inline-block; padding:3px 9px; margin:4px 0; border:1px solid #b78b49; border-radius:999px; background:#f5e8ce; color:#644217; font-size:12px; font-weight:700; white-space:nowrap; }
+
+.bpp-assignee-label { font-size:12px; font-weight:700; margin:5px 0; color:var(--ink); }
+#intel-assignment-tools { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:8px 0; }
+#intel-assignment-tools select { width:auto; max-width:100%; }
