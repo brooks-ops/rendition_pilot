@@ -187,8 +187,11 @@ def build_research(doc,jurisdiction):
         result['web']={'status':'NOT_NEEDED','summary':'A complete, differing Comptroller mailing lead is available for review. Internet search was not needed.','sources':[]}
     else:
         try:result['web']=web_research(prop)
-        except Exception:
-            result['web']={'status':'FAILED','summary':'Internet research failed. Internal evidence is available; automatic retry is scheduled.','sources':[]}
+        except Exception as exc:
+            result['web']={'status':'FAILED','summary':'Internet research failed. Internal evidence is available; automatic retry is scheduled.','sources':[],
+                'error_type':type(exc).__name__, 'http_status':getattr(exc,'status_code',None)}
+            code=getattr(exc,'code',None)
+            if isinstance(code,str) and re.fullmatch(r'[a-z_]{1,80}',code):result['web']['error_code']=code
     incomplete=any(v=='FAILED' for v in result['stages'].values()) or result['web']['status'] in ('FAILED','NOT_CONFIGURED')
     return result,'PARTIAL' if incomplete else 'COMPLETE'
 
