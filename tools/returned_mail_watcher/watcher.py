@@ -100,48 +100,66 @@ def database(state):
     return db
 
 
+def scan_files(root):
+    """Read flat account-named scans and retain compatibility with account folders.
+
+    upload_path is an API routing value only: no local folders are created.
+    Local progress uses the actual path so flat/nested files cannot collide.
+    """
+    extensions = ('.pdf', '.jpg', '.jpeg', '.png')
+    for entry in sorted(root.iterdir()):
+        if entry.is_symlink():
+            continue
+        if entry.is_file():
+            if entry.suffix.lower() in extensions and re.fullmatch(r'[A-Za-z]?\d{1,20}', entry.stem):
+                yield entry, entry.name, entry.stem.upper() + '/' + entry.name
+        elif entry.is_dir() and re.fullmatch(r'[A-Za-z]?\d{1,20}', entry.name):
+            for path in sorted(entry.iterdir()):
+                if not path.is_symlink() and path.is_file() and path.suffix.lower() in extensions:
+                    relative = entry.name + '/' + path.name
+                    yield path, relative, relative
+
+
 def scan(root, db, upload, now=None):
     """One pass; stable files only. Failures retry with capped backoff."""
     now = time.time() if now is None else now
     if not root.is_dir():
         raise RuntimeError('Scan folder unavailable. Check the T: drive and office network.')
-    for folder in sorted(root.iterdir()):
-        if folder.is_symlink() or not folder.is_dir() or not re.fullmatch(r'[A-Za-z]?\d{1,20}', folder.name):
-            continue
-        for path in sorted(folder.iterdir()):
-            if path.is_symlink() or not path.is_file() or path.suffix.lower() not in ('.pdf', '.jpg', '.jpeg', '.png'):
+    entries = list(scan_files(root))
+    summary = {'eligible_files': len(entries)}
+    for path, relative, upload_path in entries:
+        row = None
+        try:
+            stat = path.stat()
+            signature = f'{stat.st_size}:{stat.st_mtime_ns}'
+            row = db.execute('SELECT signature,stable_since,digest,status,attempts,retry_at FROM files WHERE path=?', (relative,)).fetchone()
+            if not row or row[0] != signature:
+                db.execute('INSERT OR REPLACE INTO files(path,signature,stable_since,status) VALUES(?,?,?,?)', (relative, signature, now, 'WAITING'))
+                db.commit()
                 continue
-            relative = folder.name + '/' + path.name
-            row = None
-            try:
-                stat = path.stat()
-                signature = f'{stat.st_size}:{stat.st_mtime_ns}'
-                row = db.execute('SELECT signature,stable_since,digest,status,attempts,retry_at FROM files WHERE path=?', (relative,)).fetchone()
-                if not row or row[0] != signature:
-                    db.execute('INSERT OR REPLACE INTO files(path,signature,stable_since,status) VALUES(?,?,?,?)', (relative, signature, now, 'WAITING'))
-                    db.commit()
-                    continue
-                if row[3] == 'UPLOADED' or now - row[1] < 60 or now < (row[5] or 0):
-                    continue
-                if stat.st_size == 0 or stat.st_size > MAX_BYTES:
-                    raise ValueError('File must be between 1 byte and 12 MiB.')
-                with path.open('rb') as source:
-                    data = source.read(MAX_BYTES + 1)
-                after = path.stat()
-                if f'{after.st_size}:{after.st_mtime_ns}' != signature or len(data) != stat.st_size:
-                    continue
-                digest = hashlib.sha256(data).hexdigest()
-                upload(relative, data)  # Server dedup is authoritative, including retries after crashes.
-                db.execute('UPDATE files SET digest=?,status=?,error=NULL,attempts=0,retry_at=0 WHERE path=?', (digest, 'UPLOADED', relative))
-                db.commit()
-            except (OSError, ValueError, urllib.error.HTTPError) as exc:
-                # Never store response bodies, tokens, OCR, or recipient addresses in logs.
-                error = ('HTTP ' + str(exc.code)) if isinstance(exc, urllib.error.HTTPError) else type(exc).__name__
-                db.execute('UPDATE files SET status=?,attempts=COALESCE(attempts,0)+1,retry_at=?,error=? WHERE path=?',
-                           ('RETRY', now + min(3600, 60 * 2 ** min((row[4] or 0) if row else 0, 6)), error, relative))
-                db.commit()
-                if isinstance(exc, urllib.error.HTTPError) and exc.code in (401, 403, 404, 429, 503):
-                    return  # Avoid hammering a stopped, unavailable, or rate-limited server.
+            if row[3] == 'UPLOADED' or now - row[1] < 60 or now < (row[5] or 0):
+                continue
+            if stat.st_size == 0 or stat.st_size > MAX_BYTES:
+                raise ValueError('File must be between 1 byte and 12 MiB.')
+            with path.open('rb') as source:
+                data = source.read(MAX_BYTES + 1)
+            after = path.stat()
+            if f'{after.st_size}:{after.st_mtime_ns}' != signature or len(data) != stat.st_size:
+                continue
+            digest = hashlib.sha256(data).hexdigest()
+            upload(upload_path, data)  # Server dedup is authoritative, including retries after crashes.
+            db.execute('UPDATE files SET digest=?,status=?,error=NULL,attempts=0,retry_at=0 WHERE path=?', (digest, 'UPLOADED', relative))
+            db.commit()
+        except (OSError, ValueError, urllib.error.HTTPError) as exc:
+            # Never store response bodies, tokens, OCR, or recipient addresses in logs.
+            error = ('HTTP ' + str(exc.code)) if isinstance(exc, urllib.error.HTTPError) else type(exc).__name__
+            db.execute('UPDATE files SET status=?,attempts=COALESCE(attempts,0)+1,retry_at=?,error=? WHERE path=?',
+                       ('RETRY', now + min(3600, 60 * 2 ** min((row[4] or 0) if row else 0, 6)), error, relative))
+            db.commit()
+            if isinstance(exc, urllib.error.HTTPError) and exc.code in (401, 403, 404, 429, 503):
+                return summary  # Avoid hammering a stopped, unavailable, or rate-limited server.
+
+    return summary
 
 
 def main():
@@ -175,9 +193,9 @@ def main():
         else:
             try:
                 client.refresh()
-                scan(Path(ROOT), db, client.upload)
+                summary = scan(Path(ROOT), db, client.upload)
                 retries = db.execute("SELECT count(*) FROM files WHERE status='RETRY'").fetchone()[0]
-                result = {'at': time.time(), 'status': 'RETRY_PENDING' if retries else 'PASS_COMPLETE', 'retry_files': retries}
+                result = {'at': time.time(), 'status': 'NO_ELIGIBLE_FILES' if not summary['eligible_files'] else ('RETRY_PENDING' if retries else 'PASS_COMPLETE'), 'retry_files': retries, **summary}
             except Exception as exc:
                 result = {'at': time.time(), 'status': 'FAILED', 'error': type(exc).__name__}
                 if isinstance(exc, urllib.error.HTTPError):

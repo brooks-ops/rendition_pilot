@@ -2,7 +2,7 @@
 
 Prepared locally November 9, 2026. Not deployed; no production data or scans were changed.
 
-A separate Windows scheduled-folder helper is now prepared in `tools/returned_mail_watcher/`. It targets `T:\Public\Appraisal\BP\2027\Returned Mail` and reuses these APIs. See its README for installation, encrypted login storage, limitations and Windows verification still required. The browser picker below remains the manual fallback; neither path is activated in production yet.
+A separate Windows scheduled-folder helper is now prepared in `tools/returned_mail_watcher/`. It targets `T:\Public\Appraisal\BP\2027\Returned Mail` and reuses these APIs. See its README for installation, encrypted login storage, limitations and Windows verification still required. The Windows helper also accepts account-named PDFs directly in the root (`Returned Mail/P105330.pdf`); it creates no local folders and leaves the PDFs untouched. The browser picker below remains the folder-based manual fallback; neither path is activated in production yet.
 
 ## Staff workflow
 

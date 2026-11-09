@@ -2,10 +2,51 @@ import importlib.util
 from pathlib import Path
 from unittest.mock import Mock
 import urllib.error
+import pytest
 
 spec = importlib.util.spec_from_file_location('watcher', Path(__file__).parents[1] / 'tools/returned_mail_watcher/watcher.py')
 watcher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(watcher)
+
+
+@pytest.mark.parametrize('filename,account', [('P105330.pdf', 'P105330'), ('p304822.PDF','P304822'), ('000123.pdf','000123')])
+def test_flat_account_pdfs_upload_without_creating_folders(tmp_path, filename, account):
+    root = tmp_path / 'Returned Mail'
+    root.mkdir()
+    original = root / filename
+    original.write_bytes(b'original PDF')
+    db = watcher.database(tmp_path)
+    upload = Mock()
+    assert watcher.scan(root, db, upload, now=0) == {'eligible_files': 1}
+    upload.assert_not_called()
+    watcher.scan(root, db, upload, now=60)
+    upload.assert_called_once_with(account + '/' + filename, b'original PDF')
+    watcher.scan(root, db, upload, now=120)
+    assert upload.call_count == 1
+    assert list(root.iterdir()) == [original]
+    assert original.read_bytes() == b'original PDF'
+    assert db.execute('SELECT path,status FROM files').fetchone() == (filename, 'UPLOADED')
+
+
+def test_flat_and_nested_progress_do_not_collide(tmp_path):
+    root, nested, db = fixture(tmp_path)
+    nested.rename(nested.parent / 'P123.pdf')
+    (root / 'P123.pdf').write_bytes(b'flat')
+    upload = Mock()
+    watcher.scan(root, db, upload, now=0)
+    watcher.scan(root, db, upload, now=60)
+    assert upload.call_count == 2
+    assert {r[0] for r in db.execute('SELECT path FROM files')} == {'P123.pdf', 'P123/P123.pdf'}
+
+
+def test_unrecognized_flat_names_are_not_guessed_and_no_files_reported(tmp_path):
+    root = tmp_path / 'Returned Mail'
+    root.mkdir()
+    for name in ('invoice.pdf','P123-extra.pdf','P123.txt','P123.pdf.exe'):
+        (root / name).write_bytes(b'unrecognized')
+    upload = Mock()
+    assert watcher.scan(root, watcher.database(tmp_path), upload, now=0) == {'eligible_files': 0}
+    upload.assert_not_called()
 
 
 def fixture(tmp_path):
