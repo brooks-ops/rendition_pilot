@@ -10,6 +10,8 @@ from tests.test_backend_intelligence_queue import make_district,make_item
 @pytest.fixture
 def context(monkeypatch):
     ctx=make_district(role='member')
+    from app import bpp_visibility
+    monkeypatch.setattr(bpp_visibility,'account_evidence_allowed',lambda *a:True)
     monkeypatch.setattr(main,'require_bpp_access',lambda _:ctx)
     monkeypatch.setattr(main,'get_supabase_user',lambda _: {'id':ctx.user_id})
     monkeypatch.setattr(main.bpp_work_claims,'claim',lambda *a,**kw:None)
@@ -37,7 +39,7 @@ def test_list_blocks_foreign_queue_item_before_listing_documents(context,monkeyp
 
 def test_review_requires_account_reservation(context,monkeypatch):
     monkeypatch.setattr(returned_mail,'document',lambda *a:{'intelligence_item_id':'item'})
-    monkeypatch.setattr(main.comptroller_intelligence,'get_intelligence_item',lambda *a:make_item())
+    monkeypatch.setattr(main.comptroller_intelligence,'get_intelligence_item',lambda *a:make_item(raw={'assigned_to':context.user_id}))
     def conflict(*a):raise main.bpp_work_claims.WorkConflict('Reserved by another appraiser')
     monkeypatch.setattr(main.bpp_work_claims,'claim',conflict)
     query=Mock();monkeypatch.setattr(returned_mail,'request',query)
@@ -45,7 +47,7 @@ def test_review_requires_account_reservation(context,monkeypatch):
     assert exc.value.status_code==409;query.assert_not_called()
 
 def test_resolve_returned_mail_uses_atomic_rpc(context,monkeypatch):
-    original=make_item(item_id='item',raw={'source':'returned_mail_scan'},matched_account_number='P123')
+    original=make_item(item_id='item',raw={'source':'returned_mail_scan','assigned_to':context.user_id},matched_account_number='P123')
     monkeypatch.setattr(main.comptroller_intelligence,'get_intelligence_item',lambda *a:original)
     row={'id':'item','district_id':context.district_id,'source':'returned_mail_scan','status':'RESOLVED','signal_type':'mailing_address_change'}
     query=Mock(return_value=row);monkeypatch.setattr(returned_mail,'request',query)

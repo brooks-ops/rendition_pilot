@@ -94,7 +94,7 @@ def test_permission_storage_outage_fails_closed(monkeypatch):
 def test_bpp_member_can_use_intelligence_but_cannot_use_admin_or_readiness(api,monkeypatch):
     client,_=api
     seen=[]
-    monkeypatch.setattr(main.comptroller_intelligence,'get_queue_summary',lambda district_id:seen.append(district_id) or {'new':0})
+    monkeypatch.setattr(main.comptroller_intelligence,'get_queue_summary',lambda district_id,**kwargs:seen.append(district_id) or {'new':0})
     monkeypatch.setattr(main.comptroller_intelligence,'list_intelligence_queue',lambda district_id,**kw:[])
     assert client.post('/api/admin/intelligence/summary',json={'access_token':'bpp'}).status_code==200
     assert client.post('/api/admin/intelligence/queue',json={'access_token':'bpp','signal_type':'mailing_address_change'}).status_code==200
@@ -124,7 +124,7 @@ def test_bpp_member_can_review_own_district_item(api,monkeypatch):
     from tests.test_backend_intelligence_queue import make_item
     from unittest.mock import Mock
     client,_=api
-    own=make_item(district_id='d1')
+    own=make_item(district_id='d1',raw={'assigned_to':'bpp@cad.org'})
     monkeypatch.setattr(main.comptroller_intelligence,'get_intelligence_item',lambda *a:own)
     monkeypatch.setattr(main,'get_supabase_user',lambda _:{'id':'bpp-user'})
     mutate=Mock(return_value=own)
@@ -180,7 +180,7 @@ def test_regular_bpp_appraiser_can_complete_and_print_account_card_flow(api,monk
     original_context=main.get_authenticated_district_context
     monkeypatch.setattr(main,'get_authenticated_district_context',lambda token:context if token=='bpp' else original_context(token))
     item_id='00000000-0000-0000-0000-000000000123'
-    current=[make_item(id=item_id,district_id='d1')]
+    current=[make_item(id=item_id,district_id='d1',raw={'assigned_to':context.user_id})]
     printed=[]
     monkeypatch.setattr(main.comptroller_intelligence,'get_intelligence_item',lambda *a:current[0])
     monkeypatch.setattr(main.comptroller_jurisdictions,'get_jurisdiction',lambda _:make_jurisdiction(district_id='d1'))
@@ -201,7 +201,7 @@ def test_regular_bpp_appraiser_can_complete_and_print_account_card_flow(api,monk
     def storage(method,table,params=None,payload=None):
         if table=='rpc/bpp_save_account_card':
             assert payload['p_district_id']=='d1' and payload['p_actor_id']==context.user_id
-            current[0]=replace(current[0],raw={'account_card_draft':payload['p_data'],'account_card_version':1})
+            current[0]=replace(current[0],raw={**current[0].raw,'account_card_draft':payload['p_data'],'account_card_version':1})
             return {'version':1,'saved_at':'2026-10-29T01:00:00Z'}
         if table=='bpp_intelligence_items':
             assert params['district_id']=='eq.d1' and params['reviewed_by']=='eq.'+context.user_id

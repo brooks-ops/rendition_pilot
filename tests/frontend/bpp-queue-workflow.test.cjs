@@ -39,3 +39,17 @@ test('Save & Next skips work allocated to someone else even without a reservatio
  const mine={id:'c',source_table:'bpp_intelligence_items',status:'NEW',raw:{assigned_to:'me'}};
  assert.equal(ctx.nextReview([other,mine],current,[current,other,mine]).id,'c');
 });
+test('regular appraisers get a locked own-assignment filter instead of all-work options',()=>{
+ const visibility=[];const select={value:'someone-else',closest:()=>({classList:{toggle:(name,hidden)=>visibility.push([name,hidden])}})};
+ const ctx={$:()=>select,cadHtml:String};vm.createContext(ctx);vm.runInContext(fn('setAssignmentFilter'),ctx);
+ ctx.setAssignmentFilter('intel',false,[{id:'someone-else',label:'Other appraiser'}]);
+ assert.equal(select.value,'ME');assert.equal(select.disabled,true);assert.deepEqual(visibility,[['hidden',true]]);
+ assert.ok(!select.innerHTML.includes('All appraisers'));assert.ok(!select.innerHTML.includes('Other appraiser'));
+});
+test('admin keeps all-work and appraiser filters with their current selection',()=>{
+ const select={value:'someone-else',closest:()=>({classList:{toggle(){}}})};
+ const ctx={$:()=>select,cadHtml:String};vm.createContext(ctx);vm.runInContext(fn('setAssignmentFilter'),ctx);
+ ctx.setAssignmentFilter('mailing',true,[{id:'someone-else',label:'Other appraiser'}]);
+ assert.equal(select.value,'someone-else');assert.equal(select.disabled,false);
+ assert.ok(select.innerHTML.includes('All appraisers')&&select.innerHTML.includes('Unassigned')&&select.innerHTML.includes('Other appraiser'));
+});

@@ -54,17 +54,22 @@ def router(require_bpp):
     @api.post('/reviewers')
     def reviewers(request:Session):
         district=require_bpp(request.access_token)
-        rows=run(service.request,'GET','district_users',params={'select':'user_id,full_name,email','district_id':'eq.'+district.district_id,'active':'eq.true','limit':1000})
+        rows=run(service.request,'GET','district_users',params={'select':'user_id,full_name,email','district_id':'eq.'+district.district_id,'active':'eq.true','limit':1000,**({} if district.role=='admin' else {'user_id':'eq.'+(district.user_id or '00000000-0000-0000-0000-000000000000')})})
         return {'reviewers':[{'id':r['user_id'],'label':r.get('full_name') or r.get('email') or 'Appraiser'} for r in rows]}
     @api.post('/original')
     def original(request:Original):
         district=require_bpp(request.access_token)
+        if district.role!='admin':raise HTTPException(403,'Full source batches are available to district admins. Review the filing evidence on your assigned item.')
         data,filename=run(service.original,district.district_id,str(request.import_id))
         is_json=filename.endswith('.json')
         return Response(data,media_type='application/json' if is_json else 'application/pdf',headers={'Content-Disposition':'attachment; filename="county-clerk-original.'+('json' if is_json else 'pdf')+'"','Cache-Control':'no-store'})
     @api.post('/filing')
     def filing(request:Filing):
         district=require_bpp(request.access_token)
+        if district.role!='admin':
+            if not district.user_id:raise HTTPException(403,'A signed-in appraiser is required.')
+            assigned=run(service.request,'GET','bpp_intelligence_items',params={'select':'id','district_id':'eq.'+district.district_id,'source_dba_filing_id':'eq.'+str(request.filing_id),'assigned_to':'eq.'+district.user_id,'limit':1})
+            if not assigned:raise HTTPException(403,'This filing is not assigned to you.')
         rows=run(service.request,'GET','county_clerk_dba_filings',params={'select':'*','district_id':'eq.'+district.district_id,'id':'eq.'+str(request.filing_id),'limit':1})
         if not rows:raise HTTPException(404,'Filing not found in your district.')
         events=run(service.request,'GET','county_clerk_dba_review_events',params={'select':'id,actor_id,created_at,before_status:before_state->>status,after_status:after_state->>status,resolution:after_state->>resolution,notes:after_state->>resolution_notes,account:after_state->>matched_account_number','district_id':'eq.'+district.district_id,'filing_id':'eq.'+str(request.filing_id),'order':'created_at.desc','limit':50})

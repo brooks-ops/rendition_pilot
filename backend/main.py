@@ -2348,7 +2348,7 @@ def returned_mail_research_status(request: ReturnedMailDocumentRequest):
     from app import returned_mail
     context=require_bpp_access(request.access_token)
     try:
-        returned_mail.document(context,request.document_id)
+        _require_returned_mail_evidence(context,request.document_id)
         rows=returned_mail.request('GET','returned_mail_research',params={
             'select':'document_id,status,attempts,finished_at,result,error','document_id':'eq.'+str(request.document_id),
             'district_id':'eq.'+context.district_id,'limit':1})
@@ -2361,7 +2361,7 @@ def returned_mail_detail(request: ReturnedMailDocumentRequest):
     from app import returned_mail
     context=require_bpp_access(request.access_token)
     try:
-        doc=returned_mail.document(context,request.document_id)
+        doc=_require_returned_mail_evidence(context,request.document_id)
         return {"document":{k:v for k,v in doc.items() if k not in ('storage_path','sha256','district_id')}}
     except returned_mail.MailImportError as exc:raise HTTPException(404,str(exc)) from exc
 
@@ -2370,12 +2370,13 @@ def returned_mail_download(request: ReturnedMailDocumentRequest):
     from app import returned_mail
     context=require_bpp_access(request.access_token)
     try:
-        doc=returned_mail.document(context,request.document_id)
+        doc=_require_returned_mail_evidence(context,request.document_id)
         data=returned_mail.storage('GET',doc['storage_path']).content
         suffix={'application/pdf':'pdf','image/jpeg':'jpg','image/png':'png'}[doc['content_type']]
         return Response(data,media_type=doc['content_type'],headers={'Cache-Control':'no-store',
             'Content-Disposition':f'attachment; filename="returned-mail-{doc["account_number"]}.{suffix}"'})
     except returned_mail.MailImportError as exc:raise HTTPException(404,str(exc)) from exc
+    except HTTPException:raise
     except Exception as exc:raise HTTPException(502,'The original returned-mail scan could not be downloaded.') from exc
 
 @app.post('/api/admin/intelligence/returned-mail/review')
@@ -2432,7 +2433,7 @@ def intelligence_assignment_reassign(request: AssignmentReassignRequest):
 def intelligence_summary(request: ComptrollerStatusRequest) -> dict[str, Any]:
     district = require_bpp_access(request.access_token)
     try:
-        summary = comptroller_intelligence.get_queue_summary(district.district_id)
+        summary = comptroller_intelligence.get_queue_summary(district.district_id, **({"assigned_to":_bpp_assignee(district)} if district.role!="admin" else {}))
     except ComptrollerServiceError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return to_jsonable(summary)
@@ -2448,7 +2449,7 @@ def intelligence_queue(request: IntelligenceQueueRequest) -> dict[str, Any]:
             status=request.status,
             confidence=request.confidence,
             city=request.city,
-            **{key:value for key,value in {"filing_from":request.filing_from.isoformat() if request.filing_from else None,"filing_to":request.filing_to.isoformat() if request.filing_to else None,"filing_type":request.filing_type,"assigned_to":district.user_id if request.assigned_to=="ME" else request.assigned_to}.items() if value},
+            **{key:value for key,value in {"filing_from":request.filing_from.isoformat() if request.filing_from else None,"filing_to":request.filing_to.isoformat() if request.filing_to else None,"filing_type":request.filing_type,"assigned_to":_bpp_assignee(district,request.assigned_to)}.items() if value},
         )
     except ComptrollerServiceError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -2467,12 +2468,29 @@ def intelligence_queue(request: IntelligenceQueueRequest) -> dict[str, Any]:
     return response
 
 
+def _bpp_assignee(district, requested=None):
+    from app.bpp_visibility import assignment_filter, AssignmentAccessError
+    try:return assignment_filter(district,requested)
+    except AssignmentAccessError as exc:raise HTTPException(403,str(exc)) from exc
+
+
+def _require_returned_mail_evidence(district, document_id):
+    from app import returned_mail,bpp_visibility
+    doc=returned_mail.document(district,document_id)
+    if not bpp_visibility.account_evidence_allowed(district,doc['account_number'],doc.get('intelligence_item_id')):
+        raise HTTPException(403,'This account is not assigned to you.')
+    return doc
+
+
 def _require_own_district_item(district, source_table: str, item_id: str) -> comptroller_intelligence.UnifiedIntelligenceItem:
     item = comptroller_intelligence.get_intelligence_item(source_table, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Intelligence item was not found.")
     if item.district_id != district.district_id:
         raise HTTPException(status_code=403, detail="Cannot manage intelligence items for another district.")
+    from app.bpp_visibility import can_view_item
+    if not can_view_item(district,item):
+        raise HTTPException(403,'This work is not assigned to you. Ask an admin to reassign it.')
     return item
 
 
@@ -2498,7 +2516,12 @@ def _release_completed_bpp_work(district,item):
 @app.post("/api/admin/intelligence/work-status")
 def intelligence_work_status(request: ComptrollerStatusRequest):
     district=require_bpp_access(request.access_token)
-    return {"claims":{key:bpp_work_claims.view(row,district) for key,row in bpp_work_claims.claims(district.district_id).items()}}
+    claims=bpp_work_claims.claims(district.district_id)
+    if district.role!='admin':
+        owned=comptroller_intelligence.list_intelligence_queue(district.district_id,assigned_to=_bpp_assignee(district))
+        allowed={bpp_work_claims.work_key(item) for item in owned}
+        claims={key:row for key,row in claims.items() if row['work_key'] in allowed}
+    return {"claims":{key:bpp_work_claims.view(row,district) for key,row in claims.items()}}
 
 
 @app.post("/api/admin/intelligence/release")
@@ -2573,7 +2596,7 @@ def intelligence_cad_health(request: ComptrollerStatusRequest):
     if not jurisdiction:
         return {"configured": False}
     try:
-        health = comptroller_cad_review.match_health(jurisdiction, comptroller_intelligence.list_intelligence_queue(district.district_id))
+        health = comptroller_cad_review.match_health(jurisdiction, comptroller_intelligence.list_intelligence_queue(district.district_id, **({"assigned_to":_bpp_assignee(district)} if district.role!="admin" else {})))
         return {"configured": True, **to_jsonable(health)}
     except ComptrollerServiceError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

@@ -28,7 +28,7 @@ def test_configure_uses_server_district_and_actor(monkeypatch):
 def test_workload_counts_unique_accounts_across_signals(monkeypatch):
     monkeypatch.setattr(assign,'eligible_roster',lambda _:[{'id':'a','label':'A','email':'a@example.invalid'}])
     monkeypatch.setattr(assign,'request',lambda method,table,**kw:[] if table=='bpp_assignment_settings' else [{'work_key':'account:P1','assigned_to':'a','busy':False},{'work_key':'account:P1','assigned_to':'a','busy':True},{'work_key':'account:P2','assigned_to':None,'busy':False}])
-    result=assign.status(SimpleNamespace(district_id='district'))
+    result=assign.status(SimpleNamespace(district_id='district',role='admin',user_id='admin'))
     assert result['appraisers'][0]['open_accounts']==1
     assert result['unassigned_accounts']==1
 

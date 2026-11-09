@@ -37,15 +37,20 @@ def status(context):
         # Access changes affect future allocation, without rewriting review ownership.
         request('PATCH','bpp_assignment_settings',params={'district_id':'eq.'+context.district_id},payload={'roster':roster,'updated_at':datetime.now(timezone.utc).isoformat()})
         request('POST','rpc/bpp_balance_pending',payload={'p_district_id':context.district_id})
+    is_admin=getattr(context,"role","member")=="admin"
+    if not is_admin and not context.user_id:raise ValueError("A signed-in appraiser is required.")
     counts=defaultdict(set);unassigned=set();offset=0
     while True:
-        page=request('GET','bpp_active_assignment_work',params={'district_id':'eq.'+context.district_id,'select':'work_key,assigned_to,busy','order':'source_table,id','limit':1000,'offset':offset})
+        page=request('GET','bpp_active_assignment_work',params={'district_id':'eq.'+context.district_id,'select':'work_key,assigned_to,busy','order':'source_table,id','limit':1000,'offset':offset,**({} if is_admin else {'assigned_to':'eq.'+context.user_id})})
         for row in page:
             if row['assigned_to']:counts[row['assigned_to']].add(row['work_key'])
             else:unassigned.add(row['work_key'])
         offset+=len(page)
         if len(page)<1000:break
-    return {'enabled':enabled,'appraisers':[{**person,'open_accounts':len(counts[person['id']])} for person in roster],
+    if not is_admin:
+        roster=[r for r in roster if r['id']==context.user_id]
+        return {'enabled':enabled,'appraisers':[{**r,'open_accounts':len(counts[r['id']])} for r in roster],'unassigned_accounts':0,'unavailable_assignee_accounts':0,'own_assignments_only':True}
+    return {'enabled':enabled,'own_assignments_only':False,'appraisers':[{**person,'open_accounts':len(counts[person['id']])} for person in roster],
             'unassigned_accounts':len(unassigned),'unavailable_assignee_accounts':sum(len(v) for k,v in counts.items() if k not in {r['id'] for r in roster})}
 
 

@@ -1214,6 +1214,7 @@
         if(!grants.bpp && grants.commercial){location.replace('/commercial');return;}
         $('commercial-tab').classList.toggle('hidden',!grants.commercial);
         const isAdmin = appState.auth.district.role === "admin";
+        ['intel','mailing'].forEach(prefix=>setAssignmentFilter(prefix,isAdmin));
         if (!isAdmin && ["view-admin","view-readiness"].some(id => $(id).classList.contains("active"))) {
           document.querySelectorAll(".view").forEach(view => view.classList.toggle("active", view.id === "view-single"));
           document.querySelectorAll(".tab-btn[data-view]").forEach(button => button.classList.toggle("active", button.dataset.view === "single"));
@@ -2405,7 +2406,7 @@
           <div class="layout-3" style="margin-top:10px;">
             <div><strong>${cadHtml(h.bpp_record_count?.toLocaleString() || "Unknown")}</strong> BPP account records<br>Owner/business/DBA coverage: <strong>${h.name_coverage_percent == null ? "Unknown" : h.name_coverage_percent + "%"}</strong></div>
             <div>High confidence: <strong>${q.high_confidence} (${rate(q.high_confidence)})</strong><br>Possible: ${q.possible} (${rate(q.possible)})<br>Ambiguous: ${q.ambiguous} (${rate(q.ambiguous)})<br>Unmatched: ${q.unmatched} (${rate(q.unmatched)})</div>
-            <div>Appraiser-confirmed permits: <strong>${h.human_confirmed_permits}</strong><br>Saved decisions: ${h.decision_count}<br><span class="subtle">Match rates cover all business/closure queue items, independent of the filters below.</span></div>
+            <div>Appraiser-confirmed permits: <strong>${h.human_confirmed_permits}</strong><br>Saved decisions: ${h.decision_count}<br><span class="subtle">Match rates cover your accessible business/closure work, independent of the filters below.</span></div>
           </div>
           ${h.name_coverage_percent === 0 ? '<p class="status warn">CAD names are missing. Include owner, business or DBA names in the next export to strengthen automatic matching.</p>' : ""}
           <details style="margin-top:8px;"><summary>Recent imports and data coverage</summary>${h.recent_imports.map(i => `<div style="padding:5px 0;">${cadHtml(cadDate(i.imported_at))} · as of ${cadHtml(i.source_as_of_date || "unknown")} · ${cadHtml(i.import_status)} · ${(i.row_count || 0).toLocaleString()} records${i.quality_summary ? ` · ${i.quality_summary.named_bpp_record_count || 0}/${i.quality_summary.bpp_record_count || 0} P records with names${i.quality_summary.matching_refresh_status ? ` · Matching: ${cadHtml(i.quality_summary.matching_refresh_status)}` : ""}${i.quality_summary.queue_match_snapshot ? ` · After import: ${i.quality_summary.queue_match_snapshot.high_confidence || 0} high, ${i.quality_summary.queue_match_snapshot.possible || 0} possible, ${i.quality_summary.queue_match_snapshot.ambiguous || 0} ambiguous, ${i.quality_summary.queue_match_snapshot.unmatched || 0} unmatched` : ""}` : " · coverage not recorded on this earlier import"}</div>`).join("") || "No imports recorded."}</details>`;
@@ -2560,6 +2561,13 @@
       finally{completedCards.loading=false;['card-batch-appraiser','card-batch-print-status'].forEach(id=>$(id).disabled=false);renderCompletedCards();}
     }
 
+    function setAssignmentFilter(prefix,isAdmin,people=[]){
+      const select=$(prefix+'-filter-assignee'),value=select.value;
+      select.innerHTML=isAdmin?'<option value="">All appraisers</option><option value="ME">My work</option><option value="UNASSIGNED">Unassigned</option>'+people.map(p=>`<option value="${cadHtml(p.id)}">${cadHtml(p.label)}</option>`).join(''):'<option value="ME">My assignments</option>';
+      select.value=isAdmin?value:'ME';select.disabled=!isAdmin;
+      select.closest('.field').classList.toggle('hidden',!isAdmin);
+    }
+
     const assignmentState={owner:null,data:null,promise:null,at:0};
     async function loadAssignmentControls(force=false){
       const owner=RenditionSession.identity();
@@ -2572,11 +2580,11 @@
           if(owner!==RenditionSession.identity())return;
           assignmentState.data=data;assignmentState.at=Date.now();
           ['intel','mailing'].forEach(prefix=>{
-            $(prefix+'-assignment-status').textContent=data.enabled?'Automatic assignment is on. '+data.unassigned_accounts+' accounts await assignment.':'Automatic assignment is off. Existing assignments are retained.';
+            const isAdmin=appState.auth.district?.role==='admin'&&!data.own_assignments_only;
+            $(prefix+'-assignment-status').textContent=isAdmin?(data.enabled?'Automatic assignment is on. '+data.unassigned_accounts+' accounts await assignment.':'Automatic assignment is off. Existing assignments are retained.'):'Showing only work assigned to you.';
             $(prefix+'-assignment-totals').textContent=(data.appraisers||[]).map(p=>p.label+': '+p.open_accounts+' open accounts').join(' · ')+(data.unavailable_assignee_accounts?' · '+data.unavailable_assignee_accounts+' accounts assigned to unavailable users; admin review needed.':'');
-            const button=$(prefix+'-assignment-toggle');button.classList.toggle('hidden',appState.auth.district?.role!=='admin');button.textContent=data.enabled?'Pause automatic assignment':'Enable automatic assignment';
-            const select=$(prefix+'-filter-assignee'),value=select.value;
-            select.innerHTML='<option value="">All appraisers</option><option value="ME">My work</option><option value="UNASSIGNED">Unassigned</option>'+(data.appraisers||[]).map(p=>`<option value="${cadHtml(p.id)}">${cadHtml(p.label)}</option>`).join('');select.value=value;
+            const button=$(prefix+'-assignment-toggle');button.classList.toggle('hidden',!isAdmin);button.textContent=data.enabled?'Pause automatic assignment':'Enable automatic assignment';
+            setAssignmentFilter(prefix,isAdmin,data.appraisers||[]);
           });
         }catch(error){['intel','mailing'].forEach(prefix=>$(prefix+'-assignment-status').textContent='Assignment status unavailable. Existing work is still accessible.');}
         finally{if(owner===assignmentState.owner)assignmentState.promise=null;}

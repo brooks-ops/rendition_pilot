@@ -274,11 +274,13 @@ def _from_closure_review_row(row: dict[str, Any]) -> UnifiedIntelligenceItem:
     )
 
 
-def _fetch_queue_rows(table: str, district_id: str, *, signal_type: str | None = None) -> list[dict[str, Any]]:
+def _fetch_queue_rows(table: str, district_id: str, *, signal_type: str | None = None, assigned_to: str | None = None) -> list[dict[str, Any]]:
     url, key = get_supabase_config()
     params = {"select": "*", "district_id": f"eq.{district_id}", "order": "created_at.desc,id.desc", "limit": 500}
     if signal_type:
         params["signal_type"] = f"eq.{signal_type}"
+    if assigned_to:
+        params['assigned_to'] = 'is.null' if assigned_to=='UNASSIGNED' else f'eq.{assigned_to}'
     rows = []
     while True:
         page = _request_json("GET", f"{url}/rest/v1/{table}", postgrest_headers(key), params={**params, "offset": len(rows)})
@@ -289,12 +291,12 @@ def _fetch_queue_rows(table: str, district_id: str, *, signal_type: str | None =
         rows.extend(page)
 
 
-def _fetch_intelligence_items(district_id: str, *, signal_type: str | None) -> list[dict[str, Any]]:
-    return _fetch_queue_rows("bpp_intelligence_items", district_id, signal_type=signal_type)
+def _fetch_intelligence_items(district_id: str, *, signal_type: str | None, assigned_to: str | None = None) -> list[dict[str, Any]]:
+    return _fetch_queue_rows("bpp_intelligence_items", district_id, signal_type=signal_type, **({"assigned_to":assigned_to} if assigned_to else {}))
 
 
-def _fetch_closure_reviews(district_id: str) -> list[dict[str, Any]]:
-    return _fetch_queue_rows("comptroller_closure_reviews", district_id)
+def _fetch_closure_reviews(district_id: str, *, assigned_to: str | None = None) -> list[dict[str, Any]]:
+    return _fetch_queue_rows("comptroller_closure_reviews", district_id, **({"assigned_to":assigned_to} if assigned_to else {}))
 
 
 def reviewer_labels(district_id, items):
@@ -326,9 +328,9 @@ def list_intelligence_queue(
     items: list[UnifiedIntelligenceItem] = []
 
     if signal_type in (None, "new_business", "mailing_address_change", "county_clerk_dba"):
-        items.extend(_from_intelligence_row(row) for row in _fetch_intelligence_items(district_id, signal_type=signal_type))
+        items.extend(_from_intelligence_row(row) for row in _fetch_intelligence_items(district_id, signal_type=signal_type, **({"assigned_to":assigned_to} if assigned_to else {})))
     if signal_type in (None, "sales_tax_inactive"):
-        items.extend(_from_closure_review_row(row) for row in _fetch_closure_reviews(district_id))
+        items.extend(_from_closure_review_row(row) for row in _fetch_closure_reviews(district_id, **({"assigned_to":assigned_to} if assigned_to else {})))
 
     from app.comptroller.priority import match_priority
     ranked = []
@@ -396,8 +398,8 @@ def list_intelligence_queue(
     return items
 
 
-def get_queue_summary(district_id: str) -> dict[str, int]:
-    items = list_intelligence_queue(district_id)
+def get_queue_summary(district_id: str, *, assigned_to: str | None = None) -> dict[str, int]:
+    items = list_intelligence_queue(district_id, **({"assigned_to":assigned_to} if assigned_to else {}))
     return {
         "new": sum(1 for i in items if i.status == "NEW"),
         "high_priority": sum(1 for i in items if i.priority == "HIGH" and i.status in ("NEW", "IN_REVIEW")),
