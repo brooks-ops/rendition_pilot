@@ -2,7 +2,7 @@
 
 Prepared locally November 9, 2026. Not deployed; no production data or scans were changed.
 
-A separate Windows scheduled-folder helper is now prepared in `tools/returned_mail_watcher/`. It targets `T:\Public\Appraisal\BP\2027\Returned Mail` and reuses these APIs. See its README for installation, encrypted login storage, limitations and Windows verification still required. The Windows helper also accepts account-named PDFs directly in the root (`Returned Mail/P105330.pdf`); it creates no local folders and leaves the PDFs untouched. The browser picker below remains the folder-based manual fallback; neither path is activated in production yet.
+The Windows scheduled-folder helper in `tools/returned_mail_watcher/` targets `T:\Public\Appraisal\BP\2027\Returned Mail` and reuses these APIs. Save exact-account PDFs directly in the root (`P105330.pdf`). The updated helper moves confirmed uploads into one shared `Uploaded` folder, retaining failed PDFs in the inbox and writing `_Upload status.csv`. This means evidence saved, not an approved address. It verifies the local copy before removing the inbox copy and never overwrites archived files. Existing saved login/progress survives a script-only update; older successful paths are reconfirmed through backend deduplication. See its README for recovery and Windows verification. Browser folder selection remains a manual fallback and leaves local originals unchanged. Backend ingestion is deployed; the archive update requires installation on the office PC.
 
 ## Staff workflow
 
@@ -45,7 +45,7 @@ The returned-mail item displays all account scans in pages of 20, including hist
 - Up to 1,000 supported files per chosen batch; uploads run sequentially and share the existing server document-job limiter. Hidden macOS resource files are ignored by the picker flow.
 - Supported account-folder names are a leading optional letter plus digits. Imported account/type eligibility still applies. This is a BPP workflow, not commercial/real-property mail support.
 - Existing records can lack CRS mailing fields; those are shown as unavailable rather than inferred. Import the real CRS mailing fields through the previously prepared phase-one importer for fuller comparison evidence.
-- OCR quality on real scanned/rotated/poor-quality envelopes, deployed storage policies and request/runtime behavior require staging verification with actual office scans. Photos and scans can require manual reading. There is no automatic OCR reprocessing of a duplicate file or OS-folder watcher in this version.
+- OCR quality on real scanned/rotated/poor-quality envelopes, deployed storage policies and request/runtime behavior require staging verification with actual office scans. Photos and scans can require manual reading. There is no automatic OCR reprocessing of a duplicate file.
 
 ## Migration and activation — not performed
 

@@ -120,3 +120,134 @@ def test_refresh_cookie_round_trip(tmp_path, monkeypatch):
     restored.refresh()
     assert list(restored.jar)[0].value == 'secret'
     assert restored.token == 'access'
+
+
+def receipt(account='P123'):
+    return {'account': account, 'document_id': '11111111-1111-4111-8111-111111111111',
+            'item_id': '22222222-2222-4222-8222-222222222222', 'duplicate': True}
+
+
+def archive_fixture(tmp_path):
+    root = tmp_path / 'Returned Mail'
+    root.mkdir()
+    path = root / 'P123.pdf'
+    path.write_bytes(b'scan')
+    db = watcher.database(tmp_path)
+    upload = Mock(return_value=receipt())
+    watcher.scan(root, db, upload, now=0, archive=True)
+    return root, path, db, upload
+
+
+def test_confirmed_upload_archived_and_not_uploaded_again(tmp_path):
+    root, path, db, upload = archive_fixture(tmp_path)
+    watcher.scan(root, db, upload, now=60, archive=True)
+    assert not path.exists()
+    assert (root / 'Uploaded/P123.pdf').read_bytes() == b'scan'
+    assert db.execute('SELECT status FROM files').fetchone()[0] == 'ARCHIVED'
+    assert 'Address still requires appraiser review' in (root / '_Upload status.csv').read_text('utf-8-sig')
+    watcher.scan(root, db, upload, now=120, archive=True)
+    upload.assert_called_once()
+
+
+@pytest.mark.parametrize('result', [{}, {'account': 'P999'}, {'account': 'P123', 'document_id': 'bad', 'item_id': 'bad'}])
+def test_missing_server_receipt_keeps_original(tmp_path, result):
+    root, path, db, upload = archive_fixture(tmp_path)
+    upload.return_value = result
+    watcher.scan(root, db, upload, now=60, archive=True)
+    assert path.read_bytes() == b'scan'
+    assert not (root / 'Uploaded').exists()
+    assert db.execute('SELECT status FROM files').fetchone()[0] == 'RETRY'
+
+
+def test_server_validation_failure_is_readable_and_original_kept(tmp_path):
+    import io
+    root, path, db, upload = archive_fixture(tmp_path)
+    upload.side_effect = urllib.error.HTTPError('private', 400, 'Bad Request', {}, io.BytesIO(b'{"detail":"Account not found in CRS."}'))
+    watcher.scan(root, db, upload, now=60, archive=True)
+    assert path.exists()
+    assert 'HTTP 400: Account not found in CRS.' in (root / '_Upload status.csv').read_text('utf-8-sig')
+
+
+def test_old_uploaded_progress_reconfirms_server_before_archiving(tmp_path):
+    root, path, db, upload = archive_fixture(tmp_path)
+    db.execute("UPDATE files SET status='UPLOADED'")
+    db.commit()
+    watcher.scan(root, db, upload, now=60, archive=True)
+    upload.assert_called_once()
+    assert not path.exists()
+
+
+def test_new_scan_same_account_never_overwrites_prior_pdf(tmp_path):
+    root, path, db, upload = archive_fixture(tmp_path)
+    watcher.scan(root, db, upload, now=60, archive=True)
+    path.write_bytes(b'new return')
+    watcher.scan(root, db, upload, now=120, archive=True)
+    watcher.scan(root, db, upload, now=180, archive=True)
+    assert {p.read_bytes() for p in (root / 'Uploaded').iterdir()} == {b'scan', b'new return'}
+    assert upload.call_count == 2
+    assert not path.exists()
+
+
+def test_scanner_changes_during_upload_preserve_original(tmp_path):
+    root, path, db, upload = archive_fixture(tmp_path)
+    def changed(*args):
+        path.write_bytes(b'scanner still writing')
+        return receipt()
+    upload.side_effect = changed
+    watcher.scan(root, db, upload, now=60, archive=True)
+    assert path.read_bytes() == b'scanner still writing'
+    assert not (root / 'Uploaded').exists()
+    assert db.execute('SELECT status FROM files').fetchone()[0] == 'ARCHIVE_RETRY'
+
+
+def test_delete_failure_recovers_copy_without_reupload(tmp_path, monkeypatch):
+    root, path, db, upload = archive_fixture(tmp_path)
+    original_unlink = Path.unlink
+    def deny_source(self, *args, **kwargs):
+        if self == path:
+            raise PermissionError('scanner lock')
+        return original_unlink(self, *args, **kwargs)
+    monkeypatch.setattr(Path, 'unlink', deny_source)
+    watcher.scan(root, db, upload, now=60, archive=True)
+    assert path.exists()
+    assert db.execute('SELECT status FROM files').fetchone()[0] == 'ARCHIVE_RETRY'
+    monkeypatch.setattr(Path, 'unlink', original_unlink)
+    watcher.scan(root, db, upload, now=120, archive=True)
+    assert not path.exists()
+    assert len(list((root / 'Uploaded').iterdir())) == 1
+    upload.assert_called_once()
+
+
+def test_unwritable_archive_retries_from_saved_receipt(tmp_path):
+    root, path, db, upload = archive_fixture(tmp_path)
+    (root / 'Uploaded').write_text('folder blocked')
+    watcher.scan(root, db, upload, now=60, archive=True)
+    assert path.exists()
+    (root / 'Uploaded').unlink()
+    watcher.scan(root, db, upload, now=120, archive=True)
+    assert not path.exists()
+    upload.assert_called_once()
+
+
+def test_removed_retry_not_counted_and_unknown_filename_reported(tmp_path):
+    root, path, db, upload = archive_fixture(tmp_path)
+    db.execute("UPDATE files SET status='RETRY',error='old error'")
+    db.commit()
+    path.unlink()
+    (root / '=bad.pdf').write_bytes(b'bad filename')
+    watcher.scan(root, db, upload, now=60, archive=True)
+    assert db.execute('SELECT status FROM files').fetchone()[0] == 'NOT_IN_INBOX'
+    report = (root / '_Upload status.csv').read_text('utf-8-sig')
+    assert "'=bad.pdf" in report
+    assert 'Filename must be the exact account number' in report
+
+
+def test_existing_progress_schema_upgraded_without_losing_rows(tmp_path):
+    import sqlite3
+    db = sqlite3.connect(tmp_path / 'progress.sqlite')
+    db.execute('CREATE TABLE files(path TEXT PRIMARY KEY,signature TEXT,stable_since REAL,digest TEXT,status TEXT,attempts INTEGER DEFAULT 0,retry_at REAL DEFAULT 0,error TEXT)')
+    db.execute("INSERT INTO files(path,status) VALUES('P123.pdf','UPLOADED')")
+    db.commit()
+    db.close()
+    upgraded = watcher.database(tmp_path)
+    assert upgraded.execute('SELECT path,status,receipt,archived_path FROM files').fetchone() == ('P123.pdf','UPLOADED',None,None)
