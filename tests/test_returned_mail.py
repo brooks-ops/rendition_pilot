@@ -81,6 +81,21 @@ def test_unknown_or_ambiguous_account_not_forced(setup):
     with pytest.raises(mail.MailImportError):mail.import_scan(context,'P123456/scan.pdf',base64.b64encode(b'file').decode())
     query.assert_not_called();storage.assert_not_called()
 
+def test_absence_from_active_dba_export_does_not_block_exact_returned_mail_account(setup):
+    context,adapter,query,storage=setup
+    adapter.find_properties_by_real_account.return_value=[replace(adapter.find_properties_by_real_account.return_value[0],account_status='NOT_IN_ACTIVE_DBA_EXPORT')]
+    mail.import_scan(context,'P123456/envelope.pdf',base64.b64encode(pdf('RETURN TO SENDER - returned envelope for staff review')).decode())
+    assert storage.called
+    warnings=query.call_args.kwargs['payload']['p_document']['ocr_warnings']
+    assert any('Verify its current status in CRS' in warning for warning in warnings)
+
+def test_multiple_imported_accounts_still_rejected(setup):
+    context,adapter,query,storage=setup
+    prop=adapter.find_properties_by_real_account.return_value[0]
+    adapter.find_properties_by_real_account.return_value=[prop,replace(prop,property_id='other-record')]
+    with pytest.raises(mail.MailImportError):mail.import_scan(context,'P123456/scan.pdf',base64.b64encode(b'file').decode())
+    query.assert_not_called();storage.assert_not_called()
+
 def test_invalid_or_oversized_payload_does_not_reach_storage(setup):
     context,_,_,storage=setup
     with pytest.raises(mail.MailImportError):mail.import_scan(context,'P123456/scan.pdf','bad!')

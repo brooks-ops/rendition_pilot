@@ -10,7 +10,7 @@ from urllib.parse import quote
 import requests
 from app.comptroller.service import _request_json,get_supabase_config,postgrest_headers
 from app.comptroller.jurisdictions import get_jurisdiction_by_district_id
-from app.comptroller.property_adapter import get_property_adapter,eligible_for_current_dba_match
+from app.comptroller.property_adapter import get_property_adapter
 from app.comptroller.property_matching import classify_account_type
 
 BUCKET='returned-mail'
@@ -112,13 +112,17 @@ def import_scan(context,relative_path,file_base64):
     jurisdiction=get_jurisdiction_by_district_id(context.district_id)
     if not jurisdiction:raise MailImportError('This district has no configured account source.')
     records=get_property_adapter(jurisdiction).find_properties_by_real_account(jurisdiction,account)
-    records=[p for p in records if eligible_for_current_dba_match(p) and classify_account_type(p.real_account_number,prefixes=jurisdiction.account_type_prefixes)=='PERSONAL']
-    if len(records)!=1:raise MailImportError('The folder does not identify one eligible imported BPP account. Check its number and CAD import before retrying.')
+    # An active-name discovery export is not the returned-mail account universe.
+    # Keep the exact imported BPP-account requirement, including ambiguity guards.
+    records=[p for p in records if classify_account_type(p.real_account_number,prefixes=jurisdiction.account_type_prefixes)=='PERSONAL']
+    if len(records)!=1:raise MailImportError('The account number does not identify one imported BPP account. Check its number and CAD import before retrying.')
     prop=records[0];sha=hashlib.sha256(data).hexdigest()
     previous=request('GET','returned_mail_documents',params={'select':'id,intelligence_item_id','district_id':'eq.'+context.district_id,
         'account_number':'eq.'+account,'sha256':'eq.'+sha,'limit':1})
     if previous:return {'duplicate':True,'document_id':previous[0]['id'],'item_id':previous[0]['intelligence_item_id'],'account':account}
     extracted=extract_scan(data,filename)
+    if (prop.account_status or '').strip().upper()=='NOT_IN_ACTIVE_DBA_EXPORT':
+        extracted['ocr_warnings'].append('This imported BPP account is absent from the active DBA export. Verify its current status in CRS; absence does not establish closure.')
     path=context.district_id+'/'+account+'/'+sha+'.'+extracted.pop('extension')
     storage('POST',path,data=data,content_type=extracted['content_type'])
     mismatch=bool(extracted['printed_accounts'] and extracted['printed_accounts']!=[account])
