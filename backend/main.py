@@ -2301,12 +2301,31 @@ class ReturnedMailReviewRequest(ReturnedMailDocumentRequest):
     forwarding_address: str = Field(default='',max_length=1000)
     review_notes: str = Field(default='',max_length=4000)
 
+class ReturnedMailWorkerRequest(BaseModel):
+    district_id: UUID
+
+@app.post('/api/internal/returned-mail/research',status_code=202)
+def returned_mail_retry_worker(request: ReturnedMailWorkerRequest, http_request: Request, background_tasks: BackgroundTasks):
+    import hmac
+    from app import returned_mail
+    from app.returned_mail_research import process_retry_safely
+    _,key=returned_mail.get_supabase_config()
+    supplied=http_request.headers.get('authorization','')
+    if not hmac.compare_digest(supplied.encode(),('Bearer '+key).encode()):
+        raise HTTPException(403,'Service authentication required.')
+    background_tasks.add_task(process_retry_safely,str(request.district_id))
+    return {'accepted':True}
+
 @app.post('/api/admin/intelligence/returned-mail/import')
-def returned_mail_import(request: ReturnedMailUploadRequest):
+def returned_mail_import(request: ReturnedMailUploadRequest, background_tasks: BackgroundTasks):
     from app import returned_mail
     context=require_bpp_access(request.access_token)
     try:
-        return returned_mail.import_scan(context,request.relative_path,request.file_base64)
+        saved = returned_mail.import_scan(context,request.relative_path,request.file_base64)
+        if saved.get("document_id"):
+            from app.returned_mail_research import process_safely
+            background_tasks.add_task(process_safely,context.district_id,saved["document_id"])
+        return saved
     except returned_mail.MailImportError as exc:
         raise HTTPException(400,str(exc)) from exc
     except Exception as exc:
@@ -2323,6 +2342,19 @@ def returned_mail_list(request: ReturnedMailListRequest):
     if not item.matched_account_number:return {'documents':[],'reasons':returned_mail.REASONS}
     try:return {**returned_mail.documents(context,item.matched_account_number,request.offset),'reasons':returned_mail.REASONS}
     except ComptrollerServiceError as exc:raise HTTPException(502,'Returned-mail evidence could not be loaded.') from exc
+
+@app.post('/api/admin/intelligence/returned-mail/research')
+def returned_mail_research_status(request: ReturnedMailDocumentRequest):
+    from app import returned_mail
+    context=require_bpp_access(request.access_token)
+    try:
+        returned_mail.document(context,request.document_id)
+        rows=returned_mail.request('GET','returned_mail_research',params={
+            'select':'document_id,status,attempts,finished_at,result,error','document_id':'eq.'+str(request.document_id),
+            'district_id':'eq.'+context.district_id,'limit':1})
+        return {'research':rows[0] if rows else None}
+    except returned_mail.MailImportError as exc:raise HTTPException(404,str(exc)) from exc
+    except ComptrollerServiceError as exc:raise HTTPException(502,'Mailing research could not be loaded.') from exc
 
 @app.post('/api/admin/intelligence/returned-mail/detail')
 def returned_mail_detail(request: ReturnedMailDocumentRequest):

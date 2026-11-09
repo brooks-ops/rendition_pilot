@@ -138,6 +138,12 @@ def documents(context,account,offset=0):
     fields='id,intelligence_item_id,account_number,filename,relative_path,uploaded_at,ocr_status,ocr_warnings,suggested_reason,suggested_forwarding,account_mismatch,review_status,return_date,return_reason,forwarding_address,review_notes,reviewed_at,version'
     rows=request('GET','returned_mail_documents',params={'select':fields,'district_id':'eq.'+context.district_id,
         'account_number':'eq.'+account,'order':'uploaded_at.desc,id.desc','limit':20,'offset':offset})
+    if rows:
+        # Server-scoped UUIDs only; no client-selected county/account scope.
+        research=request('GET','returned_mail_research',params={'select':'document_id,status,attempts,queued_at,started_at,finished_at,result,error',
+            'district_id':'eq.'+context.district_id,'document_id':'in.('+','.join(str(r['id']) for r in rows)+')','limit':20})
+        by_id={r['document_id']:r for r in research}
+        for row in rows:row['research']=by_id.get(row['id'])
     return {'documents':rows,'next_offset':offset+len(rows) if len(rows)==20 else None}
 
 

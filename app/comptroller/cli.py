@@ -265,6 +265,14 @@ def cmd_run_intelligence(args: argparse.Namespace) -> int:
         except Exception as exc:
             print(f"[county-clerk-quarterly] FAILED: {type(exc).__name__}", file=sys.stderr)
             exit_code = max(exit_code, 1)
+    if not args.dry_run:
+        try:
+            from app.returned_mail_research import dispatch_retry
+            dispatch_retry(jurisdiction.district_id)
+            print("[returned-mail-research] Daily retry dispatched to application worker")
+        except Exception as exc:
+            print(f"[returned-mail-research] Interrupted: {type(exc).__name__}",file=sys.stderr)
+            exit_code = max(exit_code,1)
     ran_any = False
 
     if jurisdiction.has_capability("new_business_detection"):

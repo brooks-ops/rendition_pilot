@@ -14,6 +14,25 @@
   function access(){
     for(const doc of docs){const fieldset=document.getElementById('return-fields-'+doc.id);if(fieldset)fieldset.disabled=saving||!canEdit(doc);const hint=document.querySelector(`[data-return-access="${doc.id}"]`);if(hint)hint.textContent=canEdit(doc)?'':'Start review on this scan’s returned-mail queue item to edit it. Completed scans retain their history.';}
   }
+  function addressText(a){return a?[a.line1,a.line2,a.unit,[a.city,a.state,a.zip].filter(Boolean).join(' ')].filter(Boolean).join('\n'):'';}
+  function researchHtml(research){
+    if(!research)return '<p class="subtle">Automatic research has not been queued for this historical scan.</p>';
+    const result=research.result||{}, labels={QUEUED:'Research queued',RUNNING:'Research in progress',COMPLETE:'Research checked',PARTIAL:'Some research needs attention',FAILED:'Research failed',SKIPPED:'Verify account before research'};
+    const crs=result.current_crs;
+    const web=result.web||{};
+    const sources=(web.sources||[]).filter(s=>{try{const u=new URL(s.url);return ['http:','https:'].includes(u.protocol)&&!u.username&&!u.password;}catch{return false;}});
+    return `<section class="returned-research"><h5>Mailing research · ${esc(labels[research.status]||research.status)}</h5>
+      <p class="subtle">${research.finished_at?'Checked '+esc(new Date(research.finished_at).toLocaleString()):'Runs automatically after upload.'} ${research.attempts>=5&&['PARTIAL','FAILED','RUNNING'].includes(research.status)?'Automatic retries exhausted; administrator attention needed.':''}</p>
+      <p>Research leads require appraiser verification. Postal validation: not performed. No CRS changes were made.</p>
+      ${research.error?`<p class="status warn">${esc(research.error)}</p>`:''}
+      ${crs?`<div class="returned-research-current"><strong>Current imported CRS mailing</strong><div>${esc(crs.recipient||result.account?.owner||'Recipient unavailable')}</div><pre>${esc(addressText(crs)||'No imported CRS mailing address')}</pre><p class="subtle">Source as of ${esc(crs.source_as_of_date||'unknown')} · Imported ${esc(crs.imported_at||'unknown')} · Exact account number; verify envelope recipient.</p></div>`:''}
+      ${(result.leads||[]).map(lead=>`<article class="returned-research-lead"><strong>${esc(lead.source)}</strong><div>${esc(lead.recipient||'')}${lead.account?' · Account '+esc(lead.account):''}${lead.taxpayer_id?' · Taxpayer '+esc(lead.taxpayer_id):''}</div><pre>${esc(lead.raw_address||addressText(lead.address)||'Address unavailable')}</pre>
+      <p>${esc(lead.relationship||(lead.reasons||[]).join('; '))}</p><p class="subtle">Account identity: ${esc(lead.identity_confidence)} · Source as of ${esc(lead.source_date||'unknown')} · Retrieved/imported ${esc(lead.retrieved_at||'unknown')}${lead.address&&!lead.address.complete?' · INCOMPLETE: '+esc((lead.address.incomplete_reasons||[]).join('; ')):''}${lead.same_as_current?' · Same as current CRS address':''}</p>${lead.account_match?`<details><summary>Account-match evidence</summary>${(lead.account_match.locations||[]).slice(0,50).map(location=>`<p>${esc(location.situs||'Situs unavailable')} · ${esc(location.confidence)} · Account ${esc(location.account||'unmatched')}<br>${esc(location.reason||'')}</p>`).join('')}</details>`:''}</article>`).join('')}
+      ${web.status?`<div><strong>Internet research · ${esc(({NOT_CONFIGURED:'Not configured',NOT_NEEDED:'Internal lead available',INSUFFICIENT_IDENTITY:'Business name needed',FAILED:'Retry needed',NO_RELIABLE_SOURCE:'No reliable source found',LEADS_FOUND:'Possible business contact leads'})[web.status]||web.status)}</strong><pre>${esc(web.summary||'')}</pre><p class="subtle">Web findings are unverified leads. A business location is not necessarily a mailing address. Checked ${esc(web.checked_at||'not searched')}.</p>${sources.length?`<ul>${sources.map(source=>`<li><a href="${esc(source.url)}" target="_blank" rel="noopener noreferrer">${esc(source.title)}</a></li>`).join('')}</ul>`:''}</div>`:''}
+      ${(result.warnings||[]).map(w=>`<p class="subtle">${esc(w)}</p>`).join('')}
+      ${research.status==='COMPLETE'&&!(result.leads||[]).length&&web.status!=='LEADS_FOUND'?'<p>No reliable alternative mailing lead was found in the sources checked.</p>':''}
+    </section>`;
+  }
   function card(doc){
     const status=({PENDING:'Needs review',REVIEWED:'Reviewed',DISMISSED:'Dismissed'})[doc.review_status]||doc.review_status;
     const reading=({READ:'Text read — verify',PARTIAL:'Partially read',UNAVAILABLE:'Manual reading needed',UNREADABLE:'No readable text'})[doc.ocr_status]||doc.ocr_status;
@@ -21,6 +40,7 @@
       <p class="subtle">Imported ${esc(new Date(doc.uploaded_at).toLocaleString())} · Text reading: ${esc(reading)}${doc.reviewed_at?' · Reviewed '+esc(new Date(doc.reviewed_at).toLocaleString()):''}</p>
       ${doc.account_mismatch?'<p class="status warn">A printed account number differs from the folder. Verify the envelope before acting.</p>':''}
       <p>${esc((doc.ocr_warnings||[]).join(' '))}</p><button type="button" class="secondary" data-return-download="${esc(doc.id)}">Download original scan</button> <button type="button" class="secondary" data-return-text="${esc(doc.id)}">Show scanned text</button><pre class="hidden" data-return-ocr="${esc(doc.id)}" style="white-space:pre-wrap;max-height:240px;overflow:auto"></pre>
+      <div data-return-research="${esc(doc.id)}">${researchHtml(doc.research)}</div><button type="button" class="secondary" data-return-research-refresh="${esc(doc.id)}">Refresh research</button>
       <p class="subtle">Reading suggestions require verification. A forwarding address is a research lead, not a confirmed correction.</p>
       <fieldset id="return-fields-${esc(doc.id)}" ${canEdit(doc)?'':'disabled'}>
       <div class="layout-3"><label>Return reason<select data-return-field="return_reason">${Object.entries(reasons).map(([k,v])=>`<option value="${esc(k)}" ${k===(doc.return_reason||doc.suggested_reason)?'selected':''}>${esc(v)}</option>`).join('')}</select></label>
@@ -88,6 +108,18 @@
     el('returned-evidence-list').addEventListener('input',event=>{const card=event.target.closest('[id^="return-doc-"]');if(card)dirty.add(card.id.slice('return-doc-'.length));});
     el('returned-evidence-list').addEventListener('click',async event=>{
       const button=event.target.closest('button');if(!button)return;
+      if(button.dataset.returnResearchRefresh){
+        const id=button.dataset.returnResearchRefresh,identity=cfg.identity(),token=seq;
+        button.disabled=true;
+        try{
+          const data=await cfg.api('returned-mail/research',{document_id:id});
+          if(identity!==cfg.identity()||token!==seq)return;
+          const doc=docs.find(d=>d.id===id);if(doc)doc.research=data.research;
+          const output=document.querySelector(`[data-return-research="${id}"]`);if(output)output.innerHTML=researchHtml(data.research);
+        }catch(error){if(identity===cfg.identity())el('returned-evidence-status').textContent=error.message;}
+        finally{button.disabled=false;}
+        return;
+      }
       const id=button.dataset.returnSave||button.dataset.returnDownload||button.dataset.returnText;
       if(button.dataset.returnSave)return save(id);
       try{
@@ -96,5 +128,5 @@
       }catch(error){el('returned-evidence-status').textContent=error.message;}
     });
   }
-  root.ReturnedMail={configure,open,access,isDirty:()=>dirty.size>0,isSaving:()=>saving,reset:()=>{seq++;dirty.clear();docs=[];owner=null;},accountFromPath,card};
+  root.ReturnedMail={configure,open,access,isDirty:()=>dirty.size>0,isSaving:()=>saving,reset:()=>{seq++;dirty.clear();docs=[];owner=null;},accountFromPath,card,researchHtml};
 })(globalThis);
