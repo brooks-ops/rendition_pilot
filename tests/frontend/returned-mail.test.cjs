@@ -20,12 +20,12 @@ test('new OCR forwarding is labeled as a research lead and never postal validate
 });
 test('research distinguishes weak recipient leads, incomplete addresses and postal validation',()=>{
  const html=ctx.ReturnedMail.researchHtml({status:'PARTIAL',attempts:1,result:{current_crs:{recipient:'Business',line1:'10 Main',city:'Lubbock'},leads:[{source:'Imported CRS account',recipient:'<script>',identity_confidence:'LOW',relationship:'Name only',address:{line1:'20 Other',complete:false,incomplete_reasons:['Missing ZIP']}}],web:{status:'NOT_CONFIGURED',summary:'Not configured',sources:[]}}});
- assert.match(html,/Postal validation: not performed/);assert.match(html,/Account identity: LOW/);assert.match(html,/INCOMPLETE: Missing ZIP/);
+ assert.match(html,/Postal validation: not performed/);assert.match(html,/Account identity: Low — shared recipient/);assert.match(html,/INCOMPLETE: Missing ZIP/);
  assert.ok(!html.includes('<script>'));assert.match(html,/Internet research · Not configured/);
 });
 test('web summaries are escaped and unsafe links are not rendered',()=>{
  ctx.URL=URL;
  const html=ctx.ReturnedMail.researchHtml({status:'COMPLETE',result:{web:{status:'LEADS_FOUND',summary:'<img onerror=alert(1)>',sources:[{url:'javascript:alert(1)',title:'bad'},{url:'https://example.com/contact',title:'Official contact'}]}}});
  assert.ok(!html.includes('href="javascript:'));assert.ok(!html.includes('<img'));
- assert.match(html,/href="https:\/\/example.com\/contact"/);assert.match(html,/business location is not necessarily a mailing address/);
+ assert.match(html,/href="https:\/\/example.com\/contact"/);assert.match(html,/registered\/legal offices are not proof of a mailing address/);
 });

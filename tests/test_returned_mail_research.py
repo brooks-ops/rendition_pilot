@@ -92,13 +92,14 @@ def test_incomplete_comptroller_address_stays_incomplete(prop,monkeypatch):
 def response(sources=True,searched=True):
     raw={'status':'completed','output':([{'type':'web_search_call','status':'completed'}] if searched else [])+[
         {'type':'message','content':[{'annotations':[{'type':'url_citation','url':'https://example.com/contact','title':'Contact'}] if sources else []}]}]}
-    return SimpleNamespace(model_dump=lambda:raw,output_text='A business LOCATION, mailing purpose unconfirmed.')
+    return SimpleNamespace(model_dump=lambda:raw,output_text='A business LOCATION, mailing purpose unconfirmed. [Contact](https://example.com/contact)')
 
 
 def test_web_requires_real_search_and_citations_and_sends_only_business_context(prop):
     client=Mock();client.responses.create.return_value=response()
     result=research.web_research(prop,client)
     assert result['status']=='LEADS_FOUND' and result['sources'][0]['url']=='https://example.com/contact'
+    assert '[Source 1]' in result['summary'] and '[Contact](' not in result['summary']
     args=client.responses.create.call_args.kwargs
     assert args['tool_choice']=='required' and not args['store']
     assert '10 Main St' not in args['input'] and 'Sample Owner' not in args['input']
@@ -170,3 +171,24 @@ def test_historical_recipient_does_not_label_current_account_as_related(prop,mon
     current=_row_to_property({**historic,'id':'new','tax_year':2027,'owner_name':'Different recipient'})
     monkeypatch.setattr(research,'get_property_adapter',lambda _:SimpleNamespace(find_properties_by_real_account=lambda *_:[current]))
     assert research.related_accounts(j,prop)[0]==[]
+
+
+def test_provider_failures_keep_safe_diagnostics_without_response_secrets(setup):
+    j,_,web=setup
+    class ProviderFailure(Exception):
+        status_code=401
+        code='invalid_api_key'
+    web.side_effect=ProviderFailure('secret credentials and business prompt')
+    result,status=research.build_research(doc(),j)
+    assert status=='PARTIAL'
+    assert result['web']['http_status']==401 and result['web']['error_code']=='invalid_api_key'
+    assert 'secret credentials' not in str(result)
+
+
+def test_conflicting_comptroller_addresses_still_get_web_research(setup,monkeypatch):
+    j,_,web=setup
+    leads=[{'kind':'COMPTROLLER','address':{'complete':True,'normalized':address},'comparison_status':'DISCREPANCY'} for address in ['100 MAIN ST','200 OTHER ST']]
+    monkeypatch.setattr(research,'comptroller_leads',lambda *_:(leads,[]))
+    result,status=research.build_research(doc(),j)
+    web.assert_called_once()
+    assert any('None was selected' in x for x in result['warnings'])

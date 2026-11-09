@@ -36,6 +36,13 @@ begin
  if returned_mail_claim_research(d,doc) is not null then raise exception 'Completed account researched';end if;
  update bpp_intelligence_items set status='NEW' where id=item;
  if (select to_jsonb(i)-'updated_at' from bpp_intelligence_items i where id=item) is distinct from before_review then raise exception 'Research modified queue state';end if;
+ update returned_mail_research set status='PARTIAL',retry_at=now(),attempts=4 where document_id=doc;
+ job:=returned_mail_claim_research(d,doc);
+ update returned_mail_research set lease_until=now()-interval '1 second' where document_id=doc;
+ replacement:=returned_mail_claim_research(d,doc);
+ if replacement is not null or (select status from returned_mail_research where document_id=doc)!='FAILED'
+ then raise exception 'Interrupted final attempt was left running';end if;
+ if (select status from returned_mail_research_runs where id=(job->>'lease_token')::uuid)!='INTERRUPTED' then raise exception 'Final interruption lost';end if;
  if has_table_privilege('authenticated','returned_mail_research','select') or has_table_privilege('anon','returned_mail_research_runs','select')
  or has_function_privilege('authenticated','returned_mail_claim_research(uuid,uuid)','execute') then raise exception 'Public research access';end if;
  raise notice 'Research checks passed: enqueue/dedup, scope, leases, crash recovery, run history, retry limits and preserved queue';
