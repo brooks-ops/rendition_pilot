@@ -251,3 +251,40 @@ def test_existing_progress_schema_upgraded_without_losing_rows(tmp_path):
     db.close()
     upgraded = watcher.database(tmp_path)
     assert upgraded.execute('SELECT path,status,receipt,archived_path FROM files').fetchone() == ('P123.pdf','UPLOADED',None,None)
+
+
+def test_daily_batch_uploads_new_scan_without_waiting_until_next_day(tmp_path, monkeypatch):
+    root = tmp_path / 'Returned Mail'
+    root.mkdir()
+    path = root / 'P123.pdf'
+    path.write_bytes(b'new daily scan')
+    db = watcher.database(tmp_path)
+    upload = Mock(return_value=receipt())
+    clock = [1000]
+    monkeypatch.setattr(watcher.time, 'time', lambda: clock[0])
+    def pause(seconds):
+        assert seconds == 60
+        clock[0] += seconds
+    watcher.daily_pass(root, db, upload, pause=pause)
+    upload.assert_called_once()
+    assert not path.exists()
+    assert (root / 'Uploaded/P123.pdf').read_bytes() == b'new daily scan'
+    watcher.daily_pass(root, db, upload, pause=Mock(side_effect=AssertionError('empty inbox must not wait')))
+    upload.assert_called_once()
+
+
+def test_daily_batch_defers_file_still_changing_at_final_check(tmp_path, monkeypatch):
+    root = tmp_path / 'Returned Mail'
+    root.mkdir()
+    path = root / 'P123.pdf'
+    path.write_bytes(b'first')
+    db = watcher.database(tmp_path)
+    upload = Mock(return_value=receipt())
+    clock = [1000]
+    monkeypatch.setattr(watcher.time, 'time', lambda: clock[0])
+    def pause(seconds):
+        clock[0] += seconds
+        path.write_bytes(b'scanner still writing')
+    watcher.daily_pass(root, db, upload, pause=pause)
+    upload.assert_not_called()
+    assert path.read_bytes() == b'scanner still writing'

@@ -7,7 +7,7 @@ The Windows scheduled-folder helper in `tools/returned_mail_watcher/` targets `T
 ## Staff workflow
 
 1. Save the front/back envelope PDF directly into `T:\Public\Appraisal\BP\2027\Returned Mail`, named with its exact account number, for example `P105330.pdf`. No account folders are needed.
-2. The Windows task waits for a stable scan, uploads it, and the updated helper files confirmed uploads in `Uploaded`. Failed/pending PDFs stay in the main folder with `_Upload status.csv`.
+2. The Windows task runs daily at 4:00 PM by the office PC clock, checks scan stability (including a 60-second recheck for newly seen files), uploads stable files, and the updated helper files confirmed uploads in `Uploaded`. Failed/pending PDFs stay in the main folder with `_Upload status.csv`.
 3. Automatic research checks CRS, related accounts, reliable Comptroller links and public business contact sources as needed. Open the existing mailing item and its **Mailing research** section. Refresh research status without losing draft review fields.
 4. Verify the original and sources, save scan review and use the existing **Mark as complete** or **Save & Next**. Research never approves a correction or changes CRS.
 

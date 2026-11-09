@@ -313,6 +313,16 @@ def scan(root, db, upload, now=None, archive=False):
     return summary
 
 
+def daily_pass(root, db, upload, pause=time.sleep):
+    """One daily batch, including a second stability check for newly seen scans."""
+    summary = scan(root, db, upload, archive=True)
+    waiting = db.execute("SELECT path FROM files WHERE status='WAITING'").fetchall()
+    if any((root / relative).is_file() for relative, in waiting):
+        pause(60)
+        summary = scan(root, db, upload, archive=True)
+    return summary
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['setup', 'run', 'status'])
@@ -344,7 +354,7 @@ def main():
         else:
             try:
                 client.refresh()
-                summary = scan(Path(ROOT), db, client.upload, archive=True)
+                summary = daily_pass(Path(ROOT), db, client.upload)
                 retries = db.execute("SELECT count(*) FROM files WHERE status IN ('RETRY','ARCHIVE_RETRY')").fetchone()[0]
                 result = {'at': time.time(), 'status': 'RETRY_PENDING' if retries else ('REPORT_NEEDS_ATTENTION' if summary.get('report_error') else 'PASS_COMPLETE'), 'retry_files': retries, **summary}
             except Exception as exc:

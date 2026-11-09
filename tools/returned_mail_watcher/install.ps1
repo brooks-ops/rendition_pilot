@@ -10,9 +10,9 @@ Copy-Item (Join-Path $PSScriptRoot 'watcher.py') $script -Force
 & $python $script setup
 if ($LASTEXITCODE -ne 0) { throw 'Sign-in failed; task was not installed.' }
 $action = New-ScheduledTaskAction -Execute $python -Argument "`"$script`" run" -WorkingDirectory $destination
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
+$trigger = New-ScheduledTaskTrigger -Daily -At '4:00PM'
 $principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
 Register-ScheduledTask -TaskName 'Rendition Pilot Returned Mail' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-Write-Host 'Installed. Watches while this Windows user is signed in; T: must be connected.'
+Write-Host 'Installed. Runs daily at 4:00 PM by this computer clock. User must be signed in; T: must be connected. Missed runs catch up when available.'
 Write-Host "Check status: python `"$script`" status"
